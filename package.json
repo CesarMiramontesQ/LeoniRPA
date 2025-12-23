@@ -1,0 +1,30 @@
+{
+  "name": "leonirpa",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CesarMiramontesQ/LeoniRPA.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/CesarMiramontesQ/LeoniRPA/issues"
+  },
+  "homepage": "https://github.com/CesarMiramontesQ/LeoniRPA#readme",
+  "description": "",
+  "scripts": {
+  "dev": "npx @tailwindcss/cli -i ./tailwindcss/styles/app.css -o ./static/css/app.css --watch"
+  },
+
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.18",
+    "autoprefixer": "^10.4.23",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.18"
+  }
+}
