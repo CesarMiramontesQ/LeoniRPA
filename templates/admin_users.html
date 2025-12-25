@@ -1,0 +1,210 @@
+{% extends "base.html" %} {% block content %}
+<div class="space-y-6">
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold text-gray-900">Gestión de Usuarios</h1>
+      <p class="mt-1 text-sm text-gray-600">
+        Crear y gestionar usuarios del sistema
+      </p>
+    </div>
+    <div class="flex items-center gap-4">
+      <a
+        href="/admin"
+        class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+      >
+        Volver al Panel
+      </a>
+    </div>
+  </div>
+
+  <!-- Mensajes de éxito/error -->
+  {% if request.query_params.get('success') %}
+  <div class="rounded-md bg-green-50 p-4">
+    <div class="flex">
+      <div class="flex-shrink-0">
+        <svg class="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+        </svg>
+      </div>
+      <div class="ml-3">
+        <p class="text-sm font-medium text-green-800">{{ request.query_params.get('success') }}</p>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if request.query_params.get('error') %}
+  <div class="rounded-md bg-red-50 p-4">
+    <div class="flex">
+      <div class="flex-shrink-0">
+        <svg class="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+        </svg>
+      </div>
+      <div class="ml-3">
+        <p class="text-sm font-medium text-red-800">{{ request.query_params.get('error') }}</p>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Formulario para crear usuario -->
+  <div class="rounded-lg bg-white p-6 shadow-sm">
+    <h2 class="mb-4 text-lg font-medium text-gray-900">Crear Nuevo Usuario</h2>
+    <form action="/admin/users/create" method="POST" class="space-y-4">
+      <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div>
+          <label for="email" class="block text-sm font-medium text-gray-700">
+            Email *
+          </label>
+          <input
+            type="email"
+            id="email"
+            name="email"
+            required
+            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#003D89] focus:ring-[#003D89] sm:text-sm"
+            placeholder="usuario@ejemplo.com"
+          />
+        </div>
+
+        <div>
+          <label for="full_name" class="block text-sm font-medium text-gray-700">
+            Nombre completo
+          </label>
+          <input
+            type="text"
+            id="full_name"
+            name="full_name"
+            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#003D89] focus:ring-[#003D89] sm:text-sm"
+            placeholder="Juan Pérez"
+          />
+        </div>
+
+        <div>
+          <label for="password" class="block text-sm font-medium text-gray-700">
+            Contraseña *
+          </label>
+          <input
+            type="password"
+            id="password"
+            name="password"
+            required
+            minlength="8"
+            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#003D89] focus:ring-[#003D89] sm:text-sm"
+            placeholder="Mínimo 8 caracteres"
+          />
+          <p class="mt-1 text-xs text-gray-500">Mínimo 8 caracteres</p>
+        </div>
+
+        <div>
+          <label for="role" class="block text-sm font-medium text-gray-700">
+            Rol *
+          </label>
+          <select
+            id="role"
+            name="role"
+            required
+            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#003D89] focus:ring-[#003D89] sm:text-sm"
+          >
+            <option value="user">Usuario</option>
+            <option value="admin">Administrador</option>
+            <option value="auditor">Auditor</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <button
+          type="submit"
+          class="rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white hover:bg-[#003070]"
+        >
+          Crear Usuario
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Lista de usuarios -->
+  <div class="rounded-lg bg-white p-6 shadow-sm">
+    <h2 class="mb-4 text-lg font-medium text-gray-900">Usuarios del Sistema</h2>
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              ID
+            </th>
+            <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Email
+            </th>
+            <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Nombre
+            </th>
+            <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Rol
+            </th>
+            <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Estado
+            </th>
+            <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Creado
+            </th>
+            <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Acciones
+            </th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200 bg-white">
+          {% for user in users %}
+          <tr>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">
+              {{ user.id }}
+            </td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">
+              {{ user.email }}
+            </td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
+              {{ user.full_name or '-' }}
+            </td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm">
+              <form action="/admin/users/{{ user.id }}/update-role" method="POST" class="inline">
+                <select
+                  name="role"
+                  onchange="this.form.submit()"
+                  class="rounded-md border-gray-300 text-sm focus:border-[#003D89] focus:ring-[#003D89]"
+                >
+                  <option value="user" {% if user.role == 'user' %}selected{% endif %}>Usuario</option>
+                  <option value="admin" {% if user.role == 'admin' %}selected{% endif %}>Administrador</option>
+                  <option value="auditor" {% if user.role == 'auditor' %}selected{% endif %}>Auditor</option>
+                </select>
+              </form>
+            </td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm">
+              {% if user.is_active %}
+              <span class="inline-flex rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-800">
+                Activo
+              </span>
+              {% else %}
+              <span class="inline-flex rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-800">
+                Inactivo
+              </span>
+              {% endif %}
+            </td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
+              {{ user.created_at.strftime('%d/%m/%Y') if user.created_at else '-' }}
+            </td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
+              {% if user.id == current_user.id %}
+              <span class="text-gray-400">(Tú)</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+

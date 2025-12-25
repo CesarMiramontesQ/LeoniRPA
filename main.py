@@ -1,12 +1,15 @@
-from fastapi import FastAPI, Request, Depends
+from fastapi import FastAPI, Request, Depends, Form
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import RedirectResponse
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
+from typing import Optional
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.router import router as auth_router, get_current_user, AuthenticationError
 from app.db.init_db import init_db
+from app.db.base import get_db
 from app.db.models import User
 
 # Inicializar base de datos al iniciar
@@ -40,8 +43,6 @@ async def root():
 @app.get("/dashboard")
 async def dashboard(request: Request, current_user: User = Depends(get_current_user)):
     """Dashboard principal - requiere autenticación."""
-    print(f"[DASHBOARD] Usuario accediendo: {current_user.email} (ID: {current_user.id})")
-    print(f"[DASHBOARD] Cookie recibida: {request.cookies.get('access_token', 'NO HAY COOKIE')[:50]}...")
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -132,6 +133,115 @@ async def admin(request: Request, current_user: User = Depends(get_current_user)
             "active_page": "admin"
         }
     )
+
+
+@app.get("/admin/users")
+async def admin_users(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Gestión de usuarios - solo admin."""
+    if current_user.role != "admin":
+        return RedirectResponse(url="/dashboard", status_code=302)
+    
+    from sqlalchemy import select
+    from app.db.models import User
+    
+    # Obtener todos los usuarios
+    result = await db.execute(select(User).order_by(User.created_at.desc()))
+    users = result.scalars().all()
+    
+    return templates.TemplateResponse(
+        "admin_users.html",
+        {
+            "request": request,
+            "current_user": current_user,
+            "users": users,
+            "active_page": "admin"
+        }
+    )
+
+
+@app.post("/admin/users/create")
+async def admin_create_user(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+    full_name: Optional[str] = Form(None),
+    role: str = Form("user"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Crear nuevo usuario - solo admin."""
+    if current_user.role != "admin":
+        return RedirectResponse(url="/dashboard", status_code=302)
+    
+    from app.db import crud
+    
+    # Validaciones
+    if len(password) < 8:
+        return RedirectResponse(
+            url=f"/admin/users?error=El password debe tener al menos 8 caracteres",
+            status_code=302
+        )
+    
+    if len(password.encode('utf-8')) > 72:
+        return RedirectResponse(
+            url=f"/admin/users?error=El password es demasiado largo (máximo 72 bytes)",
+            status_code=302
+        )
+    
+    # Validar rol
+    if role not in ["user", "admin", "auditor"]:
+        role = "user"
+    
+    # Verificar si el email ya existe
+    existing_user = await crud.get_user_by_email(db, email)
+    if existing_user:
+        return RedirectResponse(
+            url=f"/admin/users?error=El email ya está registrado",
+            status_code=302
+        )
+    
+    try:
+        new_user = await crud.create_user(
+            db=db,
+            email=email,
+            password=password,
+            full_name=full_name,
+            role=role
+        )
+        return RedirectResponse(url="/admin/users?success=Usuario creado exitosamente", status_code=302)
+    except Exception as e:
+        return RedirectResponse(
+            url=f"/admin/users?error=Error al crear usuario: {str(e)}",
+            status_code=302
+        )
+
+
+@app.post("/admin/users/{user_id}/update-role")
+async def admin_update_user_role(
+    user_id: int,
+    request: Request,
+    role: str = Form(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Actualizar rol de usuario - solo admin."""
+    if current_user.role != "admin":
+        return RedirectResponse(url="/dashboard", status_code=302)
+    
+    from app.db import crud
+    
+    # Validar rol
+    if role not in ["user", "admin", "auditor"]:
+        return RedirectResponse(url="/admin/users?error=Rol inválido", status_code=302)
+    
+    try:
+        await crud.update_user_role(db, user_id, role)
+        return RedirectResponse(url="/admin/users?success=Rol actualizado exitosamente", status_code=302)
+    except Exception as e:
+        return RedirectResponse(
+            url=f"/admin/users?error=Error al actualizar rol: {str(e)}",
+            status_code=302
+        )
 
 
 @app.get("/hello/{name}")

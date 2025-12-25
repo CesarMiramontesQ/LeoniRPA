@@ -66,11 +66,6 @@ def decode_access_token(token: str) -> Optional[dict]:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         return payload
-    except JWTError as e:
-        # Debug: imprimir el error específico
-        print(f"[DECODE_TOKEN] Error al decodificar token: {type(e).__name__}: {str(e)}")
-        print(f"[DECODE_TOKEN] Token recibido (primeros 50 chars): {token[:50]}...")
-        print(f"[DECODE_TOKEN] SECRET_KEY (primeros 20 chars): {settings.SECRET_KEY[:20]}...")
-        print(f"[DECODE_TOKEN] ALGORITHM: {settings.ALGORITHM}")
+    except JWTError:
         return None
 
