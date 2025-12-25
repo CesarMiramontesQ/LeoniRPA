@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full bg-gray-100">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link href="{{url_for('static',path='/css/app.css')}}" rel="stylesheet" />
+    <title>Iniciar Sesión - Leoni RPA</title>
+  </head>
+  <body class="h-full">
+    <div class="flex min-h-full flex-col justify-center py-12 sm:px-6 lg:px-8">
+      <div class="sm:mx-auto sm:w-full sm:max-w-md">
+        <img
+          class="mx-auto h-12 w-auto"
+          src="{{url_for('static',path='/images/logo.png')}}"
+          alt="Leoni Cable"
+        />
+        <h2 class="mt-6 text-center text-3xl font-bold tracking-tight text-gray-900">
+          Inicia sesión en tu cuenta
+        </h2>
+      </div>
+
+      <div class="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
+        <div class="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+          {% if error %}
+          <div class="mb-4 rounded-md bg-red-50 p-4">
+            <div class="flex">
+              <div class="flex-shrink-0">
+                <svg
+                  class="h-5 w-5 text-red-400"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                >
+                  <path
+                    fill-rule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                    clip-rule="evenodd"
+                  />
+                </svg>
+              </div>
+              <div class="ml-3">
+                <p class="text-sm font-medium text-red-800">{{ error }}</p>
+              </div>
+            </div>
+          </div>
+          {% endif %}
+
+          <form class="space-y-6" action="/auth/login" method="POST" enctype="application/x-www-form-urlencoded" id="login-form">
+            <div>
+              <label
+                for="email"
+                class="block text-sm font-medium text-gray-700"
+              >
+                Email
+              </label>
+              <div class="mt-1">
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autocomplete="email"
+                  required
+                  class="block w-full appearance-none rounded-md border border-gray-300 px-3 py-2 placeholder-gray-400 shadow-sm focus:border-[#003D89] focus:outline-none focus:ring-[#003D89] sm:text-sm"
+                  placeholder="tu@email.com"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label
+                for="password"
+                class="block text-sm font-medium text-gray-700"
+              >
+                Contraseña
+              </label>
+              <div class="mt-1">
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autocomplete="current-password"
+                  required
+                  class="block w-full appearance-none rounded-md border border-gray-300 px-3 py-2 placeholder-gray-400 shadow-sm focus:border-[#003D89] focus:outline-none focus:ring-[#003D89] sm:text-sm"
+                  placeholder="••••••••"
+                />
+              </div>
+            </div>
+
+            <div>
+              <button
+                type="submit"
+                id="login-button"
+                class="flex w-full justify-center rounded-md border border-transparent bg-[#003D89] py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-[#003070] focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
+              >
+                Iniciar sesión
+              </button>
+            </div>
+          </form>
+
+          <div class="mt-6">
+            <div class="relative">
+              <div class="absolute inset-0 flex items-center">
+                <div class="w-full border-t border-gray-300"></div>
+              </div>
+              <div class="relative flex justify-center text-sm">
+                <span class="bg-white px-2 text-gray-500">¿No tienes cuenta?</span>
+              </div>
+            </div>
+
+            <div class="mt-6">
+              <a
+                href="/auth/register"
+                class="flex w-full justify-center rounded-md border border-gray-300 bg-white py-2 px-4 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
+              >
+                Crear cuenta nueva
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
+

@@ -1,22 +1,60 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import RedirectResponse
 from datetime import datetime, timedelta
+from contextlib import asynccontextmanager
+from app.auth.router import router as auth_router, get_current_user, AuthenticationError
+from app.db.init_db import init_db
+from app.db.models import User
 
-app = FastAPI()
+# Inicializar base de datos al iniciar
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Inicializa la base de datos al iniciar la aplicación."""
+    await init_db()
+    yield
+
+app = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory="templates")
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 app.add_middleware(GZipMiddleware)
 
+# Exception handler para redirecciones de autenticación
+@app.exception_handler(AuthenticationError)
+async def authentication_exception_handler(request: Request, exc: AuthenticationError):
+    """Redirige a login cuando hay error de autenticación."""
+    return RedirectResponse(url="/auth/login", status_code=302)
+
+# Incluir router de autenticación
+app.include_router(auth_router)
+
+# Redirigir raíz a dashboard
 @app.get("/")
-async def index(request: Request):
-    return templates.TemplateResponse("base.html", {"request": request, "active_page": "dashboard"})
+async def root():
+    return RedirectResponse(url="/dashboard", status_code=302)
+
+
+@app.get("/dashboard")
+async def dashboard(request: Request, current_user: User = Depends(get_current_user)):
+    """Dashboard principal - requiere autenticación."""
+    print(f"[DASHBOARD] Usuario accediendo: {current_user.email} (ID: {current_user.id})")
+    print(f"[DASHBOARD] Cookie recibida: {request.cookies.get('access_token', 'NO HAY COOKIE')[:50]}...")
+    return templates.TemplateResponse(
+        "dashboard.html",
+        {
+            "request": request,
+            "current_user": current_user,
+            "active_page": "dashboard"
+        }
+    )
 
 
 @app.get("/ventas")
-async def ventas(request: Request):
+async def ventas(request: Request, current_user: User = Depends(get_current_user)):
+    """Página de ventas - requiere autenticación."""
     # Datos de ejemplo de ventas
     ventas_data = [
         {
@@ -74,11 +112,29 @@ async def ventas(request: Request):
             "request": request,
             "ventas": ventas_data,
             "total_general": total_general,
-            "active_page": "ventas"
+            "active_page": "ventas",
+            "current_user": current_user
+        }
+    )
+
+
+@app.get("/admin")
+async def admin(request: Request, current_user: User = Depends(get_current_user)):
+    """Panel de administración - requiere rol admin."""
+    if current_user.role != "admin":
+        return RedirectResponse(url="/dashboard", status_code=302)
+    
+    return templates.TemplateResponse(
+        "admin.html",
+        {
+            "request": request,
+            "current_user": current_user,
+            "active_page": "admin"
         }
     )
 
 
 @app.get("/hello/{name}")
 async def say_hello(name: str):
+    """Endpoint de ejemplo - no requiere autenticación."""
     return {"message": f"Hello {name}"}
