@@ -1,0 +1,444 @@
+{% extends "base.html" %} {% block content %}
+<div class="space-y-6">
+  <!-- Header -->
+  <div>
+    <h1 class="text-2xl font-semibold text-gray-900">
+      Descargar Ventas del Mes
+    </h1>
+  </div>
+
+  <!-- Sección de Operación Mensual / Ventas -->
+  <div class="rounded-lg bg-white p-6 shadow-sm">
+    <div class="mb-4">
+      <h2 class="text-lg font-medium text-gray-900">
+        Operación mensual / Ventas
+      </h2>
+      <p class="mt-1 text-sm text-gray-600">
+        Descarga las ventas del mes desde SAP GUI y guarda el archivo en una
+        carpeta indicada.
+      </p>
+    </div>
+
+    <div class="flex items-center justify-between">
+      <div class="flex flex-wrap gap-4">
+        <div class="flex items-center gap-2">
+          <svg
+            class="h-5 w-5 text-green-500"
+            fill="currentColor"
+            viewBox="0 0 20 20"
+          >
+            <path
+              fill-rule="evenodd"
+              d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+              clip-rule="evenodd"
+            />
+          </svg>
+          <span class="text-sm font-medium text-gray-700">SAP GUI abierto</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <svg
+            class="h-5 w-5 text-green-500"
+            fill="currentColor"
+            viewBox="0 0 20 20"
+          >
+            <path
+              fill-rule="evenodd"
+              d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+              clip-rule="evenodd"
+            />
+          </svg>
+          <span class="text-sm font-medium text-gray-700">Sesión iniciada</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <svg
+            class="h-5 w-5 text-green-500"
+            fill="currentColor"
+            viewBox="0 0 20 20"
+          >
+            <path
+              fill-rule="evenodd"
+              d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+              clip-rule="evenodd"
+            />
+          </svg>
+          <span class="text-sm font-medium text-gray-700"
+            >Conexión correcta</span
+          >
+        </div>
+      </div>
+      <button
+        class="inline-flex items-center gap-2 rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white hover:bg-[#003070]"
+      >
+        Validar conexión
+        <svg
+          class="h-4 w-4"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M19 9l-7 7-7-7"
+          />
+        </svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Grid principal: Parámetros (izquierda) y Estado/Registro (derecha) -->
+  <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+    <!-- Panel izquierdo: Seleccionar Parámetros -->
+    <div class="lg:col-span-2">
+      <div class="rounded-lg bg-white p-6 shadow-sm">
+        <h2 class="mb-4 text-lg font-medium text-gray-900">
+          Seleccionar Parámetros
+        </h2>
+
+        <div class="space-y-4">
+          <!-- Mes / Año -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700"
+              >Mes / Año</label
+            >
+            <select
+              class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#003D89] focus:ring-[#003D89] sm:text-sm"
+            >
+              <option>Marzo 2022</option>
+              <option>Abril 2022</option>
+              <option>Mayo 2022</option>
+            </select>
+          </div>
+
+          <!-- Rango de fechas -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700"
+              >Rango de fechas</label
+            >
+            <div class="mt-1 flex gap-2">
+              <input
+                type="text"
+                value="01/03/2022 - 31/03/2022"
+                class="block w-full rounded-md border-gray-300 shadow-sm focus:border-[#003D89] focus:ring-[#003D89] sm:text-sm"
+              />
+              <button
+                class="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <svg
+                  class="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                  />
+                </svg>
+                Editar manual
+              </button>
+            </div>
+          </div>
+
+          <!-- Sociedad -->
+          <div>
+            <div class="flex items-center gap-2">
+              <input
+                type="checkbox"
+                class="h-4 w-4 rounded border-gray-300 text-[#003D89] focus:ring-[#003D89]"
+              />
+              <label class="block text-sm font-medium text-gray-700"
+                >Sociedad</label
+              >
+            </div>
+            <input
+              type="text"
+              value="[1000]"
+              class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#003D89] focus:ring-[#003D89] sm:text-sm"
+            />
+          </div>
+
+          <!-- Incluir devoluciones -->
+          <div class="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked
+              class="h-4 w-4 rounded border-gray-300 text-[#003D89] focus:ring-[#003D89]"
+            />
+            <label class="text-sm font-medium text-gray-700"
+              >Incluir devoluciones</label
+            >
+          </div>
+
+          <!-- Solo contabilizadas -->
+          <div class="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked
+              class="h-4 w-4 rounded border-gray-300 text-[#003D89] focus:ring-[#003D89]"
+            />
+            <label class="text-sm font-medium text-gray-700"
+              >Solo contabilizadas</label
+            >
+          </div>
+
+          <!-- Carpeta de salida -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700"
+              >Carpeta de salida</label
+            >
+            <div class="mt-1 flex gap-2">
+              <input
+                type="text"
+                value="C:\Reportes\Ventas\"
+                class="block w-full rounded-md border-gray-300 shadow-sm focus:border-[#003D89] focus:ring-[#003D89] sm:text-sm"
+              />
+              <button
+                class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Cambiar
+              </button>
+            </div>
+          </div>
+
+          <!-- Filename -->
+          <div class="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked
+              class="h-4 w-4 rounded border-gray-300 text-[#003D89] focus:ring-[#003D89]"
+            />
+            <label class="text-sm font-medium text-gray-700">Filename:</label>
+            <span class="text-sm text-gray-600">ventas_2022_03.xlsx</span>
+          </div>
+
+          <!-- Sobrescribir si existe -->
+          <div class="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked
+              class="h-4 w-4 rounded border-gray-300 text-[#003D89] focus:ring-[#003D89]"
+            />
+            <label class="text-sm font-medium text-gray-700"
+              >Sobrescribir si existe</label
+            >
+          </div>
+
+          <!-- Botones de acción -->
+          <div class="flex flex-wrap gap-3 pt-4">
+            <button
+              class="rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white hover:bg-[#003070]"
+            >
+              Iniciar descarga
+            </button>
+            <button
+              class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Simular
+            </button>
+            <button
+              class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Limpiar
+            </button>
+            <button
+              class="rounded-md border border-gray-300 bg-white p-2 text-gray-700 hover:bg-gray-50"
+            >
+              <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 20 20">
+                <path
+                  d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel derecho: Estado del Proceso y Registro -->
+    <div class="space-y-6 lg:col-span-1">
+      <!-- Estado del Proceso -->
+      <div class="rounded-lg bg-white p-6 shadow-sm">
+        <h2 class="mb-4 text-lg font-medium text-gray-900">
+          Estado del Proceso
+        </h2>
+
+        <div class="space-y-3">
+          <!-- Paso completado -->
+          <div class="flex items-center gap-3">
+            <svg
+              class="h-5 w-5 shrink-0 text-green-500"
+              fill="currentColor"
+              viewBox="0 0 20 20"
+            >
+              <path
+                fill-rule="evenodd"
+                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                clip-rule="evenodd"
+              />
+            </svg>
+            <span class="text-sm text-gray-700">Preparando parámetros</span>
+          </div>
+
+          <!-- Paso actual -->
+          <div class="flex items-center gap-3">
+            <div
+              class="h-5 w-5 shrink-0 rounded-full border-2 border-[#003D89]"
+            ></div>
+            <span class="text-sm font-medium text-gray-900"
+              >Conectando a SAP...</span
+            >
+          </div>
+
+          <!-- Pasos pendientes -->
+          <div class="flex items-center gap-3">
+            <div
+              class="h-5 w-5 shrink-0 rounded-full border-2 border-gray-300"
+            ></div>
+            <span class="text-sm text-gray-500">Ejecutando reporte...</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <div
+              class="h-5 w-5 shrink-0 rounded-full border-2 border-gray-300"
+            ></div>
+            <span class="text-sm text-gray-500">Exportando archivo...</span>
+          </div>
+          <div class="flex items-center gap-3">
+            <div
+              class="h-5 w-5 shrink-0 rounded-full border-2 border-gray-300"
+            ></div>
+            <span class="text-sm text-gray-500">Validando archivo...</span>
+          </div>
+        </div>
+
+        <!-- Tiempo y Progreso -->
+        <div class="mt-6 space-y-3 border-t border-gray-200 pt-4">
+          <div class="flex justify-between text-sm">
+            <span class="font-medium text-gray-700">Tiempo:</span>
+            <span class="text-gray-900">00:02:15</span>
+          </div>
+          <div>
+            <div class="flex justify-between text-sm">
+              <span class="font-medium text-gray-700">Progreso:</span>
+              <span class="text-gray-900">65%</span>
+            </div>
+            <div
+              class="mt-2 h-2 w-full overflow-hidden rounded-full bg-gray-200"
+            >
+              <div class="h-full w-[65%] bg-[#003D89]"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Botones de acción -->
+        <div class="mt-6 flex gap-2">
+          <button
+            class="flex-1 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Cancelar
+          </button>
+          <button
+            class="flex-1 rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Reintentar
+          </button>
+        </div>
+      </div>
+
+      <!-- Registro de Actividad -->
+      <div class="rounded-lg bg-white p-6 shadow-sm">
+        <h2 class="mb-4 text-lg font-medium text-gray-900">
+          Registro de Actividad
+        </h2>
+
+        <div class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+              <tr>
+                <th
+                  class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+                >
+                  Fecha
+                </th>
+                <th
+                  class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+                >
+                  Periodo
+                </th>
+                <th
+                  class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+                >
+                  Estado
+                </th>
+                <th
+                  class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+                >
+                  Archivo
+                </th>
+                <th
+                  class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+                >
+                  Acciones
+                </th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-200 bg-white">
+              <tr>
+                <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-900">
+                  12/04/2022
+                </td>
+                <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-500">
+                  Mar 2022
+                </td>
+                <td class="whitespace-nowrap px-3 py-2 text-sm">
+                  <span
+                    class="inline-flex rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-800"
+                  >
+                    Éxito
+                  </span>
+                </td>
+                <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-500">
+                  ventas_2022_03.xlsx
+                </td>
+                <td class="whitespace-nowrap px-3 py-2 text-sm">
+                  <div class="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked
+                      class="h-4 w-4 rounded border-gray-300 text-[#003D89] focus:ring-[#003D89]"
+                    />
+                    <button class="text-gray-400 hover:text-gray-600">
+                      <svg
+                        class="h-5 w-5"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                        />
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
