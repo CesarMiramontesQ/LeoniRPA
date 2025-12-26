@@ -73,6 +73,10 @@ python -m app.db.init_db
 
 ### 4. Crear usuario administrador
 
+**📖 Para instrucciones detalladas paso a paso, consulta: [INSTRUCCIONES_ADMIN.md](INSTRUCCIONES_ADMIN.md)**
+
+**Resumen rápido:**
+
 Opción 1: Usar el script (recomendado)
 
 ```bash
@@ -81,13 +85,13 @@ python create_admin.py
 
 El script te pedirá:
 - Email del administrador
-- Contraseña (mínimo 8 caracteres)
+- Contraseña (mínimo 8 caracteres, máximo 72 bytes)
 - Nombre completo (opcional)
 
 Opción 2: Usar variables de entorno
 
 En tu archivo `.env`, configura:
-```
+```env
 ADMIN_EMAIL=admin@example.com
 ADMIN_PASSWORD=tu_contraseña_segura
 ADMIN_NAME=Administrador
@@ -97,6 +101,8 @@ Luego ejecuta:
 ```bash
 python create_admin.py
 ```
+
+**⚠️ Importante**: El registro público está deshabilitado. Solo los administradores pueden crear nuevos usuarios desde el panel `/admin/users`.
 
 ## Ejecutar la aplicación
 

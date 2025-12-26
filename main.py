@@ -120,24 +120,8 @@ async def ventas(request: Request, current_user: User = Depends(get_current_user
 
 
 @app.get("/admin")
-async def admin(request: Request, current_user: User = Depends(get_current_user)):
+async def admin(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Panel de administración - requiere rol admin."""
-    if current_user.role != "admin":
-        return RedirectResponse(url="/dashboard", status_code=302)
-    
-    return templates.TemplateResponse(
-        "admin.html",
-        {
-            "request": request,
-            "current_user": current_user,
-            "active_page": "admin"
-        }
-    )
-
-
-@app.get("/admin/users")
-async def admin_users(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """Gestión de usuarios - solo admin."""
     if current_user.role != "admin":
         return RedirectResponse(url="/dashboard", status_code=302)
     
@@ -149,7 +133,7 @@ async def admin_users(request: Request, current_user: User = Depends(get_current
     users = result.scalars().all()
     
     return templates.TemplateResponse(
-        "admin_users.html",
+        "admin.html",
         {
             "request": request,
             "current_user": current_user,
@@ -178,13 +162,13 @@ async def admin_create_user(
     # Validaciones
     if len(password) < 8:
         return RedirectResponse(
-            url=f"/admin/users?error=El password debe tener al menos 8 caracteres",
+            url=f"/admin?error=El password debe tener al menos 8 caracteres",
             status_code=302
         )
     
     if len(password.encode('utf-8')) > 72:
         return RedirectResponse(
-            url=f"/admin/users?error=El password es demasiado largo (máximo 72 bytes)",
+            url=f"/admin?error=El password es demasiado largo (máximo 72 bytes)",
             status_code=302
         )
     
@@ -196,7 +180,7 @@ async def admin_create_user(
     existing_user = await crud.get_user_by_email(db, email)
     if existing_user:
         return RedirectResponse(
-            url=f"/admin/users?error=El email ya está registrado",
+            url=f"/admin?error=El email ya está registrado",
             status_code=302
         )
     
@@ -208,10 +192,10 @@ async def admin_create_user(
             full_name=full_name,
             role=role
         )
-        return RedirectResponse(url="/admin/users?success=Usuario creado exitosamente", status_code=302)
+        return RedirectResponse(url="/admin?success=Usuario creado exitosamente", status_code=302)
     except Exception as e:
         return RedirectResponse(
-            url=f"/admin/users?error=Error al crear usuario: {str(e)}",
+            url=f"/admin?error=Error al crear usuario: {str(e)}",
             status_code=302
         )
 
@@ -232,14 +216,14 @@ async def admin_update_user_role(
     
     # Validar rol
     if role not in ["user", "admin", "auditor"]:
-        return RedirectResponse(url="/admin/users?error=Rol inválido", status_code=302)
+        return RedirectResponse(url="/admin?error=Rol inválido", status_code=302)
     
     try:
         await crud.update_user_role(db, user_id, role)
-        return RedirectResponse(url="/admin/users?success=Rol actualizado exitosamente", status_code=302)
+        return RedirectResponse(url="/admin?success=Rol actualizado exitosamente", status_code=302)
     except Exception as e:
         return RedirectResponse(
-            url=f"/admin/users?error=Error al actualizar rol: {str(e)}",
+            url=f"/admin?error=Error al actualizar rol: {str(e)}",
             status_code=302
         )
 
