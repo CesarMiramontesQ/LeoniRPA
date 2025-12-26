@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es" class="h-full bg-gray-100">
+<html lang="es" class="h-full bg-white">
   <head>
     <meta charset="UTF-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
@@ -8,98 +8,115 @@
     <title>Iniciar Sesión - Leoni RPA</title>
   </head>
   <body class="h-full">
-    <div class="flex min-h-full flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div class="sm:mx-auto sm:w-full sm:max-w-md">
-        <img
-          class="mx-auto h-12 w-auto"
-          src="{{url_for('static',path='/images/logo.png')}}"
-          alt="Leoni Cable"
-        />
-        <h2 class="mt-6 text-center text-3xl font-bold tracking-tight text-gray-900">
-          Inicia sesión en tu cuenta
-        </h2>
-      </div>
+    <div class="flex min-h-full">
+      <div
+        class="flex flex-1 flex-col justify-center px-4 py-12 sm:px-6 lg:flex-none lg:px-20 xl:px-24"
+      >
+        <div class="mx-auto w-full max-w-sm lg:w-96">
+          <div>
+            <img
+              src="{{url_for('static',path='/images/logo.png')}}"
+              alt="Leoni Cable"
+              class="h-10 w-auto"
+            />
+            <h2 class="mt-8 text-2xl/9 font-bold tracking-tight text-gray-900">
+              Inicia sesión en tu cuenta
+            </h2>
+          </div>
 
-      <div class="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div class="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
-          {% if error %}
-          <div class="mb-4 rounded-md bg-red-50 p-4">
-            <div class="flex">
-              <div class="flex-shrink-0">
-                <svg
-                  class="h-5 w-5 text-red-400"
-                  viewBox="0 0 20 20"
-                  fill="currentColor"
-                >
-                  <path
-                    fill-rule="evenodd"
-                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-                    clip-rule="evenodd"
-                  />
-                </svg>
+          <div class="mt-10">
+            {% if error %}
+            <div class="mb-6 rounded-md bg-red-50 p-4">
+              <div class="flex">
+                <div class="flex-shrink-0">
+                  <svg
+                    class="h-5 w-5 text-red-400"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                  >
+                    <path
+                      fill-rule="evenodd"
+                      d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                      clip-rule="evenodd"
+                    />
+                  </svg>
+                </div>
+                <div class="ml-3">
+                  <p class="text-sm font-medium text-red-800">{{ error }}</p>
+                </div>
               </div>
-              <div class="ml-3">
-                <p class="text-sm font-medium text-red-800">{{ error }}</p>
-              </div>
+            </div>
+            {% endif %}
+
+            <div>
+              <form
+                action="/auth/login"
+                method="POST"
+                enctype="application/x-www-form-urlencoded"
+                id="login-form"
+                class="space-y-6"
+              >
+                <div>
+                  <label
+                    for="email"
+                    class="block text-sm/6 font-medium text-gray-900"
+                  >
+                    Email
+                  </label>
+                  <div class="mt-2">
+                    <input
+                      id="email"
+                      type="email"
+                      name="email"
+                      required
+                      autocomplete="email"
+                      placeholder="tu@email.com"
+                      class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label
+                    for="password"
+                    class="block text-sm/6 font-medium text-gray-900"
+                  >
+                    Contraseña
+                  </label>
+                  <div class="mt-2">
+                    <input
+                      id="password"
+                      type="password"
+                      name="password"
+                      required
+                      autocomplete="current-password"
+                      placeholder="••••••••"
+                      class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <button
+                    type="submit"
+                    id="login-button"
+                    class="flex w-full justify-center rounded-md bg-[#003D89] px-3 py-1.5 text-sm/6 font-semibold text-white shadow-xs hover:bg-[#003070] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#003D89]"
+                  >
+                    Iniciar sesión
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
-          {% endif %}
-
-          <form class="space-y-6" action="/auth/login" method="POST" enctype="application/x-www-form-urlencoded" id="login-form">
-            <div>
-              <label
-                for="email"
-                class="block text-sm font-medium text-gray-700"
-              >
-                Email
-              </label>
-              <div class="mt-1">
-                <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  autocomplete="email"
-                  required
-                  class="block w-full appearance-none rounded-md border border-gray-300 px-3 py-2 placeholder-gray-400 shadow-sm focus:border-[#003D89] focus:outline-none focus:ring-[#003D89] sm:text-sm"
-                  placeholder="tu@email.com"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label
-                for="password"
-                class="block text-sm font-medium text-gray-700"
-              >
-                Contraseña
-              </label>
-              <div class="mt-1">
-                <input
-                  id="password"
-                  name="password"
-                  type="password"
-                  autocomplete="current-password"
-                  required
-                  class="block w-full appearance-none rounded-md border border-gray-300 px-3 py-2 placeholder-gray-400 shadow-sm focus:border-[#003D89] focus:outline-none focus:ring-[#003D89] sm:text-sm"
-                  placeholder="••••••••"
-                />
-              </div>
-            </div>
-
-            <div>
-              <button
-                type="submit"
-                id="login-button"
-                class="flex w-full justify-center rounded-md border border-transparent bg-[#003D89] py-2 px-4 text-sm font-medium text-white shadow-sm hover:bg-[#003070] focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
-              >
-                Iniciar sesión
-              </button>
-            </div>
-          </form>
-
         </div>
+      </div>
+      <div class="relative hidden w-0 flex-1 lg:block">
+        <img
+          src="{{url_for('static',path='images/wire.jpg')}}"
+          alt=""
+          class="absolute inset-0 size-full object-cover"
+        />
       </div>
     </div>
   </body>
 </html>
-
