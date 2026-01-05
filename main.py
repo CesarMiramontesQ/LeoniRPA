@@ -228,6 +228,70 @@ async def admin_update_user_role(
         )
 
 
+@app.post("/admin/users/{user_id}/update")
+async def admin_update_user(
+    user_id: int,
+    request: Request,
+    email: str = Form(...),
+    full_name: Optional[str] = Form(None),
+    role: str = Form("user"),
+    password: Optional[str] = Form(None),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Actualizar usuario - solo admin."""
+    if current_user.role != "admin":
+        return RedirectResponse(url="/dashboard", status_code=302)
+    
+    from app.db import crud
+    
+    # Validar rol
+    if role not in ["user", "admin", "auditor"]:
+        return RedirectResponse(url="/admin?error=Rol inválido", status_code=302)
+    
+    # Validar contraseña si se proporciona
+    if password:
+        if len(password) < 8:
+            return RedirectResponse(
+                url=f"/admin?error=El password debe tener al menos 8 caracteres",
+                status_code=302
+            )
+        
+        if len(password.encode('utf-8')) > 72:
+            return RedirectResponse(
+                url=f"/admin?error=El password es demasiado largo (máximo 72 bytes)",
+                status_code=302
+            )
+    
+    try:
+        updated_user = await crud.update_user(
+            db=db,
+            user_id=user_id,
+            email=email,
+            full_name=full_name,
+            role=role,
+            password=password if password else None
+        )
+        
+        if not updated_user:
+            return RedirectResponse(
+                url=f"/admin?error=Usuario no encontrado",
+                status_code=302
+            )
+        
+        return RedirectResponse(url="/admin?success=Usuario actualizado exitosamente", status_code=302)
+    except ValueError as e:
+        return RedirectResponse(
+            url=f"/admin?error={str(e)}",
+            status_code=302
+        )
+    except Exception as e:
+        return RedirectResponse(
+            url=f"/admin?error=Error al actualizar usuario: {str(e)}",
+            status_code=302
+        )
+
+
 @app.get("/hello/{name}")
 async def say_hello(name: str):
     """Endpoint de ejemplo - no requiere autenticación."""

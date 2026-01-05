@@ -53,3 +53,34 @@ async def update_user_role(
         await db.refresh(user)
     return user
 
+
+async def update_user(
+    db: AsyncSession,
+    user_id: int,
+    email: str,
+    full_name: Optional[str] = None,
+    role: str = "user",
+    password: Optional[str] = None
+) -> Optional[User]:
+    """Actualiza un usuario."""
+    user = await get_user_by_id(db, user_id)
+    if not user:
+        return None
+    
+    # Verificar si el email ya existe en otro usuario
+    existing_user = await get_user_by_email(db, email)
+    if existing_user and existing_user.id != user_id:
+        raise ValueError("El email ya está registrado")
+    
+    user.email = email
+    user.full_name = full_name
+    user.role = role
+    
+    # Solo actualizar contraseña si se proporciona
+    if password:
+        user.hashed_password = hash_password(password)
+    
+    await db.commit()
+    await db.refresh(user)
+    return user
+
