@@ -109,7 +109,7 @@
                           Ventas
                         </a>
                       </li>
-                      {% if current_user and current_user.role == 'admin' %}
+                      {% if current_user and current_user.rol == 'admin' %}
                       <li>
                         <a
                           href="/admin"
@@ -214,7 +214,7 @@
                     Ventas
                   </a>
                 </li>
-                {% if current_user and current_user.role == 'admin' %}
+                {% if current_user and current_user.rol == 'admin' %}
                 <li>
                   <a
                     href="/admin"
@@ -255,15 +255,15 @@
                 <div
                   class="flex size-8 items-center justify-center rounded-full bg-[#003D89] text-sm font-medium text-white"
                 >
-                  {{ (current_user.full_name or current_user.email)[0]|upper }}
+                  {{ (current_user.nombre or current_user.email)[0]|upper }}
                 </div>
                 <span class="sr-only">Tu perfil</span>
                 <div class="flex flex-col">
                   <span aria-hidden="true"
-                    >{{ current_user.full_name or current_user.email }}</span
+                    >{{ current_user.nombre or current_user.email }}</span
                   >
                   <span class="text-xs text-gray-500"
-                    >{{ current_user.role|upper }}</span
+                    >{{ current_user.rol|upper }}</span
                   >
                 </div>
               </a>
@@ -314,7 +314,7 @@
         <div
           class="flex size-8 items-center justify-center rounded-full bg-[#003D89] text-sm font-medium text-white"
         >
-          {{ (current_user.full_name or current_user.email)[0]|upper }}
+          {{ (current_user.nombre or current_user.email)[0]|upper }}
         </div>
       </a>
       {% else %}

@@ -5,12 +5,12 @@
     <div>
       <h1 class="text-2xl font-semibold text-gray-900">Dashboard</h1>
       <p class="mt-1 text-sm text-gray-600">
-        Bienvenido, {{ current_user.full_name or current_user.email }}
+        Bienvenido, {{ current_user.nombre or current_user.email }}
       </p>
     </div>
     <div class="flex items-center gap-4">
       <span class="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-sm font-medium text-blue-800">
-        {{ current_user.role|upper }}
+        {{ current_user.rol|upper }}
       </span>
       <a
         href="/auth/logout"
@@ -29,24 +29,24 @@
         <dt class="text-sm font-medium text-gray-500">Email</dt>
         <dd class="mt-1 text-sm text-gray-900">{{ current_user.email }}</dd>
       </div>
-      {% if current_user.full_name %}
+      {% if current_user.nombre %}
       <div>
         <dt class="text-sm font-medium text-gray-500">Nombre completo</dt>
-        <dd class="mt-1 text-sm text-gray-900">{{ current_user.full_name }}</dd>
+        <dd class="mt-1 text-sm text-gray-900">{{ current_user.nombre }}</dd>
       </div>
       {% endif %}
       <div>
         <dt class="text-sm font-medium text-gray-500">Rol</dt>
         <dd class="mt-1 text-sm text-gray-900">
           <span class="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">
-            {{ current_user.role }}
+            {{ current_user.rol }}
           </span>
         </dd>
       </div>
       <div>
         <dt class="text-sm font-medium text-gray-500">Estado</dt>
         <dd class="mt-1 text-sm text-gray-900">
-          {% if current_user.is_active %}
+          {% if current_user.activo %}
           <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
             Activo
           </span>
@@ -94,7 +94,7 @@
         </div>
       </a>
 
-      {% if current_user.role == "admin" %}
+      {% if current_user.rol == "admin" %}
       <a
         href="/admin"
         class="group rounded-lg border border-gray-200 p-4 hover:border-[#003D89] hover:bg-gray-50"

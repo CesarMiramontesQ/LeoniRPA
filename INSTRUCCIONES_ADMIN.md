@@ -121,8 +121,8 @@ async def create_admin():
             db=db,
             email="admin@leoni.com",
             password="TuContraseñaSegura123",
-            full_name="Administrador",
-            role="admin"
+            nombre="Administrador",
+            rol="admin"
         )
         print(f"✅ Usuario creado: {admin.email} (ID: {admin.id})")
 
@@ -203,8 +203,9 @@ python -m app.db.init_db
 
 3. **Base de Datos**:
 
-   - La base de datos SQLite se guarda en `leoni_rpa.db` en la raíz del proyecto
-   - Para resetear todo, puedes eliminar este archivo (⚠️ esto borrará todos los usuarios)
+   - La base de datos PostgreSQL se configura en el archivo `.env` con la variable `DB_URL`
+   - Para resetear todo, puedes eliminar y recrear las tablas desde PostgreSQL (⚠️ esto borrará todos los usuarios)
+   - Consulta `CONFIGURACION_POSTGRESQL.md` para más detalles sobre la configuración
 
 4. **Múltiples Admins**:
    - Puedes crear múltiples usuarios con rol "admin"

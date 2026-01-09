@@ -66,7 +66,7 @@ async def get_current_user(
         )
     
     user = await crud.get_user_by_id(db, user_id)
-    if user is None or not user.is_active:
+    if user is None or not user.activo:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Usuario no encontrado o inactivo",
@@ -80,7 +80,7 @@ def require_roles(allowed_roles: List[str]):
     async def role_checker(
         current_user: User = Depends(get_current_user)
     ) -> User:
-        if current_user.role not in allowed_roles:
+        if current_user.rol not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Se requiere uno de los siguientes roles: {', '.join(allowed_roles)}",
@@ -124,21 +124,27 @@ async def login(
     db: AsyncSession = Depends(get_db)
 ):
     """Login de usuario."""
+    from datetime import datetime
+    
     user = await crud.get_user_by_email(db, email)
     
-    if not user or not verify_password(password, user.hashed_password):
+    if not user or not verify_password(password, user.password_hash):
         return templates.TemplateResponse(
             "login.html",
             {"request": request, "error": "Email o password incorrecto"},
             status_code=401
         )
     
-    if not user.is_active:
+    if not user.activo:
         return templates.TemplateResponse(
             "login.html",
             {"request": request, "error": "Usuario inactivo"},
             status_code=403
         )
+    
+    # Actualizar last_login
+    user.last_login = datetime.utcnow()
+    await db.commit()
     
     # Crear token (sub debe ser string según estándar JWT)
     access_token = create_access_token(

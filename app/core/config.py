@@ -15,7 +15,11 @@ class Settings:
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))  # 24 horas
     
     # Database
-    DB_URL: str = os.getenv("DB_URL", "sqlite+aiosqlite:///./leoni_rpa.db")
+    # PostgreSQL connection string format: postgresql+asyncpg://user:password@host:port/database
+    DB_URL: str = os.getenv(
+        "DB_URL",
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/leoni_rpa"
+    )
     
     # Cookie settings
     COOKIE_NAME: str = "access_token"

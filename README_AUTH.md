@@ -11,7 +11,7 @@ Sistema completo de autenticación y gestión de usuarios implementado en FastAP
 - ✅ Sistema de roles (user, admin, auditor)
 - ✅ Protección de rutas por roles
 - ✅ Hash de passwords con bcrypt
-- ✅ Base de datos SQLite con SQLAlchemy 2.0 async
+- ✅ Base de datos PostgreSQL con SQLAlchemy 2.0 async
 
 ## Estructura del Proyecto
 
@@ -53,17 +53,48 @@ venv\Scripts\activate     # Windows
 pip install -r requirements.txt
 ```
 
-### 2. Configurar variables de entorno
+### 2. Configurar PostgreSQL
 
-Copia el archivo `.env.example` a `.env` y ajusta los valores:
+Asegúrate de tener PostgreSQL instalado y ejecutándose. Luego crea la base de datos:
 
 ```bash
-cp .env.example .env
+# Conectar a PostgreSQL
+psql -U postgres
+
+# Crear la base de datos
+CREATE DATABASE leoni_rpa;
+
+# Salir de psql
+\q
 ```
 
-Edita `.env` con tus valores (especialmente `SECRET_KEY` para producción).
+### 3. Configurar variables de entorno
 
-### 3. Inicializar la base de datos
+Crea un archivo `.env` en la raíz del proyecto con las siguientes variables:
+
+```env
+# JWT Settings
+SECRET_KEY=dev-secret-key-change-in-production-12345678901234567890
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=1440
+
+# Database Configuration (PostgreSQL)
+# Formato: postgresql+asyncpg://usuario:contraseña@host:puerto/nombre_base_datos
+DB_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/leoni_rpa
+
+# Cookie Settings
+COOKIE_SECURE=False
+COOKIE_SAMESITE=lax
+
+# Admin User Creation (opcional)
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=admin123456
+ADMIN_NAME=Administrador
+```
+
+**Importante**: Ajusta los valores de `DB_URL` según tu configuración de PostgreSQL (usuario, contraseña, host, puerto y nombre de base de datos).
+
+### 4. Inicializar la base de datos
 
 La base de datos se inicializa automáticamente al iniciar la aplicación, pero puedes hacerlo manualmente:
 
@@ -71,7 +102,7 @@ La base de datos se inicializa automáticamente al iniciar la aplicación, pero 
 python -m app.db.init_db
 ```
 
-### 4. Crear usuario administrador
+### 5. Crear usuario administrador
 
 **📖 Para instrucciones detalladas paso a paso, consulta: [INSTRUCCIONES_ADMIN.md](INSTRUCCIONES_ADMIN.md)**
 
@@ -191,12 +222,12 @@ async def admin_only(current_user: User = Depends(require_roles(["admin"]))):
 La tabla `users` tiene los siguientes campos:
 - `id`: Integer (PK)
 - `email`: String (único, indexado)
-- `hashed_password`: String
-- `full_name`: String (opcional)
-- `role`: String (default: "user")
-- `is_active`: Boolean (default: True)
+- `nombre`: String (opcional)
+- `password_hash`: String
+- `rol`: String (default: "operador", valores: "admin", "operador", "auditor")
+- `activo`: Boolean (default: True)
 - `created_at`: DateTime
-- `updated_at`: DateTime
+- `last_login`: DateTime (nullable)
 
 ### Cambiar el rol de un usuario
 
@@ -217,7 +248,7 @@ async with AsyncSessionLocal() as db:
 Asegúrate de estar en el directorio raíz del proyecto y que Python pueda encontrar el módulo `app`.
 
 ### Error: "Table 'users' already exists"
-La tabla ya existe. Si necesitas resetear la BD, elimina el archivo `leoni_rpa.db` y reinicia la app.
+La tabla ya existe. Si necesitas resetear la BD, puedes eliminar y recrear las tablas desde PostgreSQL o reiniciar la app.
 
 ### Error de autenticación en desarrollo
 Verifica que:
@@ -229,7 +260,6 @@ Verifica que:
 
 - En producción, cambiar `COOKIE_SECURE=True` en `.env`
 - Cambiar `SECRET_KEY` por una clave segura y aleatoria
-- Considerar usar PostgreSQL en lugar de SQLite para producción
 - Implementar rate limiting para login/registro
 - Agregar verificación de email (opcional)
 

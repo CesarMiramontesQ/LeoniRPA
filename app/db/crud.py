@@ -22,17 +22,17 @@ async def create_user(
     db: AsyncSession,
     email: str,
     password: str,
-    full_name: Optional[str] = None,
-    role: str = "user"
+    nombre: Optional[str] = None,
+    rol: str = "operador"
 ) -> User:
     """Crea un nuevo usuario."""
     hashed_pwd = hash_password(password)
     db_user = User(
         email=email,
-        hashed_password=hashed_pwd,
-        full_name=full_name,
-        role=role,
-        is_active=True
+        password_hash=hashed_pwd,
+        nombre=nombre,
+        rol=rol,
+        activo=True
     )
     db.add(db_user)
     await db.commit()
@@ -43,12 +43,12 @@ async def create_user(
 async def update_user_role(
     db: AsyncSession,
     user_id: int,
-    role: str
+    rol: str
 ) -> Optional[User]:
     """Actualiza el rol de un usuario."""
     user = await get_user_by_id(db, user_id)
     if user:
-        user.role = role
+        user.rol = rol
         await db.commit()
         await db.refresh(user)
     return user
@@ -58,8 +58,8 @@ async def update_user(
     db: AsyncSession,
     user_id: int,
     email: str,
-    full_name: Optional[str] = None,
-    role: str = "user",
+    nombre: Optional[str] = None,
+    rol: str = "operador",
     password: Optional[str] = None
 ) -> Optional[User]:
     """Actualiza un usuario."""
@@ -73,12 +73,12 @@ async def update_user(
         raise ValueError("El email ya está registrado")
     
     user.email = email
-    user.full_name = full_name
-    user.role = role
+    user.nombre = nombre
+    user.rol = rol
     
     # Solo actualizar contraseña si se proporciona
     if password:
-        user.hashed_password = hash_password(password)
+        user.password_hash = hash_password(password)
     
     await db.commit()
     await db.refresh(user)

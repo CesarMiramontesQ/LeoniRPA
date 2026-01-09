@@ -122,7 +122,7 @@ async def ventas(request: Request, current_user: User = Depends(get_current_user
 @app.get("/admin")
 async def admin(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Panel de administración - requiere rol admin."""
-    if current_user.role != "admin":
+    if current_user.rol != "admin":
         return RedirectResponse(url="/dashboard", status_code=302)
     
     from sqlalchemy import select
@@ -148,13 +148,13 @@ async def admin_create_user(
     request: Request,
     email: str = Form(...),
     password: str = Form(...),
-    full_name: Optional[str] = Form(None),
-    role: str = Form("user"),
+    nombre: Optional[str] = Form(None),
+    rol: str = Form("operador"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Crear nuevo usuario - solo admin."""
-    if current_user.role != "admin":
+    if current_user.rol != "admin":
         return RedirectResponse(url="/dashboard", status_code=302)
     
     from app.db import crud
@@ -173,8 +173,8 @@ async def admin_create_user(
         )
     
     # Validar rol
-    if role not in ["user", "admin", "auditor"]:
-        role = "user"
+    if rol not in ["admin", "operador", "auditor"]:
+        rol = "operador"
     
     # Verificar si el email ya existe
     existing_user = await crud.get_user_by_email(db, email)
@@ -189,8 +189,8 @@ async def admin_create_user(
             db=db,
             email=email,
             password=password,
-            full_name=full_name,
-            role=role
+            nombre=nombre,
+            rol=rol
         )
         return RedirectResponse(url="/admin?success=Usuario creado exitosamente", status_code=302)
     except Exception as e:
@@ -204,22 +204,22 @@ async def admin_create_user(
 async def admin_update_user_role(
     user_id: int,
     request: Request,
-    role: str = Form(...),
+    rol: str = Form(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Actualizar rol de usuario - solo admin."""
-    if current_user.role != "admin":
+    if current_user.rol != "admin":
         return RedirectResponse(url="/dashboard", status_code=302)
     
     from app.db import crud
     
     # Validar rol
-    if role not in ["user", "admin", "auditor"]:
+    if rol not in ["admin", "operador", "auditor"]:
         return RedirectResponse(url="/admin?error=Rol inválido", status_code=302)
     
     try:
-        await crud.update_user_role(db, user_id, role)
+        await crud.update_user_role(db, user_id, rol)
         return RedirectResponse(url="/admin?success=Rol actualizado exitosamente", status_code=302)
     except Exception as e:
         return RedirectResponse(
@@ -233,20 +233,20 @@ async def admin_update_user(
     user_id: int,
     request: Request,
     email: str = Form(...),
-    full_name: Optional[str] = Form(None),
-    role: str = Form("user"),
+    nombre: Optional[str] = Form(None),
+    rol: str = Form("operador"),
     password: Optional[str] = Form(None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Actualizar usuario - solo admin."""
-    if current_user.role != "admin":
+    if current_user.rol != "admin":
         return RedirectResponse(url="/dashboard", status_code=302)
     
     from app.db import crud
     
     # Validar rol
-    if role not in ["user", "admin", "auditor"]:
+    if rol not in ["admin", "operador", "auditor"]:
         return RedirectResponse(url="/admin?error=Rol inválido", status_code=302)
     
     # Validar contraseña si se proporciona
@@ -268,8 +268,8 @@ async def admin_update_user(
             db=db,
             user_id=user_id,
             email=email,
-            full_name=full_name,
-            role=role,
+            nombre=nombre,
+            rol=rol,
             password=password if password else None
         )
         

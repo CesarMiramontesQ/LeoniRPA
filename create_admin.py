@@ -24,8 +24,8 @@ async def create_admin():
                 if len(new_password.encode('utf-8')) > 72:
                     print("❌ La contraseña es demasiado larga (máximo 72 bytes)")
                     return
-                admin_user.hashed_password = hash_password(new_password)
-                admin_user.role = "admin"
+                admin_user.password_hash = hash_password(new_password)
+                admin_user.rol = "admin"
                 await db.commit()
                 print(f"✅ Contraseña actualizada para {admin_user.email}")
             return
@@ -33,7 +33,7 @@ async def create_admin():
         # Obtener datos desde variables de entorno o input
         email = settings.ADMIN_EMAIL
         password = settings.ADMIN_PASSWORD
-        full_name = settings.ADMIN_NAME
+        nombre = settings.ADMIN_NAME
         
         if not email:
             email = input("Email del administrador: ")
@@ -47,20 +47,20 @@ async def create_admin():
                 print("❌ La contraseña es demasiado larga (máximo 72 bytes)")
                 return
         
-        if not full_name:
-            full_name = input("Nombre completo (opcional): ") or None
+        if not nombre:
+            nombre = input("Nombre completo (opcional): ") or None
         
         try:
             admin = await crud.create_user(
                 db=db,
                 email=email,
                 password=password,
-                full_name=full_name,
-                role="admin"
+                nombre=nombre,
+                rol="admin"
             )
             print(f"✅ Usuario administrador creado exitosamente:")
             print(f"   Email: {admin.email}")
-            print(f"   Rol: {admin.role}")
+            print(f"   Rol: {admin.rol}")
             print(f"   ID: {admin.id}")
         except Exception as e:
             print(f"❌ Error al crear usuario: {e}")

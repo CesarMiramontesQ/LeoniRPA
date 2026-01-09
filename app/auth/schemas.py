@@ -8,7 +8,7 @@ class UserRegister(BaseModel):
     email: EmailStr
     password: str
     confirm_password: str
-    full_name: Optional[str] = None
+    nombre: Optional[str] = None
     
     @field_validator("password")
     @classmethod
@@ -37,9 +37,11 @@ class UserResponse(BaseModel):
     """Schema de respuesta con datos de usuario."""
     id: int
     email: str
-    full_name: Optional[str]
-    role: str
-    is_active: bool
+    nombre: Optional[str]
+    rol: str
+    activo: bool
+    created_at: Optional[str] = None
+    last_login: Optional[str] = None
     
     class Config:
         from_attributes = True

@@ -88,13 +88,13 @@
                 {% for user in users %}
                 <tr>
                   <td class="py-4 pr-3 pl-4 text-sm font-medium whitespace-nowrap text-gray-900 sm:pl-6">
-                    {{ user.full_name or user.email }}
+                    {{ user.nombre or user.email }}
                     {% if user.id == current_user.id %}
                     <span class="ml-2 text-xs text-gray-400">(Tú)</span>
                     {% endif %}
                   </td>
                   <td class="px-3 py-4 text-sm whitespace-nowrap text-gray-500">
-                    {% if user.is_active %}
+                    {% if user.activo %}
                     <span class="inline-flex rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-800">
                       Activo
                     </span>
@@ -108,13 +108,13 @@
                   <td class="px-3 py-4 text-sm whitespace-nowrap text-gray-500">
                     <form action="/admin/users/{{ user.id }}/update-role" method="POST" class="inline">
                       <select
-                        name="role"
+                        name="rol"
                         onchange="this.form.submit()"
                         class="rounded-md border-gray-300 text-sm focus:border-[#003D89] focus:ring-[#003D89]"
                       >
-                        <option value="user" {% if user.role == 'user' %}selected{% endif %}>Usuario</option>
-                        <option value="admin" {% if user.role == 'admin' %}selected{% endif %}>Administrador</option>
-                        <option value="auditor" {% if user.role == 'auditor' %}selected{% endif %}>Auditor</option>
+                        <option value="operador" {% if user.rol == 'operador' %}selected{% endif %}>Operador</option>
+                        <option value="admin" {% if user.rol == 'admin' %}selected{% endif %}>Administrador</option>
+                        <option value="auditor" {% if user.rol == 'auditor' %}selected{% endif %}>Auditor</option>
                       </select>
                     </form>
                   </td>
@@ -123,11 +123,11 @@
                       type="button"
                       onclick="openEditModal({{ user.id }})"
                       data-email="{{ user.email }}"
-                      data-full-name="{{ user.full_name or '' }}"
-                      data-role="{{ user.role }}"
+                      data-nombre="{{ user.nombre or '' }}"
+                      data-rol="{{ user.rol }}"
                       class="text-[#003D89] hover:text-[#003070]"
                     >
-                      Editar<span class="sr-only">, {{ user.full_name or user.email }}</span>
+                      Editar<span class="sr-only">, {{ user.nombre or user.email }}</span>
                     </button>
                   </td>
                 </tr>
@@ -283,14 +283,14 @@
             </div>
 
             <div>
-              <label for="modal-full_name" class="block text-sm/6 font-medium text-gray-900">
+              <label for="modal-nombre" class="block text-sm/6 font-medium text-gray-900">
                 Nombre completo
               </label>
               <div class="mt-2">
                 <input
                   type="text"
-                  id="modal-full_name"
-                  name="full_name"
+                  id="modal-nombre"
+                  name="nombre"
                   autocomplete="off"
                   placeholder="Juan Pérez"
                   class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6"
@@ -318,17 +318,17 @@
             </div>
 
             <div>
-              <label for="modal-role" class="block text-sm/6 font-medium text-gray-900">
+              <label for="modal-rol" class="block text-sm/6 font-medium text-gray-900">
                 Rol *
               </label>
               <div class="mt-2 grid grid-cols-1">
                 <select
-                  id="modal-role"
-                  name="role"
+                  id="modal-rol"
+                  name="rol"
                   required
                   class="col-start-1 row-start-1 w-full appearance-none rounded-md bg-white py-1.5 pr-8 pl-3 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#003D89] sm:text-sm/6"
                 >
-                  <option value="user">Usuario</option>
+                  <option value="operador">Operador</option>
                   <option value="admin">Administrador</option>
                   <option value="auditor">Auditor</option>
                 </select>
@@ -400,14 +400,14 @@
             </div>
 
             <div>
-              <label for="edit-modal-full_name" class="block text-sm/6 font-medium text-gray-900">
+              <label for="edit-modal-nombre" class="block text-sm/6 font-medium text-gray-900">
                 Nombre completo
               </label>
               <div class="mt-2">
                 <input
                   type="text"
-                  id="edit-modal-full_name"
-                  name="full_name"
+                  id="edit-modal-nombre"
+                  name="nombre"
                   autocomplete="off"
                   placeholder="Juan Pérez"
                   class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6"
@@ -434,17 +434,17 @@
             </div>
 
             <div>
-              <label for="edit-modal-role" class="block text-sm/6 font-medium text-gray-900">
+              <label for="edit-modal-rol" class="block text-sm/6 font-medium text-gray-900">
                 Rol *
               </label>
               <div class="mt-2 grid grid-cols-1">
                 <select
-                  id="edit-modal-role"
-                  name="role"
+                  id="edit-modal-rol"
+                  name="rol"
                   required
                   class="col-start-1 row-start-1 w-full appearance-none rounded-md bg-white py-1.5 pr-8 pl-3 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#003D89] sm:text-sm/6"
                 >
-                  <option value="user">Usuario</option>
+                  <option value="operador">Operador</option>
                   <option value="admin">Administrador</option>
                   <option value="auditor">Auditor</option>
                 </select>
@@ -490,13 +490,13 @@ function closeModal() {
 function openEditModal(userId) {
   const button = event.target.closest('button');
   const email = button.getAttribute('data-email') || '';
-  const fullName = button.getAttribute('data-full-name') || '';
-  const role = button.getAttribute('data-role') || 'user';
+  const nombre = button.getAttribute('data-nombre') || '';
+  const rol = button.getAttribute('data-rol') || 'operador';
   
   document.getElementById('edit-modal-email').value = email;
-  document.getElementById('edit-modal-full_name').value = fullName;
+  document.getElementById('edit-modal-nombre').value = nombre;
   document.getElementById('edit-modal-password').value = '';
-  document.getElementById('edit-modal-role').value = role;
+  document.getElementById('edit-modal-rol').value = rol;
   
   const form = document.getElementById('edit-user-form');
   form.action = `/admin/users/${userId}/update`;
