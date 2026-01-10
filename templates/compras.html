@@ -87,52 +87,60 @@
     </div>
   </div>
 
-  <!-- Grid principal: Parámetros (izquierda) y Estado/Registro (derecha) -->
-  <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-    <!-- Panel izquierdo: Seleccionar Parámetros -->
-    <div class="lg:col-span-2">
-      <div class="rounded-lg bg-white p-6 shadow-sm">
-        <h2 class="mb-4 text-lg font-medium text-gray-900">
-          Seleccionar Parámetros
-        </h2>
+  <!-- Grid principal: Parámetros y Estado del Proceso en primera fila -->
+  <div class="space-y-6">
+    <!-- Primera fila: Seleccionar Parámetros y Estado del Proceso -->
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+      <!-- Panel izquierdo: Seleccionar Parámetros -->
+      <div class="lg:col-span-2">
+        <div class="rounded-lg bg-white p-6 shadow-sm">
+          <h2 class="mb-4 text-lg font-medium text-gray-900">
+            Seleccionar Parámetros
+          </h2>
 
         <div class="space-y-4">
           <!-- Rango de fechas -->
           <div>
-            <label class="block text-sm font-medium text-gray-700"
+            <label class="block text-sm/6 font-medium text-gray-900"
               >Rango de fechas</label
             >
-            <div class="mt-1 flex gap-2">
+            <div class="mt-2 flex gap-2">
               <div class="flex-1">
-                <label class="block text-xs text-gray-500 mb-1">Fecha inicio</label>
-                <input
-                  type="date"
-                  id="fecha-inicio"
-                  class="block w-full rounded-md border-gray-300 shadow-sm focus:border-[#003D89] focus:ring-[#003D89] sm:text-sm"
-                />
+                <label for="fecha-inicio" class="block text-sm/6 font-medium text-gray-900">Fecha inicio</label>
+                <div class="mt-2">
+                  <div class="flex rounded-md bg-white outline-1 -outline-offset-1 outline-gray-300 focus-within:outline-2 focus-within:-outline-offset-2 focus-within:outline-[#003D89]">
+                    <input
+                      type="date"
+                      id="fecha-inicio"
+                      class="block min-w-0 grow px-3 py-1.5 text-base text-gray-900 placeholder:text-gray-400 focus:outline-none sm:text-sm/6"
+                    />
+                  </div>
+                </div>
               </div>
               <div class="flex-1">
-                <label class="block text-xs text-gray-500 mb-1">Fecha fin</label>
-                <input
-                  type="date"
-                  id="fecha-fin"
-                  class="block w-full rounded-md border-gray-300 shadow-sm focus:border-[#003D89] focus:ring-[#003D89] sm:text-sm"
-                />
+                <label for="fecha-fin" class="block text-sm/6 font-medium text-gray-900">Fecha fin</label>
+                <div class="mt-2">
+                  <div class="flex rounded-md bg-white outline-1 -outline-offset-1 outline-gray-300 focus-within:outline-2 focus-within:-outline-offset-2 focus-within:outline-[#003D89]">
+                    <input
+                      type="date"
+                      id="fecha-fin"
+                      class="block min-w-0 grow px-3 py-1.5 text-base text-gray-900 placeholder:text-gray-400 focus:outline-none sm:text-sm/6"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
           <!-- Carpeta de salida -->
           <div>
-            <label class="block text-sm font-medium text-gray-700"
-              >Carpeta de salida</label
-            >
-            <div class="mt-1 flex gap-2">
+            <label for="carpeta-salida" class="block text-sm/6 font-medium text-gray-900">Carpeta de salida</label>
+            <div class="mt-2 flex gap-2">
               <input
                 type="text"
                 id="carpeta-salida"
                 value="C:\Reportes\Compras\"
-                class="block w-full rounded-md border-gray-300 shadow-sm focus:border-[#003D89] focus:ring-[#003D89] sm:text-sm"
+                class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6"
               />
               <button
                 id="btn-cambiar-carpeta"
@@ -175,6 +183,8 @@
               Iniciar descarga
             </button>
             <button
+              id="btn-limpiar"
+              type="button"
               class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
               Limpiar
@@ -191,15 +201,14 @@
           </div>
         </div>
       </div>
-    </div>
+      </div>
 
-    <!-- Panel derecho: Estado del Proceso y Registro -->
-    <div class="space-y-6 lg:col-span-1">
-      <!-- Estado del Proceso -->
-      <div class="rounded-lg bg-white p-6 shadow-sm">
-        <h2 class="mb-4 text-lg font-medium text-gray-900">
-          Estado del Proceso
-        </h2>
+      <!-- Panel derecho: Estado del Proceso -->
+      <div class="lg:col-span-1">
+        <div class="rounded-lg bg-white p-6 shadow-sm">
+          <h2 class="mb-4 text-lg font-medium text-gray-900">
+            Estado del Proceso
+          </h2>
 
         <div class="space-y-3">
           <!-- Paso completado -->
@@ -282,8 +291,11 @@
           </button>
         </div>
       </div>
+      </div>
+    </div>
 
-      <!-- Registro de Actividad -->
+    <!-- Segunda fila: Registro de Actividad -->
+    <div>
       <div class="rounded-lg bg-white p-6 shadow-sm">
         <h2 class="mb-4 text-lg font-medium text-gray-900">
           Registro de Actividad
@@ -316,7 +328,7 @@
                 <th
                   class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
                 >
-                  Acciones
+                  Usuario
                 </th>
               </tr>
             </thead>
@@ -338,35 +350,8 @@
                 <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-500">
                   compras_2022_03.xlsx
                 </td>
-                <td class="whitespace-nowrap px-3 py-2 text-sm">
-                  <div class="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked
-                      class="h-4 w-4 rounded border-gray-300 text-[#003D89] focus:ring-[#003D89]"
-                    />
-                    <button class="text-gray-400 hover:text-gray-600">
-                      <svg
-                        class="h-5 w-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                        />
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                        />
-                      </svg>
-                    </button>
-                  </div>
+                <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-900">
+                  usuario@ejemplo.com
                 </td>
               </tr>
             </tbody>
@@ -436,6 +421,21 @@
       btn.disabled = false;
       btn.textContent = 'Cambiar';
     }
+  });
+  
+  // Funcionalidad para limpiar el formulario
+  document.getElementById('btn-limpiar').addEventListener('click', function() {
+    // Limpiar inputs de fecha
+    document.getElementById('fecha-inicio').value = '';
+    document.getElementById('fecha-fin').value = '';
+    
+    // Restablecer carpeta de salida al valor por defecto
+    document.getElementById('carpeta-salida').value = 'C:\\Reportes\\Compras\\';
+    
+    // Actualizar el filename display
+    document.getElementById('filename-display').textContent = 'compras_.xlsx';
+    
+    // El checkbox de "Sobrescribir si existe" ya está marcado por defecto, no necesita cambios
   });
 </script>
 {% endblock %}
