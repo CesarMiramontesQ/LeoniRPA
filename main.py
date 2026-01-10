@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, Depends, Form
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -11,6 +11,8 @@ from app.auth.router import router as auth_router, get_current_user, Authenticat
 from app.db.init_db import init_db
 from app.db.base import get_db
 from app.db.models import User
+import threading
+import sys
 
 # Inicializar base de datos al iniciar
 @asynccontextmanager
@@ -117,6 +119,162 @@ async def ventas(request: Request, current_user: User = Depends(get_current_user
             "current_user": current_user
         }
     )
+
+
+@app.get("/compras")
+async def compras(request: Request, current_user: User = Depends(get_current_user)):
+    """Página de compras - requiere autenticación."""
+    return templates.TemplateResponse(
+        "compras.html",
+        {
+            "request": request,
+            "active_page": "compras",
+            "current_user": current_user
+        }
+    )
+
+
+@app.get("/api/select-folder")
+async def select_folder(request: Request, current_user: User = Depends(get_current_user)):
+    """Abre un diálogo nativo para seleccionar una carpeta."""
+    import os
+    import platform
+    import subprocess
+    
+    try:
+        system = platform.system()
+        folder_path = None
+        
+        if system == "Darwin":  # macOS
+            # Usar AppleScript para abrir el diálogo nativo de macOS
+            script = '''
+            tell application "System Events"
+                activate
+                set folderPath to choose folder with prompt "Seleccionar carpeta de salida"
+                return POSIX path of folderPath
+            end tell
+            '''
+            try:
+                result = subprocess.run(
+                    ["osascript", "-e", script],
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
+                if result.returncode == 0:
+                    folder_path = result.stdout.strip()
+                    # Convertir ruta POSIX a formato estándar
+                    if folder_path and not folder_path.endswith(os.sep):
+                        folder_path += os.sep
+            except subprocess.TimeoutExpired:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "Tiempo de espera agotado"}
+                )
+            except Exception as e:
+                return JSONResponse(
+                    status_code=500,
+                    content={"error": f"Error al abrir el diálogo: {str(e)}"}
+                )
+        
+        elif system == "Windows":
+            # Usar tkinter para Windows (puede ejecutarse en hilo)
+            try:
+                import tkinter as tk
+                from tkinter import filedialog
+                
+                selected_folder = [None]
+                
+                def open_dialog():
+                    try:
+                        root = tk.Tk()
+                        root.withdraw()
+                        root.attributes('-topmost', True)
+                        folder = filedialog.askdirectory(
+                            title="Seleccionar carpeta de salida",
+                            mustexist=True
+                        )
+                        selected_folder[0] = folder
+                        root.destroy()
+                    except Exception as e:
+                        selected_folder[0] = f"Error: {str(e)}"
+                
+                thread = threading.Thread(target=open_dialog)
+                thread.daemon = True
+                thread.start()
+                thread.join(timeout=60)
+                
+                if selected_folder[0] and not selected_folder[0].startswith("Error"):
+                    folder_path = selected_folder[0]
+                elif selected_folder[0] and selected_folder[0].startswith("Error"):
+                    return JSONResponse(
+                        status_code=500,
+                        content={"error": selected_folder[0]}
+                    )
+            except ImportError:
+                return JSONResponse(
+                    status_code=500,
+                    content={"error": "tkinter no está disponible"}
+                )
+        
+        else:  # Linux y otros
+            # Usar tkinter para Linux
+            try:
+                import tkinter as tk
+                from tkinter import filedialog
+                
+                selected_folder = [None]
+                
+                def open_dialog():
+                    try:
+                        root = tk.Tk()
+                        root.withdraw()
+                        folder = filedialog.askdirectory(
+                            title="Seleccionar carpeta de salida",
+                            mustexist=True
+                        )
+                        selected_folder[0] = folder
+                        root.destroy()
+                    except Exception as e:
+                        selected_folder[0] = f"Error: {str(e)}"
+                
+                thread = threading.Thread(target=open_dialog)
+                thread.daemon = True
+                thread.start()
+                thread.join(timeout=60)
+                
+                if selected_folder[0] and not selected_folder[0].startswith("Error"):
+                    folder_path = selected_folder[0]
+                elif selected_folder[0] and selected_folder[0].startswith("Error"):
+                    return JSONResponse(
+                        status_code=500,
+                        content={"error": selected_folder[0]}
+                    )
+            except ImportError:
+                return JSONResponse(
+                    status_code=500,
+                    content={"error": "tkinter no está disponible"}
+                )
+        
+        if folder_path:
+            # Asegurar que termine con el separador correcto
+            if not folder_path.endswith(os.sep):
+                folder_path += os.sep
+            
+            return JSONResponse(
+                content={"folder_path": folder_path}
+            )
+        else:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "No se seleccionó ninguna carpeta"}
+            )
+            
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Error inesperado: {str(e)}"}
+        )
 
 
 @app.get("/admin")
