@@ -178,7 +178,9 @@
           <!-- Botones de acción -->
           <div class="flex flex-wrap gap-3 pt-4">
             <button
-              class="rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white hover:bg-[#003070]"
+              id="btn-iniciar-descarga"
+              type="button"
+              class="rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white hover:bg-[#003070] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Iniciar descarga
             </button>
@@ -332,28 +334,59 @@
                 </th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-200 bg-white">
-              <tr>
-                <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-900">
-                  12/04/2022
-                </td>
-                <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-500">
-                  Mar 2022
-                </td>
-                <td class="whitespace-nowrap px-3 py-2 text-sm">
-                  <span
-                    class="inline-flex rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-800"
-                  >
-                    Éxito
-                  </span>
-                </td>
-                <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-500">
-                  compras_2022_03.xlsx
-                </td>
-                <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-900">
-                  usuario@ejemplo.com
-                </td>
-              </tr>
+            <tbody class="divide-y divide-gray-200 bg-white" id="tabla-ejecuciones-body">
+              {% if executions %}
+                {% for exec in executions %}
+                <tr>
+                  <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-900">
+                    {{ exec.created_at.strftime('%d/%m/%Y %H:%M') if exec.created_at else 'N/A' }}
+                  </td>
+                  <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-500">
+                    {{ exec.fecha_inicio_periodo.strftime('%d/%m/%Y') if exec.fecha_inicio_periodo else 'N/A' }} - 
+                    {{ exec.fecha_fin_periodo.strftime('%d/%m/%Y') if exec.fecha_fin_periodo else 'N/A' }}
+                  </td>
+                  <td class="whitespace-nowrap px-3 py-2 text-sm">
+                    {% if exec.estado.value == 'SUCCESS' %}
+                      <span class="inline-flex rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-800">
+                        Éxito
+                      </span>
+                    {% elif exec.estado.value == 'FAILED' %}
+                      <span class="inline-flex rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-800">
+                        Fallido
+                      </span>
+                    {% elif exec.estado.value == 'RUNNING' %}
+                      <span class="inline-flex rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800">
+                        En ejecución
+                      </span>
+                    {% elif exec.estado.value == 'PENDING' %}
+                      <span class="inline-flex rounded-full bg-yellow-100 px-2 py-1 text-xs font-medium text-yellow-800">
+                        Pendiente
+                      </span>
+                    {% elif exec.estado.value == 'CANCELLED' %}
+                      <span class="inline-flex rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-800">
+                        Cancelado
+                      </span>
+                    {% else %}
+                      <span class="inline-flex rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-800">
+                        {{ exec.estado.value }}
+                      </span>
+                    {% endif %}
+                  </td>
+                  <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-500">
+                    {{ exec.archivo_nombre or 'N/A' }}
+                  </td>
+                  <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-900">
+                    {{ exec.user.email if exec.user else 'N/A' }}
+                  </td>
+                </tr>
+                {% endfor %}
+              {% else %}
+                <tr>
+                  <td colspan="5" class="px-3 py-4 text-center text-sm text-gray-500">
+                    No hay ejecuciones registradas
+                  </td>
+                </tr>
+              {% endif %}
             </tbody>
           </table>
         </div>
@@ -436,6 +469,64 @@
     document.getElementById('filename-display').textContent = 'compras_.xlsx';
     
     // El checkbox de "Sobrescribir si existe" ya está marcado por defecto, no necesita cambios
+  });
+  
+  // Funcionalidad para iniciar descarga
+  document.getElementById('btn-iniciar-descarga').addEventListener('click', async function() {
+    const btn = document.getElementById('btn-iniciar-descarga');
+    const fechaInicio = document.getElementById('fecha-inicio').value;
+    const fechaFin = document.getElementById('fecha-fin').value;
+    const carpetaSalida = document.getElementById('carpeta-salida').value;
+    
+    // Validaciones
+    if (!fechaInicio || !fechaFin) {
+      alert('Por favor, selecciona las fechas de inicio y fin del periodo');
+      return;
+    }
+    
+    if (!carpetaSalida || carpetaSalida.trim() === '') {
+      alert('Por favor, especifica la carpeta de salida');
+      return;
+    }
+    
+    // Deshabilitar el botón mientras se procesa
+    btn.disabled = true;
+    const textoOriginal = btn.textContent;
+    btn.textContent = 'Iniciando...';
+    
+    try {
+      // Crear FormData para enviar los datos
+      const formData = new FormData();
+      formData.append('fecha_inicio', fechaInicio);
+      formData.append('fecha_fin', fechaFin);
+      formData.append('carpeta_salida', carpetaSalida);
+      
+      // Enviar petición al backend
+      const response = await fetch('/api/compras/iniciar-descarga', {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        // Mostrar mensaje de éxito
+        alert(`Proceso iniciado exitosamente.\nArchivo esperado: ${data.archivo_esperado}`);
+        
+        // Recargar la página para actualizar la tabla de ejecuciones
+        window.location.reload();
+      } else {
+        // Mostrar error
+        alert('Error: ' + (data.error || 'Error desconocido al iniciar la descarga'));
+      }
+    } catch (error) {
+      console.error('Error al iniciar descarga:', error);
+      alert('Error al conectar con el servidor. Por favor, intenta nuevamente.');
+    } finally {
+      // Rehabilitar el botón
+      btn.disabled = false;
+      btn.textContent = textoOriginal;
+    }
   });
 </script>
 {% endblock %}

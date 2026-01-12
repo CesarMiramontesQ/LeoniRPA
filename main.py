@@ -11,8 +11,12 @@ from app.auth.router import router as auth_router, get_current_user, Authenticat
 from app.db.init_db import init_db
 from app.db.base import get_db
 from app.db.models import User
+from app.db import crud
 import threading
 import sys
+import socket
+import platform
+import os
 
 # Inicializar base de datos al iniciar
 @asynccontextmanager
@@ -122,16 +126,101 @@ async def ventas(request: Request, current_user: User = Depends(get_current_user
 
 
 @app.get("/compras")
-async def compras(request: Request, current_user: User = Depends(get_current_user)):
+async def compras(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Página de compras - requiere autenticación."""
+    # Obtener el historial de ejecuciones para mostrar en la tabla
+    executions = await crud.list_executions(db, user_id=current_user.id, limit=50)
+    
     return templates.TemplateResponse(
         "compras.html",
         {
             "request": request,
             "active_page": "compras",
-            "current_user": current_user
+            "current_user": current_user,
+            "executions": executions
         }
     )
+
+
+@app.post("/api/compras/iniciar-descarga")
+async def iniciar_descarga(
+    request: Request,
+    fecha_inicio: str = Form(...),
+    fecha_fin: str = Form(...),
+    carpeta_salida: str = Form(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Inicia el proceso de descarga de compras y registra la actividad."""
+    try:
+        # Validar y convertir fechas
+        # El input type="date" devuelve formato YYYY-MM-DD
+        try:
+            fecha_inicio_dt = datetime.strptime(fecha_inicio, "%Y-%m-%d")
+            fecha_fin_dt = datetime.strptime(fecha_fin, "%Y-%m-%d")
+            # Agregar hora al final del día para fecha_fin para incluir todo el día
+            fecha_fin_dt = fecha_fin_dt.replace(hour=23, minute=59, second=59)
+        except ValueError as e:
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"Formato de fecha inválido: {str(e)}. Use formato YYYY-MM-DD"}
+            )
+        
+        # Validar que fecha fin sea posterior a fecha inicio
+        if fecha_fin_dt < fecha_inicio_dt:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "La fecha fin debe ser posterior a la fecha inicio"}
+            )
+        
+        # Obtener información de la máquina
+        try:
+            hostname = socket.gethostname()
+        except:
+            hostname = platform.node() or "unknown"
+        
+        # Crear el registro de ejecución
+        execution = await crud.create_execution(
+            db=db,
+            user_id=current_user.id,
+            fecha_inicio_periodo=fecha_inicio_dt,
+            fecha_fin_periodo=fecha_fin_dt,
+            sistema_sap="SAP ECC",  # Valor por defecto, puede actualizarse después
+            transaccion="ME23N",  # Valor por defecto, puede actualizarse después
+            maquina=hostname
+        )
+        
+        # Construir el nombre del archivo esperado
+        fecha_inicio_str = fecha_inicio_dt.strftime("%Y%m%d")
+        fecha_fin_str = fecha_fin_dt.strftime("%Y%m%d")
+        nombre_archivo = f"compras_{fecha_inicio_str}_{fecha_fin_str}.xlsx"
+        ruta_completa = f"{carpeta_salida.rstrip('/').rstrip('\\')}{os.sep}{nombre_archivo}"
+        
+        # Actualizar con la información del archivo esperado
+        await crud.update_execution_status(
+            db=db,
+            execution_id=execution.id,
+            estado=execution.estado,  # Mantener PENDING
+            archivo_ruta=ruta_completa,
+            archivo_nombre=nombre_archivo
+        )
+        
+        return JSONResponse(
+            status_code=200,
+            content={
+                "success": True,
+                "message": "Proceso de descarga iniciado",
+                "execution_id": execution.id,
+                "archivo_esperado": nombre_archivo,
+                "ruta_completa": ruta_completa
+            }
+        )
+        
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Error al iniciar la descarga: {str(e)}"}
+        )
 
 
 @app.get("/api/select-folder")
