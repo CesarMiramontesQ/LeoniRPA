@@ -1,8 +1,8 @@
-from fastapi import FastAPI, Request, Depends, Form
+from fastapi import FastAPI, Request, Depends, Form, UploadFile, File
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.responses import RedirectResponse, JSONResponse, FileResponse
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -254,6 +254,86 @@ async def iniciar_descarga(
         return JSONResponse(
             status_code=500,
             content={"error": f"Error al iniciar la descarga: {str(e)}"}
+        )
+
+
+@app.post("/api/compras/procesar-archivos")
+async def procesar_archivos(
+    request: Request,
+    archivo_ventas: UploadFile = File(...),
+    archivo_po: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Procesa dos archivos Excel (Reporte de ventas y Purchase Order History) y genera un archivo final."""
+    import tempfile
+    import shutil
+    from pathlib import Path
+    
+    try:
+        # Validar que sean archivos Excel
+        extensiones_permitidas = ['.xlsx', '.xls']
+        
+        nombre_archivo_ventas = archivo_ventas.filename or ''
+        nombre_archivo_po = archivo_po.filename or ''
+        
+        extension_ventas = Path(nombre_archivo_ventas).suffix.lower()
+        extension_po = Path(nombre_archivo_po).suffix.lower()
+        
+        if extension_ventas not in extensiones_permitidas:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "El archivo de Reporte de ventas debe ser un archivo Excel (.xlsx o .xls)"}
+            )
+        
+        if extension_po not in extensiones_permitidas:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "El archivo de Purchase Order History debe ser un archivo Excel (.xlsx o .xls)"}
+            )
+        
+        # Crear directorio temporal para los archivos
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            
+            # Guardar archivos temporalmente
+            archivo_ventas_path = temp_path / f"ventas_{nombre_archivo_ventas}"
+            archivo_po_path = temp_path / f"po_{nombre_archivo_po}"
+            
+            with open(archivo_ventas_path, "wb") as f:
+                shutil.copyfileobj(archivo_ventas.file, f)
+            
+            with open(archivo_po_path, "wb") as f:
+                shutil.copyfileobj(archivo_po.file, f)
+            
+            # Aquí se procesarían los archivos Excel y se generaría el archivo final
+            # Por ahora, vamos a crear una estructura básica
+            # TODO: Implementar la lógica de procesamiento específica
+            
+            # Crear un archivo de resultado (por ahora solo como ejemplo)
+            # En producción, aquí se procesarían los Excel y se generaría el archivo final
+            archivo_resultado_path = temp_path / "archivo_procesado.xlsx"
+            
+            # Procesar los archivos (implementar lógica específica aquí)
+            # Por ahora, solo devolvemos un mensaje de éxito
+            # Cuando se implemente el procesamiento real, aquí se generaría el archivo final
+            
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": True,
+                    "message": "Los archivos se recibieron correctamente. El procesamiento se implementará próximamente.",
+                    "archivos_recibidos": {
+                        "ventas": nombre_archivo_ventas,
+                        "purchase_order_history": nombre_archivo_po
+                    }
+                }
+            )
+        
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Error al procesar los archivos: {str(e)}"}
         )
 
 
