@@ -339,11 +339,11 @@
                 {% for exec in executions %}
                 <tr>
                   <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-900">
-                    {{ exec.created_at.strftime('%d/%m/%Y %H:%M') if exec.created_at else 'N/A' }}
+                    {{ exec.created_at | datetime_cdmx('%d/%m/%Y %H:%M') }}
                   </td>
                   <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-500">
-                    {{ exec.fecha_inicio_periodo.strftime('%d/%m/%Y') if exec.fecha_inicio_periodo else 'N/A' }} - 
-                    {{ exec.fecha_fin_periodo.strftime('%d/%m/%Y') if exec.fecha_fin_periodo else 'N/A' }}
+                    {{ exec.fecha_inicio_periodo | datetime_cdmx('%d/%m/%Y') }} - 
+                    {{ exec.fecha_fin_periodo | datetime_cdmx('%d/%m/%Y') }}
                   </td>
                   <td class="whitespace-nowrap px-3 py-2 text-sm">
                     {% if exec.estado.value == 'SUCCESS' %}

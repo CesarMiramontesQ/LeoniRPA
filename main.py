@@ -18,6 +18,13 @@ import socket
 import platform
 import os
 
+# Para manejo de zonas horarias
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    # Fallback para Python < 3.9
+    from backports.zoneinfo import ZoneInfo
+
 # Inicializar base de datos al iniciar
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -123,6 +130,33 @@ async def ventas(request: Request, current_user: User = Depends(get_current_user
             "current_user": current_user
         }
     )
+
+
+def convertir_a_cdmx(dt: Optional[datetime]) -> Optional[datetime]:
+    """Convierte una fecha UTC a la zona horaria de Ciudad de México."""
+    if dt is None:
+        return None
+    
+    # Si la fecha ya tiene timezone info, convertirla
+    if dt.tzinfo is not None:
+        return dt.astimezone(ZoneInfo("America/Mexico_City"))
+    else:
+        # Asumir que está en UTC si no tiene timezone
+        dt_utc = dt.replace(tzinfo=ZoneInfo("UTC"))
+        return dt_utc.astimezone(ZoneInfo("America/Mexico_City"))
+
+
+# Agregar filtro personalizado a Jinja2 para convertir fechas a CDMX
+def datetime_cdmx_filter(dt: Optional[datetime], format_str: str = '%d/%m/%Y %H:%M') -> str:
+    """Filtro de Jinja2 para convertir datetime a CDMX y formatear."""
+    if dt is None:
+        return 'N/A'
+    dt_cdmx = convertir_a_cdmx(dt)
+    return dt_cdmx.strftime(format_str)
+
+
+# Registrar el filtro en el entorno de templates
+templates.env.filters['datetime_cdmx'] = datetime_cdmx_filter
 
 
 @app.get("/compras")
