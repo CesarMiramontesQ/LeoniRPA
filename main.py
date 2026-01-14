@@ -262,12 +262,14 @@ async def procesar_archivos(
     request: Request,
     archivo_ventas: UploadFile = File(...),
     archivo_po: UploadFile = File(...),
+    carpeta_salida: str = Form(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Procesa dos archivos Excel (Reporte de ventas y Purchase Order History) y genera un archivo final."""
     import tempfile
     import shutil
+    import os
     from pathlib import Path
     
     try:
@@ -290,6 +292,27 @@ async def procesar_archivos(
             return JSONResponse(
                 status_code=400,
                 content={"error": "El archivo de Purchase Order History debe ser un archivo Excel (.xlsx o .xls)"}
+            )
+        
+        # Validar carpeta de salida
+        if not carpeta_salida or carpeta_salida.strip() == '':
+            return JSONResponse(
+                status_code=400,
+                content={"error": "La carpeta de salida es requerida"}
+            )
+        
+        # Asegurar que la carpeta termine con el separador correcto
+        carpeta_salida_path = Path(carpeta_salida)
+        if not carpeta_salida_path.exists():
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"La carpeta de salida no existe: {carpeta_salida}"}
+            )
+        
+        if not carpeta_salida_path.is_dir():
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"La ruta especificada no es una carpeta: {carpeta_salida}"}
             )
         
         # Crear directorio temporal para los archivos
@@ -317,16 +340,18 @@ async def procesar_archivos(
             # Procesar los archivos (implementar lógica específica aquí)
             # Por ahora, solo devolvemos un mensaje de éxito
             # Cuando se implemente el procesamiento real, aquí se generaría el archivo final
+            # y se guardaría en carpeta_salida_path
             
             return JSONResponse(
                 status_code=200,
                 content={
                     "success": True,
-                    "message": "Los archivos se recibieron correctamente. El procesamiento se implementará próximamente.",
+                    "message": f"Los archivos se recibieron correctamente. El procesamiento se implementará próximamente. Carpeta de salida: {carpeta_salida}",
                     "archivos_recibidos": {
                         "ventas": nombre_archivo_ventas,
                         "purchase_order_history": nombre_archivo_po
-                    }
+                    },
+                    "carpeta_salida": str(carpeta_salida_path)
                 }
             )
         
