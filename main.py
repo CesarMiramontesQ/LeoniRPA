@@ -67,67 +67,18 @@ async def dashboard(request: Request, current_user: User = Depends(get_current_u
 
 
 @app.get("/ventas")
-async def ventas(request: Request, current_user: User = Depends(get_current_user)):
+async def ventas(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Página de ventas - requiere autenticación."""
-    # Datos de ejemplo de ventas
-    ventas_data = [
-        {
-            "id": 1,
-            "cliente": "Empresa ABC S.A.",
-            "producto": "Cable UTP Cat6",
-            "cantidad": 100,
-            "precio_unitario": 2.50,
-            "total": 250.00,
-            "fecha": (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d")
-        },
-        {
-            "id": 2,
-            "cliente": "Tech Solutions Ltda.",
-            "producto": "Conector RJ45",
-            "cantidad": 500,
-            "precio_unitario": 0.75,
-            "total": 375.00,
-            "fecha": (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
-        },
-        {
-            "id": 3,
-            "cliente": "Redes Industriales",
-            "producto": "Switch 24 Puertos",
-            "cantidad": 5,
-            "precio_unitario": 150.00,
-            "total": 750.00,
-            "fecha": (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")
-        },
-        {
-            "id": 4,
-            "cliente": "Comunicaciones XYZ",
-            "producto": "Cable Coaxial RG6",
-            "cantidad": 200,
-            "precio_unitario": 1.25,
-            "total": 250.00,
-            "fecha": (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-        },
-        {
-            "id": 5,
-            "cliente": "Infraestructura Digital",
-            "producto": "Router WiFi 6",
-            "cantidad": 10,
-            "precio_unitario": 89.99,
-            "total": 899.90,
-            "fecha": datetime.now().strftime("%Y-%m-%d")
-        }
-    ]
-    
-    total_general = sum(venta["total"] for venta in ventas_data)
+    # Obtener el historial de ejecuciones para mostrar en la tabla
+    executions = await crud.list_sales_executions(db, user_id=current_user.id, limit=50)
     
     return templates.TemplateResponse(
         "ventas.html",
         {
             "request": request,
-            "ventas": ventas_data,
-            "total_general": total_general,
             "active_page": "ventas",
-            "current_user": current_user
+            "current_user": current_user,
+            "executions": executions
         }
     )
 
@@ -259,6 +210,192 @@ async def iniciar_descarga(
 
 @app.post("/api/compras/procesar-archivos")
 async def procesar_archivos(
+    request: Request,
+    archivo_ventas: UploadFile = File(...),
+    archivo_po: UploadFile = File(...),
+    carpeta_salida: str = Form(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Procesa dos archivos Excel (Reporte de ventas y Purchase Order History) y genera un archivo final."""
+    import tempfile
+    import shutil
+    import os
+    from pathlib import Path
+    
+    try:
+        # Validar que sean archivos Excel
+        extensiones_permitidas = ['.xlsx', '.xls']
+        
+        nombre_archivo_ventas = archivo_ventas.filename or ''
+        nombre_archivo_po = archivo_po.filename or ''
+        
+        extension_ventas = Path(nombre_archivo_ventas).suffix.lower()
+        extension_po = Path(nombre_archivo_po).suffix.lower()
+        
+        if extension_ventas not in extensiones_permitidas:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "El archivo de Reporte de ventas debe ser un archivo Excel (.xlsx o .xls)"}
+            )
+        
+        if extension_po not in extensiones_permitidas:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "El archivo de Purchase Order History debe ser un archivo Excel (.xlsx o .xls)"}
+            )
+        
+        # Validar carpeta de salida
+        if not carpeta_salida or carpeta_salida.strip() == '':
+            return JSONResponse(
+                status_code=400,
+                content={"error": "La carpeta de salida es requerida"}
+            )
+        
+        # Asegurar que la carpeta termine con el separador correcto
+        carpeta_salida_path = Path(carpeta_salida)
+        if not carpeta_salida_path.exists():
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"La carpeta de salida no existe: {carpeta_salida}"}
+            )
+        
+        if not carpeta_salida_path.is_dir():
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"La ruta especificada no es una carpeta: {carpeta_salida}"}
+            )
+        
+        # Crear directorio temporal para los archivos
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            
+            # Guardar archivos temporalmente
+            archivo_ventas_path = temp_path / f"ventas_{nombre_archivo_ventas}"
+            archivo_po_path = temp_path / f"po_{nombre_archivo_po}"
+            
+            with open(archivo_ventas_path, "wb") as f:
+                shutil.copyfileobj(archivo_ventas.file, f)
+            
+            with open(archivo_po_path, "wb") as f:
+                shutil.copyfileobj(archivo_po.file, f)
+            
+            # Aquí se procesarían los archivos Excel y se generaría el archivo final
+            # Por ahora, vamos a crear una estructura básica
+            # TODO: Implementar la lógica de procesamiento específica
+            
+            # Crear un archivo de resultado (por ahora solo como ejemplo)
+            # En producción, aquí se procesarían los Excel y se generaría el archivo final
+            archivo_resultado_path = temp_path / "archivo_procesado.xlsx"
+            
+            # Procesar los archivos (implementar lógica específica aquí)
+            # Por ahora, solo devolvemos un mensaje de éxito
+            # Cuando se implemente el procesamiento real, aquí se generaría el archivo final
+            # y se guardaría en carpeta_salida_path
+            
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": True,
+                    "message": f"Los archivos se recibieron correctamente. El procesamiento se implementará próximamente. Carpeta de salida: {carpeta_salida}",
+                    "archivos_recibidos": {
+                        "ventas": nombre_archivo_ventas,
+                        "purchase_order_history": nombre_archivo_po
+                    },
+                    "carpeta_salida": str(carpeta_salida_path)
+                }
+            )
+        
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Error al procesar los archivos: {str(e)}"}
+        )
+
+
+@app.post("/api/ventas/iniciar-descarga")
+async def iniciar_descarga_ventas(
+    request: Request,
+    fecha_inicio: str = Form(...),
+    fecha_fin: str = Form(...),
+    carpeta_salida: str = Form(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Inicia el proceso de descarga de ventas y registra la actividad."""
+    try:
+        # Validar y convertir fechas
+        # El input type="date" devuelve formato YYYY-MM-DD
+        try:
+            fecha_inicio_dt = datetime.strptime(fecha_inicio, "%Y-%m-%d")
+            fecha_fin_dt = datetime.strptime(fecha_fin, "%Y-%m-%d")
+            # Agregar hora al final del día para fecha_fin para incluir todo el día
+            fecha_fin_dt = fecha_fin_dt.replace(hour=23, minute=59, second=59)
+        except ValueError as e:
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"Formato de fecha inválido: {str(e)}. Use formato YYYY-MM-DD"}
+            )
+        
+        # Validar que fecha fin sea posterior a fecha inicio
+        if fecha_fin_dt < fecha_inicio_dt:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "La fecha fin debe ser posterior a la fecha inicio"}
+            )
+        
+        # Obtener información de la máquina
+        try:
+            hostname = socket.gethostname()
+        except:
+            hostname = platform.node() or "unknown"
+        
+        # Crear el registro de ejecución
+        execution = await crud.create_sales_execution(
+            db=db,
+            user_id=current_user.id,
+            fecha_inicio_periodo=fecha_inicio_dt,
+            fecha_fin_periodo=fecha_fin_dt,
+            sistema_sap="SAP ECC",  # Valor por defecto, puede actualizarse después
+            transaccion="ME23N",  # Valor por defecto, puede actualizarse después
+            maquina=hostname
+        )
+        
+        # Construir el nombre del archivo esperado
+        fecha_inicio_str = fecha_inicio_dt.strftime("%Y%m%d")
+        fecha_fin_str = fecha_fin_dt.strftime("%Y%m%d")
+        nombre_archivo = f"ventas_{fecha_inicio_str}_{fecha_fin_str}.xlsx"
+        ruta_completa = f"{carpeta_salida.rstrip('/').rstrip('\\')}{os.sep}{nombre_archivo}"
+        
+        # Actualizar con la información del archivo esperado
+        await crud.update_sales_execution_status(
+            db=db,
+            execution_id=execution.id,
+            estado=execution.estado,  # Mantener PENDING
+            archivo_ruta=ruta_completa,
+            archivo_nombre=nombre_archivo
+        )
+        
+        return JSONResponse(
+            status_code=200,
+            content={
+                "success": True,
+                "message": "Proceso de descarga iniciado",
+                "execution_id": execution.id,
+                "archivo_esperado": nombre_archivo,
+                "ruta_completa": ruta_completa
+            }
+        )
+        
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Error al iniciar la descarga: {str(e)}"}
+        )
+
+
+@app.post("/api/ventas/procesar-archivos")
+async def procesar_archivos_ventas(
     request: Request,
     archivo_ventas: UploadFile = File(...),
     archivo_po: UploadFile = File(...),
