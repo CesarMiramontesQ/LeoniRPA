@@ -339,9 +339,17 @@ async def procesar_archivos(
                     content={"error": "No se encontró la columna 'Name 1' en el Archivo 2 (referencia)"}
                 )
             
-            # Crear o verificar columna "Proveedor" en Archivo 1
-            if "Proveedor" not in df_archivo1.columns:
+            # Buscar o crear columna "Proveedor" en Archivo 1 (búsqueda case-insensitive)
+            columna_proveedor = None
+            for col in df_archivo1.columns:
+                if str(col).strip().lower() == "proveedor":
+                    columna_proveedor = col
+                    break
+            
+            # Si no existe, crear la columna "Proveedor"
+            if columna_proveedor is None:
                 df_archivo1["Proveedor"] = ""
+                columna_proveedor = "Proveedor"
             
             # Crear un diccionario de mapeo desde Archivo 2
             # Clave: Purchasing Document (normalizado), Valor: Name 1
@@ -371,15 +379,15 @@ async def procesar_archivos(
                     # Buscar coincidencia en el mapa
                     if purchasing_doc_normalizado in mapa_proveedores:
                         # Asignar el valor de Name 1 a Proveedor
-                        df_archivo1.at[idx, "Proveedor"] = mapa_proveedores[purchasing_doc_normalizado]
+                        df_archivo1.at[idx, columna_proveedor] = mapa_proveedores[purchasing_doc_normalizado]
                     else:
                         # Si no hay coincidencia, dejar vacío (o conservar si ya existe)
-                        if pd.isna(df_archivo1.at[idx, "Proveedor"]) or df_archivo1.at[idx, "Proveedor"] == "":
-                            df_archivo1.at[idx, "Proveedor"] = ""
+                        if pd.isna(df_archivo1.at[idx, columna_proveedor]) or df_archivo1.at[idx, columna_proveedor] == "":
+                            df_archivo1.at[idx, columna_proveedor] = ""
                 else:
                     # Si el valor de Purchasing Document está vacío, dejar Proveedor vacío
-                    if pd.isna(df_archivo1.at[idx, "Proveedor"]) or df_archivo1.at[idx, "Proveedor"] == "":
-                        df_archivo1.at[idx, "Proveedor"] = ""
+                    if pd.isna(df_archivo1.at[idx, columna_proveedor]) or df_archivo1.at[idx, columna_proveedor] == "":
+                        df_archivo1.at[idx, columna_proveedor] = ""
             
             # Generar nombre del archivo de salida con sufijo
             nombre_base = Path(nombre_archivo_ventas).stem
