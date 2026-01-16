@@ -389,6 +389,53 @@ async def procesar_archivos(
                     if pd.isna(df_archivo1.at[idx, columna_proveedor]) or df_archivo1.at[idx, columna_proveedor] == "":
                         df_archivo1.at[idx, columna_proveedor] = ""
             
+            # Crear columna "U/P" = Invoice Value / Quantity in OPUn
+            # Buscar columnas de manera case-insensitive
+            columna_invoice_value = None
+            columna_quantity_opun = None
+            
+            for col in df_archivo1.columns:
+                col_normalizado = str(col).strip().lower()
+                if col_normalizado == "invoice value":
+                    columna_invoice_value = col
+                elif col_normalizado == "quantity in opun":
+                    columna_quantity_opun = col
+            
+            # Verificar que ambas columnas existan
+            if columna_invoice_value is None:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "No se encontró la columna 'Invoice Value' en el Archivo 1 (base/destino)"}
+                )
+            
+            if columna_quantity_opun is None:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "No se encontró la columna 'Quantity in OPUn' en el Archivo 1 (base/destino)"}
+                )
+            
+            # Crear la columna "U/P" y calcular el valor
+            df_archivo1["U/P"] = ""
+            
+            for idx, row in df_archivo1.iterrows():
+                invoice_value = row[columna_invoice_value]
+                quantity_opun = row[columna_quantity_opun]
+                
+                # Convertir a numérico si es posible
+                try:
+                    invoice_value_num = pd.to_numeric(invoice_value, errors='coerce')
+                    quantity_opun_num = pd.to_numeric(quantity_opun, errors='coerce')
+                    
+                    # Realizar la división solo si ambos valores son válidos y quantity no es cero
+                    if pd.notna(invoice_value_num) and pd.notna(quantity_opun_num) and quantity_opun_num != 0:
+                        df_archivo1.at[idx, "U/P"] = invoice_value_num / quantity_opun_num
+                    else:
+                        # Si hay valores nulos o quantity es cero, dejar vacío
+                        df_archivo1.at[idx, "U/P"] = ""
+                except (ValueError, TypeError, ZeroDivisionError):
+                    # Si hay error en la conversión o división, dejar vacío
+                    df_archivo1.at[idx, "U/P"] = ""
+            
             # Generar nombre del archivo de salida con sufijo
             nombre_base = Path(nombre_archivo_ventas).stem
             extension_base = Path(nombre_archivo_ventas).suffix
