@@ -332,7 +332,7 @@
 
             <!-- Mensaje de estado (opcional) -->
             <div id="mensaje-procesamiento" class="hidden mt-2 p-3 rounded-md bg-blue-50 border border-blue-200">
-              <p class="text-sm text-blue-800"></p>
+              <p class="text-sm text-blue-800 whitespace-pre-line"></p>
             </div>
           </div>
         </div>
@@ -758,23 +758,22 @@
       const data = await response.json();
       
       if (response.ok && data.success) {
-        // Mostrar mensaje de éxito
-        mensajeTexto.textContent = `Archivos procesados exitosamente. ${data.message || ''}`;
+        // Mostrar mensaje de éxito con información del archivo generado
+        let mensajeExito = '✓ Archivos procesados exitosamente.';
+        if (data.nombre_archivo) {
+          mensajeExito += `\n\nArchivo generado: ${data.nombre_archivo}`;
+        }
+        if (data.archivo_resultado) {
+          mensajeExito += `\nUbicación: ${data.archivo_resultado}`;
+        }
+        mensajeTexto.textContent = mensajeExito;
         mensajeProcesamiento.classList.remove('bg-blue-50', 'border-blue-200', 'bg-red-50', 'border-red-200');
         mensajeProcesamiento.classList.add('bg-green-50', 'border-green-200');
         mensajeTexto.classList.remove('text-blue-800', 'text-red-800');
         mensajeTexto.classList.add('text-green-800');
         
-        // Si hay un archivo para descargar, ofrecer descargarlo
-        if (data.archivo_resultado) {
-          // Crear un enlace temporal para descargar el archivo
-          const downloadLink = document.createElement('a');
-          downloadLink.href = data.archivo_resultado;
-          downloadLink.download = data.nombre_archivo || 'archivo_procesado.xlsx';
-          document.body.appendChild(downloadLink);
-          downloadLink.click();
-          document.body.removeChild(downloadLink);
-        }
+        // El archivo ya está guardado en la carpeta seleccionada por el usuario
+        // No es necesario descargarlo, solo informar la ubicación
       } else {
         // Mostrar error
         mensajeTexto.textContent = 'Error: ' + (data.error || 'Error desconocido al procesar los archivos');

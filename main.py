@@ -217,11 +217,12 @@ async def procesar_archivos(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Procesa dos archivos Excel (Reporte de ventas y Purchase Order History) y genera un archivo final."""
+    """Procesa dos archivos Excel: cruza información usando 'Purchasing Document' y actualiza la columna 'Proveedor'."""
     import tempfile
     import shutil
     import os
     from pathlib import Path
+    import pandas as pd
     
     try:
         # Validar que sean archivos Excel
@@ -280,27 +281,135 @@ async def procesar_archivos(
             with open(archivo_po_path, "wb") as f:
                 shutil.copyfileobj(archivo_po.file, f)
             
-            # Aquí se procesarían los archivos Excel y se generaría el archivo final
-            # Por ahora, vamos a crear una estructura básica
-            # TODO: Implementar la lógica de procesamiento específica
+            # Leer archivos Excel
+            try:
+                # Leer Archivo 1 (base/destino) - donde se escribirá Proveedor
+                if extension_ventas == '.xlsx':
+                    df_archivo1 = pd.read_excel(archivo_ventas_path, engine='openpyxl')
+                else:
+                    df_archivo1 = pd.read_excel(archivo_ventas_path, engine='xlrd')
+                
+                # Leer Archivo 2 (referencia) - del que se obtendrá Name 1
+                if extension_po == '.xlsx':
+                    df_archivo2 = pd.read_excel(archivo_po_path, engine='openpyxl')
+                else:
+                    df_archivo2 = pd.read_excel(archivo_po_path, engine='xlrd')
+            except Exception as e:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": f"Error al leer los archivos Excel: {str(e)}"}
+                )
             
-            # Crear un archivo de resultado (por ahora solo como ejemplo)
-            # En producción, aquí se procesarían los Excel y se generaría el archivo final
-            archivo_resultado_path = temp_path / "archivo_procesado.xlsx"
+            # Buscar la columna "Purchasing Document" en ambos archivos (tal cual esté escrita)
+            columna_purchasing_doc = None
+            for col in df_archivo1.columns:
+                if str(col).strip() == "Purchasing Document":
+                    columna_purchasing_doc = col
+                    break
             
-            # Procesar los archivos (implementar lógica específica aquí)
-            # Por ahora, solo devolvemos un mensaje de éxito
-            # Cuando se implemente el procesamiento real, aquí se generaría el archivo final
-            # y se guardaría en carpeta_salida_path
+            if columna_purchasing_doc is None:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "No se encontró la columna 'Purchasing Document' en el Archivo 1 (base/destino)"}
+                )
+            
+            # Verificar que también existe en el Archivo 2
+            columna_purchasing_doc_archivo2 = None
+            for col in df_archivo2.columns:
+                if str(col).strip() == "Purchasing Document":
+                    columna_purchasing_doc_archivo2 = col
+                    break
+            
+            if columna_purchasing_doc_archivo2 is None:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "No se encontró la columna 'Purchasing Document' en el Archivo 2 (referencia)"}
+                )
+            
+            # Buscar la columna "Name 1" en el Archivo 2
+            columna_name1 = None
+            for col in df_archivo2.columns:
+                if str(col).strip() == "Name 1":
+                    columna_name1 = col
+                    break
+            
+            if columna_name1 is None:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "No se encontró la columna 'Name 1' en el Archivo 2 (referencia)"}
+                )
+            
+            # Crear o verificar columna "Proveedor" en Archivo 1
+            if "Proveedor" not in df_archivo1.columns:
+                df_archivo1["Proveedor"] = ""
+            
+            # Crear un diccionario de mapeo desde Archivo 2
+            # Clave: Purchasing Document (normalizado), Valor: Name 1
+            # Usar la primera coincidencia si hay múltiples
+            mapa_proveedores = {}
+            for idx, row in df_archivo2.iterrows():
+                purchasing_doc = row[columna_purchasing_doc_archivo2]
+                name1 = row[columna_name1]
+                
+                # Normalizar: convertir a string, trim, y asegurar tipo comparable
+                if pd.notna(purchasing_doc) and pd.notna(name1):
+                    purchasing_doc_normalizado = str(purchasing_doc).strip()
+                    name1_valor = str(name1).strip()
+                    
+                    # Solo agregar si no existe ya (para usar la primera coincidencia)
+                    if purchasing_doc_normalizado and purchasing_doc_normalizado not in mapa_proveedores:
+                        mapa_proveedores[purchasing_doc_normalizado] = name1_valor
+            
+            # Procesar cada fila del Archivo 1
+            for idx, row in df_archivo1.iterrows():
+                purchasing_doc_valor = row[columna_purchasing_doc]
+                
+                # Normalizar el valor para comparar
+                if pd.notna(purchasing_doc_valor):
+                    purchasing_doc_normalizado = str(purchasing_doc_valor).strip()
+                    
+                    # Buscar coincidencia en el mapa
+                    if purchasing_doc_normalizado in mapa_proveedores:
+                        # Asignar el valor de Name 1 a Proveedor
+                        df_archivo1.at[idx, "Proveedor"] = mapa_proveedores[purchasing_doc_normalizado]
+                    else:
+                        # Si no hay coincidencia, dejar vacío (o conservar si ya existe)
+                        if pd.isna(df_archivo1.at[idx, "Proveedor"]) or df_archivo1.at[idx, "Proveedor"] == "":
+                            df_archivo1.at[idx, "Proveedor"] = ""
+                else:
+                    # Si el valor de Purchasing Document está vacío, dejar Proveedor vacío
+                    if pd.isna(df_archivo1.at[idx, "Proveedor"]) or df_archivo1.at[idx, "Proveedor"] == "":
+                        df_archivo1.at[idx, "Proveedor"] = ""
+            
+            # Generar nombre del archivo de salida con sufijo
+            nombre_base = Path(nombre_archivo_ventas).stem
+            extension_base = Path(nombre_archivo_ventas).suffix
+            nombre_archivo_procesado = f"{nombre_base}_procesado{extension_base}"
+            archivo_resultado_path = carpeta_salida_path / nombre_archivo_procesado
+            
+            # Guardar el archivo procesado
+            try:
+                # Asegurar que el archivo se guarde como .xlsx
+                if extension_base.lower() == '.xls':
+                    archivo_resultado_path = carpeta_salida_path / f"{nombre_base}_procesado.xlsx"
+                
+                df_archivo1.to_excel(archivo_resultado_path, index=False, engine='openpyxl')
+            except Exception as e:
+                return JSONResponse(
+                    status_code=500,
+                    content={"error": f"Error al guardar el archivo procesado: {str(e)}"}
+                )
             
             return JSONResponse(
                 status_code=200,
                 content={
                     "success": True,
-                    "message": f"Los archivos se recibieron correctamente. El procesamiento se implementará próximamente. Carpeta de salida: {carpeta_salida}",
+                    "message": f"Archivo procesado exitosamente. Guardado en: {str(archivo_resultado_path)}",
+                    "archivo_resultado": str(archivo_resultado_path),
+                    "nombre_archivo": nombre_archivo_procesado,
                     "archivos_recibidos": {
-                        "ventas": nombre_archivo_ventas,
-                        "purchase_order_history": nombre_archivo_po
+                        "archivo_base": nombre_archivo_ventas,
+                        "archivo_referencia": nombre_archivo_po
                     },
                     "carpeta_salida": str(carpeta_salida_path)
                 }
