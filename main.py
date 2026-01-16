@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.router import router as auth_router, get_current_user, AuthenticationError
 from app.db.init_db import init_db
 from app.db.base import get_db
-from app.db.models import User
+from app.db.models import User, ExecutionStatus
 from app.db import crud
 import threading
 import sys
@@ -223,8 +223,45 @@ async def procesar_archivos(
     import os
     from pathlib import Path
     import pandas as pd
+    import traceback
+    import time
+    
+    # Variables para el registro de ejecución
+    execution = None
+    execution_id = None
+    fecha_inicio_ejecucion = None
     
     try:
+        # Obtener información de la máquina
+        try:
+            hostname = socket.gethostname()
+        except:
+            hostname = platform.node() or "unknown"
+        
+        # Fecha de hoy para el periodo (el procesamiento no tiene periodo específico)
+        fecha_hoy = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        # Crear el registro de ejecución inicial
+        execution = await crud.create_execution(
+            db=db,
+            user_id=current_user.id,
+            fecha_inicio_periodo=fecha_hoy,
+            fecha_fin_periodo=fecha_hoy,
+            sistema_sap="Procesamiento de Archivos",
+            transaccion="Procesar Archivos Excel",
+            maquina=hostname
+        )
+        execution_id = execution.id
+        fecha_inicio_ejecucion = datetime.now()
+        
+        # Actualizar estado a RUNNING
+        await crud.update_execution_status(
+            db=db,
+            execution_id=execution_id,
+            estado=ExecutionStatus.RUNNING,
+            fecha_inicio_ejecucion=fecha_inicio_ejecucion
+        )
+        
         # Validar que sean archivos Excel
         extensiones_permitidas = ['.xlsx', '.xls']
         
@@ -235,15 +272,31 @@ async def procesar_archivos(
         extension_po = Path(nombre_archivo_po).suffix.lower()
         
         if extension_ventas not in extensiones_permitidas:
+            error_msg = "El archivo de Reporte de ventas debe ser un archivo Excel (.xlsx o .xls)"
+            if execution_id:
+                await crud.update_execution_status(
+                    db=db,
+                    execution_id=execution_id,
+                    estado=ExecutionStatus.FAILED,
+                    mensaje_error=error_msg
+                )
             return JSONResponse(
                 status_code=400,
-                content={"error": "El archivo de Reporte de ventas debe ser un archivo Excel (.xlsx o .xls)"}
+                content={"error": error_msg}
             )
         
         if extension_po not in extensiones_permitidas:
+            error_msg = "El archivo de Purchase Order History debe ser un archivo Excel (.xlsx o .xls)"
+            if execution_id:
+                await crud.update_execution_status(
+                    db=db,
+                    execution_id=execution_id,
+                    estado=ExecutionStatus.FAILED,
+                    mensaje_error=error_msg
+                )
             return JSONResponse(
                 status_code=400,
-                content={"error": "El archivo de Purchase Order History debe ser un archivo Excel (.xlsx o .xls)"}
+                content={"error": error_msg}
             )
         
         # Validar carpeta de salida
@@ -295,9 +348,18 @@ async def procesar_archivos(
                 else:
                     df_archivo2 = pd.read_excel(archivo_po_path, engine='xlrd')
             except Exception as e:
+                error_msg = f"Error al leer los archivos Excel: {str(e)}"
+                if execution_id:
+                    await crud.update_execution_status(
+                        db=db,
+                        execution_id=execution_id,
+                        estado=ExecutionStatus.FAILED,
+                        mensaje_error=error_msg,
+                        stack_trace=traceback.format_exc()
+                    )
                 return JSONResponse(
                     status_code=400,
-                    content={"error": f"Error al leer los archivos Excel: {str(e)}"}
+                    content={"error": error_msg}
                 )
             
             # Buscar la columna "Purchasing Document" en ambos archivos (tal cual esté escrita)
@@ -308,9 +370,17 @@ async def procesar_archivos(
                     break
             
             if columna_purchasing_doc is None:
+                error_msg = "No se encontró la columna 'Purchasing Document' en el Archivo 1 (base/destino)"
+                if execution_id:
+                    await crud.update_execution_status(
+                        db=db,
+                        execution_id=execution_id,
+                        estado=ExecutionStatus.FAILED,
+                        mensaje_error=error_msg
+                    )
                 return JSONResponse(
                     status_code=400,
-                    content={"error": "No se encontró la columna 'Purchasing Document' en el Archivo 1 (base/destino)"}
+                    content={"error": error_msg}
                 )
             
             # Verificar que también existe en el Archivo 2
@@ -321,9 +391,17 @@ async def procesar_archivos(
                     break
             
             if columna_purchasing_doc_archivo2 is None:
+                error_msg = "No se encontró la columna 'Purchasing Document' en el Archivo 2 (referencia)"
+                if execution_id:
+                    await crud.update_execution_status(
+                        db=db,
+                        execution_id=execution_id,
+                        estado=ExecutionStatus.FAILED,
+                        mensaje_error=error_msg
+                    )
                 return JSONResponse(
                     status_code=400,
-                    content={"error": "No se encontró la columna 'Purchasing Document' en el Archivo 2 (referencia)"}
+                    content={"error": error_msg}
                 )
             
             # Buscar la columna "Name 1" en el Archivo 2
@@ -334,9 +412,17 @@ async def procesar_archivos(
                     break
             
             if columna_name1 is None:
+                error_msg = "No se encontró la columna 'Name 1' en el Archivo 2 (referencia)"
+                if execution_id:
+                    await crud.update_execution_status(
+                        db=db,
+                        execution_id=execution_id,
+                        estado=ExecutionStatus.FAILED,
+                        mensaje_error=error_msg
+                    )
                 return JSONResponse(
                     status_code=400,
-                    content={"error": "No se encontró la columna 'Name 1' en el Archivo 2 (referencia)"}
+                    content={"error": error_msg}
                 )
             
             # Buscar o crear columna "Proveedor" en Archivo 1 (búsqueda case-insensitive)
@@ -403,15 +489,31 @@ async def procesar_archivos(
             
             # Verificar que ambas columnas existan
             if columna_invoice_value is None:
+                error_msg = "No se encontró la columna 'Invoice Value' en el Archivo 1 (base/destino)"
+                if execution_id:
+                    await crud.update_execution_status(
+                        db=db,
+                        execution_id=execution_id,
+                        estado=ExecutionStatus.FAILED,
+                        mensaje_error=error_msg
+                    )
                 return JSONResponse(
                     status_code=400,
-                    content={"error": "No se encontró la columna 'Invoice Value' en el Archivo 1 (base/destino)"}
+                    content={"error": error_msg}
                 )
             
             if columna_quantity_opun is None:
+                error_msg = "No se encontró la columna 'Quantity in OPUn' en el Archivo 1 (base/destino)"
+                if execution_id:
+                    await crud.update_execution_status(
+                        db=db,
+                        execution_id=execution_id,
+                        estado=ExecutionStatus.FAILED,
+                        mensaje_error=error_msg
+                    )
                 return JSONResponse(
                     status_code=400,
-                    content={"error": "No se encontró la columna 'Quantity in OPUn' en el Archivo 1 (base/destino)"}
+                    content={"error": error_msg}
                 )
             
             # Crear la columna "U/P" y calcular el valor
@@ -450,9 +552,34 @@ async def procesar_archivos(
                 
                 df_archivo1.to_excel(archivo_resultado_path, index=False, engine='openpyxl')
             except Exception as e:
+                error_msg = f"Error al guardar el archivo procesado: {str(e)}"
+                if execution_id:
+                    await crud.update_execution_status(
+                        db=db,
+                        execution_id=execution_id,
+                        estado=ExecutionStatus.FAILED,
+                        mensaje_error=error_msg,
+                        stack_trace=traceback.format_exc()
+                    )
                 return JSONResponse(
                     status_code=500,
-                    content={"error": f"Error al guardar el archivo procesado: {str(e)}"}
+                    content={"error": error_msg}
+                )
+            
+            # Calcular duración
+            fecha_fin_ejecucion = datetime.now()
+            duracion_segundos = int((fecha_fin_ejecucion - fecha_inicio_ejecucion).total_seconds())
+            
+            # Actualizar ejecución como exitosa
+            if execution_id:
+                await crud.update_execution_status(
+                    db=db,
+                    execution_id=execution_id,
+                    estado=ExecutionStatus.SUCCESS,
+                    fecha_fin_ejecucion=fecha_fin_ejecucion,
+                    duracion_segundos=duracion_segundos,
+                    archivo_ruta=str(archivo_resultado_path),
+                    archivo_nombre=nombre_archivo_procesado
                 )
             
             return JSONResponse(
@@ -466,14 +593,33 @@ async def procesar_archivos(
                         "archivo_base": nombre_archivo_ventas,
                         "archivo_referencia": nombre_archivo_po
                     },
-                    "carpeta_salida": str(carpeta_salida_path)
+                    "carpeta_salida": str(carpeta_salida_path),
+                    "execution_id": execution_id
                 }
             )
         
     except Exception as e:
+        # Manejar cualquier error no capturado
+        error_msg = f"Error al procesar los archivos: {str(e)}"
+        stack_trace_str = traceback.format_exc()
+        
+        if execution_id:
+            fecha_fin_ejecucion = datetime.now()
+            duracion_segundos = int((fecha_fin_ejecucion - fecha_inicio_ejecucion).total_seconds()) if fecha_inicio_ejecucion else None
+            
+            await crud.update_execution_status(
+                db=db,
+                execution_id=execution_id,
+                estado=ExecutionStatus.FAILED,
+                fecha_fin_ejecucion=fecha_fin_ejecucion,
+                duracion_segundos=duracion_segundos,
+                mensaje_error=error_msg,
+                stack_trace=stack_trace_str
+            )
+        
         return JSONResponse(
             status_code=500,
-            content={"error": f"Error al procesar los archivos: {str(e)}"}
+            content={"error": error_msg}
         )
 
 
