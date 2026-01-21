@@ -1,0 +1,628 @@
+{% extends "base.html" %} {% block content %}
+<div class="space-y-6">
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold text-gray-900">BOMs - Lista de Materiales</h1>
+      <p class="mt-1 text-sm text-gray-600">
+        Consulta los números de parte y sus materias primas
+      </p>
+    </div>
+  </div>
+
+  <!-- Tarjetas de Estadísticas -->
+  <div>
+    <dl class="grid grid-cols-1 gap-5 sm:grid-cols-3">
+      <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
+        <dt class="truncate text-sm font-medium text-gray-500">Total de Registros</dt>
+        <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900">{{ "{:,}".format(total_registros) }}</dd>
+      </div>
+      <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
+        <dt class="truncate text-sm font-medium text-gray-500">Números de Parte Únicos</dt>
+        <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900">{{ "{:,}".format(partes_unicas) }}</dd>
+      </div>
+      <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
+        <dt class="truncate text-sm font-medium text-gray-500">Materiales Únicos</dt>
+        <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900">{{ "{:,}".format(materiales_unicos) }}</dd>
+      </div>
+    </dl>
+  </div>
+
+  <!-- Panel de Filtros -->
+  <div class="rounded-lg bg-white p-6 shadow-sm">
+    <div class="flex items-center gap-4">
+      <div class="flex-1">
+        <label for="busqueda-general" class="block text-sm/6 font-medium text-gray-900">Buscar</label>
+        <div class="mt-2">
+          <input
+            type="text"
+            id="busqueda-general"
+            placeholder="Buscar por número de parte o descripción..."
+            class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6"
+          />
+        </div>
+      </div>
+      <div class="flex items-end">
+        <button
+          id="btn-limpiar-filtros"
+          type="button"
+          class="mt-8 rounded-md border border-gray-300 bg-white px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+        >
+          Limpiar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabla de Números de Parte -->
+  <div class="rounded-lg bg-white shadow-sm">
+    <!-- Encabezado de la tabla con información y controles -->
+    <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+      <div class="flex items-center gap-4">
+        <span class="text-sm text-gray-600">
+          Mostrando <span id="registros-mostrados" class="font-medium">0</span> de <span id="total-registros" class="font-medium">0</span> partes
+        </span>
+      </div>
+      <div class="flex items-center gap-4">
+        <!-- Selector de registros por página -->
+        <div class="flex items-center gap-2">
+          <label for="registros-por-pagina" class="text-sm text-gray-600">Mostrar:</label>
+          <select
+            id="registros-por-pagina"
+            class="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+          >
+            <option value="10">10</option>
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabla -->
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200" id="tabla-boms">
+        <thead class="bg-gray-50">
+          <tr>
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="parte_no">
+              <div class="flex items-center gap-1">
+                Parte No
+                <svg class="h-4 w-4 text-gray-400 sort-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
+                </svg>
+              </div>
+            </th>
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="plant">
+              <div class="flex items-center gap-1">
+                Plant
+                <svg class="h-4 w-4 text-gray-400 sort-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
+                </svg>
+              </div>
+            </th>
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="description">
+              <div class="flex items-center gap-1">
+                Description
+                <svg class="h-4 w-4 text-gray-400 sort-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
+                </svg>
+              </div>
+            </th>
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="total_materiales">
+              <div class="flex items-center gap-1">
+                Total Materiales
+                <svg class="h-4 w-4 text-gray-400 sort-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
+                </svg>
+              </div>
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Acciones
+            </th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200 bg-white" id="tabla-boms-body">
+          <!-- Los datos se cargarán dinámicamente -->
+          <tr id="fila-sin-datos">
+            <td colspan="5" class="px-6 py-12 text-center text-sm text-gray-500">
+              <div class="flex flex-col items-center">
+                <svg class="h-12 w-12 text-gray-400 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+                </svg>
+                <p class="text-gray-500 font-medium">No hay BOMs registrados</p>
+                <p class="text-gray-400 mt-1">Los datos se mostrarán aquí cuando estén disponibles</p>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Paginación -->
+    <div class="flex items-center justify-between border-t border-gray-200 px-6 py-4">
+      <div class="flex items-center gap-2">
+        <button
+          id="btn-primera-pagina"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled
+        >
+          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m18.75 4.5-7.5 7.5 7.5 7.5m-6-15L5.25 12l7.5 7.5" />
+          </svg>
+        </button>
+        <button
+          id="btn-pagina-anterior"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled
+        >
+          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <span class="text-sm text-gray-600">Página</span>
+        <input
+          type="number"
+          id="pagina-actual"
+          value="1"
+          min="1"
+          class="w-16 rounded-md border border-gray-300 bg-white px-2 py-1 text-center text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+        />
+        <span class="text-sm text-gray-600">de <span id="total-paginas">1</span></span>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button
+          id="btn-pagina-siguiente"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled
+        >
+          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+          </svg>
+        </button>
+        <button
+          id="btn-ultima-pagina"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled
+        >
+          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m5.25 4.5 7.5 7.5-7.5 7.5m6-15 7.5 7.5-7.5 7.5" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal de Detalle de Materiales -->
+<div id="modal-detalle" class="relative z-50 hidden" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+  <!-- Backdrop -->
+  <div class="fixed inset-0 bg-gray-900/80 transition-opacity" id="modal-backdrop"></div>
+
+  <div class="fixed inset-0 z-10 overflow-y-auto">
+    <div class="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
+      <div class="relative transform overflow-hidden rounded-lg bg-white px-4 pt-5 pb-4 text-left shadow-xl transition-all sm:my-8 w-3/4 sm:p-6 max-h-[85vh] flex flex-col">
+        <!-- Header del Modal -->
+        <div class="flex items-start justify-between pb-4 border-b border-gray-200">
+          <div>
+            <h3 class="text-base font-semibold text-gray-900" id="modal-title">Detalle de Materiales</h3>
+            <p class="mt-2 text-sm text-gray-500">
+              Parte: <span id="modal-parte-no" class="font-medium text-gray-900"></span>
+            </p>
+            <p class="text-sm text-gray-500">
+              Descripción: <span id="modal-descripcion" class="text-gray-700"></span>
+            </p>
+          </div>
+          <button type="button" onclick="cerrarModal()" class="rounded-md bg-white text-gray-400 hover:text-gray-500 focus:outline-none">
+            <span class="sr-only">Cerrar</span>
+            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Tabla de Materiales -->
+        <div class="mt-4 overflow-auto flex-1">
+          <div class="overflow-x-auto rounded-lg border border-gray-200">
+            <table class="min-w-full divide-y divide-gray-200">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th scope="col" class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Material</th>
+                  <th scope="col" class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Descripción</th>
+                  <th scope="col" class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Qty</th>
+                  <th scope="col" class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">UOM</th>
+                  <th scope="col" class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Base Mts</th>
+                  <th scope="col" class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Req D</th>
+                  <th scope="col" class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Origen</th>
+                  <th scope="col" class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Precio</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-200 bg-white" id="modal-materiales-body">
+                <!-- Se llena dinámicamente -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Footer del Modal -->
+        <div class="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse">
+          <button type="button" onclick="cerrarModal()" class="mt-3 inline-flex w-full justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:mt-0 sm:w-auto">
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Datos ocultos del backend -->
+<div id="datos-boms" style="display: none;">
+{% for bom in boms %}
+<div data-bom
+     data-parte-no="{{ bom.fg_part_no }}"
+     data-plant="{{ bom.plant_code }}"
+     data-description="{{ bom.fg_part.description if bom.fg_part else '' }}"
+     data-material="{{ bom.material }}"
+     data-material-description="{{ bom.material_description or '' }}"
+     data-qty="{{ bom.qty }}"
+     data-uom="{{ bom.uom }}"
+     data-base-mts="{{ bom.base_mts or 0 }}"
+     data-req-d="{{ bom.req_d or 0 }}"
+     data-origen="{{ bom.origin_country or '' }}"
+     data-precio-venta="{{ bom.sale_price or 0 }}">
+</div>
+{% endfor %}
+</div>
+
+<script>
+  // Variables de estado
+  let todosLosBoms = [];
+  let partesUnicas = [];
+  let partesFiltradas = [];
+  let paginaActual = 1;
+  let registrosPorPagina = 25;
+  let columnaOrden = null;
+  let ordenAscendente = true;
+
+  // Inicialización
+  document.addEventListener('DOMContentLoaded', function() {
+    // Extraer datos del div oculto
+    extraerDatos();
+    
+    // Configurar eventos
+    configurarEventos();
+    
+    // Renderizar la primera página
+    if (partesUnicas.length > 0) {
+      renderizarTabla();
+    }
+  });
+
+  function extraerDatos() {
+    const elementos = document.querySelectorAll('#datos-boms [data-bom]');
+    todosLosBoms = [];
+    
+    elementos.forEach(el => {
+      todosLosBoms.push({
+        parte_no: el.dataset.parteNo,
+        plant: el.dataset.plant,
+        description: el.dataset.description,
+        material: el.dataset.material,
+        material_description: el.dataset.materialDescription,
+        qty: parseFloat(el.dataset.qty) || 0,
+        uom: el.dataset.uom,
+        base_mts: parseFloat(el.dataset.baseMts) || 0,
+        req_d: parseFloat(el.dataset.reqD) || 0,
+        origen: el.dataset.origen,
+        precio_venta: parseFloat(el.dataset.precioVenta) || 0
+      });
+    });
+    
+    // Agrupar por número de parte único
+    const partesMap = new Map();
+    todosLosBoms.forEach(bom => {
+      const key = bom.parte_no;
+      if (!partesMap.has(key)) {
+        partesMap.set(key, {
+          parte_no: bom.parte_no,
+          plant: bom.plant,
+          description: bom.description,
+          materiales: []
+        });
+      }
+      partesMap.get(key).materiales.push({
+        material: bom.material,
+        material_description: bom.material_description,
+        qty: bom.qty,
+        uom: bom.uom,
+        base_mts: bom.base_mts,
+        req_d: bom.req_d,
+        origen: bom.origen,
+        precio_venta: bom.precio_venta
+      });
+    });
+    
+    partesUnicas = Array.from(partesMap.values());
+    partesFiltradas = [...partesUnicas];
+    
+    actualizarContadores();
+    actualizarPaginacion();
+  }
+
+  function configurarEventos() {
+    // Filtros
+    document.getElementById('btn-limpiar-filtros').addEventListener('click', limpiarFiltros);
+    
+    // Búsqueda en tiempo real
+    document.getElementById('busqueda-general').addEventListener('input', debounce(aplicarFiltros, 300));
+    
+    // Registros por página
+    document.getElementById('registros-por-pagina').addEventListener('change', function() {
+      registrosPorPagina = parseInt(this.value);
+      paginaActual = 1;
+      renderizarTabla();
+    });
+
+    // Paginación
+    document.getElementById('btn-primera-pagina').addEventListener('click', () => irAPagina(1));
+    document.getElementById('btn-pagina-anterior').addEventListener('click', () => irAPagina(paginaActual - 1));
+    document.getElementById('btn-pagina-siguiente').addEventListener('click', () => irAPagina(paginaActual + 1));
+    document.getElementById('btn-ultima-pagina').addEventListener('click', () => irAPagina(Math.ceil(partesFiltradas.length / registrosPorPagina)));
+    document.getElementById('pagina-actual').addEventListener('change', function() {
+      const pagina = parseInt(this.value);
+      if (pagina >= 1 && pagina <= Math.ceil(partesFiltradas.length / registrosPorPagina)) {
+        irAPagina(pagina);
+      } else {
+        this.value = paginaActual;
+      }
+    });
+
+    // Ordenamiento
+    document.querySelectorAll('th[data-sort]').forEach(th => {
+      th.addEventListener('click', function() {
+        const columna = this.getAttribute('data-sort');
+        ordenarPor(columna);
+      });
+    });
+
+    // Modal backdrop click
+    document.getElementById('modal-backdrop').addEventListener('click', cerrarModal);
+    
+    // Cerrar modal con Escape
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') {
+        cerrarModal();
+      }
+    });
+  }
+
+  function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+      const later = () => {
+        clearTimeout(timeout);
+        func(...args);
+      };
+      clearTimeout(timeout);
+      timeout = setTimeout(later, wait);
+    };
+  }
+
+  function aplicarFiltros() {
+    const busqueda = document.getElementById('busqueda-general').value.toLowerCase().trim();
+
+    partesFiltradas = partesUnicas.filter(item => {
+      if (busqueda) {
+        const parteNo = item.parte_no.toLowerCase();
+        const description = item.description.toLowerCase();
+        // También buscar en materiales
+        const materialesMatch = item.materiales.some(m => 
+          m.material.toLowerCase().includes(busqueda) || 
+          m.material_description.toLowerCase().includes(busqueda)
+        );
+        if (!parteNo.includes(busqueda) && !description.includes(busqueda) && !materialesMatch) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    paginaActual = 1;
+    renderizarTabla();
+  }
+
+  function limpiarFiltros() {
+    document.getElementById('busqueda-general').value = '';
+    partesFiltradas = [...partesUnicas];
+    paginaActual = 1;
+    renderizarTabla();
+  }
+
+  function ordenarPor(columna) {
+    // Actualizar dirección de ordenamiento
+    if (columnaOrden === columna) {
+      ordenAscendente = !ordenAscendente;
+    } else {
+      columnaOrden = columna;
+      ordenAscendente = true;
+    }
+
+    // Columnas numéricas
+    const columnasNumericas = ['total_materiales'];
+
+    // Ordenar datos
+    partesFiltradas.sort((a, b) => {
+      let valorA, valorB;
+      
+      if (columna === 'total_materiales') {
+        valorA = a.materiales.length;
+        valorB = b.materiales.length;
+      } else {
+        valorA = a[columna];
+        valorB = b[columna];
+      }
+
+      // Manejar valores numéricos
+      if (columnasNumericas.includes(columna)) {
+        valorA = parseFloat(valorA) || 0;
+        valorB = parseFloat(valorB) || 0;
+      } else {
+        valorA = String(valorA).toLowerCase();
+        valorB = String(valorB).toLowerCase();
+      }
+
+      if (valorA < valorB) return ordenAscendente ? -1 : 1;
+      if (valorA > valorB) return ordenAscendente ? 1 : -1;
+      return 0;
+    });
+
+    // Actualizar indicadores visuales
+    actualizarIndicadoresOrden();
+    renderizarTabla();
+  }
+
+  function actualizarIndicadoresOrden() {
+    document.querySelectorAll('th[data-sort]').forEach(th => {
+      const icono = th.querySelector('.sort-icon');
+      if (th.getAttribute('data-sort') === columnaOrden) {
+        icono.classList.remove('text-gray-400');
+        icono.classList.add('text-[#003D89]');
+        if (ordenAscendente) {
+          icono.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />';
+        } else {
+          icono.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />';
+        }
+      } else {
+        icono.classList.add('text-gray-400');
+        icono.classList.remove('text-[#003D89]');
+        icono.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />';
+      }
+    });
+  }
+
+  function renderizarTabla() {
+    const tbody = document.getElementById('tabla-boms-body');
+    const inicio = (paginaActual - 1) * registrosPorPagina;
+    const fin = inicio + registrosPorPagina;
+    const datosPagina = partesFiltradas.slice(inicio, fin);
+
+    if (datosPagina.length === 0) {
+      tbody.innerHTML = `
+        <tr id="fila-sin-datos">
+          <td colspan="5" class="px-6 py-12 text-center text-sm text-gray-500">
+            <div class="flex flex-col items-center">
+              <svg class="h-12 w-12 text-gray-400 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+              </svg>
+              <p class="text-gray-500 font-medium">No se encontraron resultados</p>
+              <p class="text-gray-400 mt-1">Intenta ajustar los filtros de búsqueda</p>
+            </div>
+          </td>
+        </tr>
+      `;
+    } else {
+      tbody.innerHTML = datosPagina.map((item, index) => `
+        <tr class="hover:bg-gray-50">
+          <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">${escapeHtml(item.parte_no)}</td>
+          <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">${escapeHtml(item.plant)}</td>
+          <td class="px-4 py-3 text-sm text-gray-500">${escapeHtml(item.description)}</td>
+          <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">
+            <span class="inline-flex items-center rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10">
+              ${item.materiales.length}
+            </span>
+          </td>
+          <td class="whitespace-nowrap px-4 py-3 text-sm">
+            <button onclick="verDetalle('${escapeHtml(item.parte_no)}')" class="inline-flex items-center gap-1 rounded-md bg-[#003D89] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#002d66] focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 0 1 0-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178Z" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+              </svg>
+              Ver Detalle
+            </button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    actualizarContadores();
+    actualizarPaginacion();
+  }
+
+  function verDetalle(parteNo) {
+    const parte = partesUnicas.find(p => p.parte_no === parteNo);
+    if (!parte) return;
+    
+    // Llenar datos del modal
+    document.getElementById('modal-parte-no').textContent = parte.parte_no;
+    document.getElementById('modal-descripcion').textContent = parte.description || 'Sin descripción';
+    
+    // Llenar tabla de materiales
+    const tbody = document.getElementById('modal-materiales-body');
+    tbody.innerHTML = parte.materiales.map(m => `
+      <tr class="hover:bg-gray-50">
+        <td class="whitespace-nowrap px-3 py-2 text-sm font-medium text-gray-900">${escapeHtml(m.material)}</td>
+        <td class="px-3 py-2 text-sm text-gray-500 max-w-xs truncate">${escapeHtml(m.material_description)}</td>
+        <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-500">${m.qty}</td>
+        <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-500">${escapeHtml(m.uom)}</td>
+        <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-500">${m.base_mts}</td>
+        <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-500">${m.req_d}</td>
+        <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-500">${escapeHtml(m.origen)}</td>
+        <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-500">${m.precio_venta.toFixed(2)}</td>
+      </tr>
+    `).join('');
+    
+    // Mostrar modal
+    document.getElementById('modal-detalle').classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function cerrarModal() {
+    document.getElementById('modal-detalle').classList.add('hidden');
+    document.body.style.overflow = '';
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  function actualizarContadores() {
+    const inicio = Math.min((paginaActual - 1) * registrosPorPagina + 1, partesFiltradas.length);
+    const fin = Math.min(paginaActual * registrosPorPagina, partesFiltradas.length);
+    
+    document.getElementById('registros-mostrados').textContent = partesFiltradas.length > 0 ? `${inicio}-${fin}` : '0';
+    document.getElementById('total-registros').textContent = partesFiltradas.length;
+  }
+
+  function actualizarPaginacion() {
+    const totalPaginas = Math.max(1, Math.ceil(partesFiltradas.length / registrosPorPagina));
+    
+    document.getElementById('total-paginas').textContent = totalPaginas;
+    document.getElementById('pagina-actual').value = paginaActual;
+    document.getElementById('pagina-actual').max = totalPaginas;
+
+    // Habilitar/deshabilitar botones
+    document.getElementById('btn-primera-pagina').disabled = paginaActual === 1;
+    document.getElementById('btn-pagina-anterior').disabled = paginaActual === 1;
+    document.getElementById('btn-pagina-siguiente').disabled = paginaActual >= totalPaginas;
+    document.getElementById('btn-ultima-pagina').disabled = paginaActual >= totalPaginas;
+  }
+
+  function irAPagina(pagina) {
+    const totalPaginas = Math.ceil(partesFiltradas.length / registrosPorPagina);
+    if (pagina >= 1 && pagina <= totalPaginas) {
+      paginaActual = pagina;
+      renderizarTabla();
+    }
+  }
+</script>
+{% endblock %}

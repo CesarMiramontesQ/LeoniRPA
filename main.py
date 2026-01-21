@@ -127,6 +127,31 @@ async def compras(request: Request, current_user: User = Depends(get_current_use
     )
 
 
+@app.get("/boms")
+async def boms(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Página de BOMs - Lista de materiales - requiere autenticación."""
+    # Cargar los BOMs desde la base de datos
+    boms_data = await crud.list_bom_flat(db, limit=5000)
+    
+    # Calcular estadísticas
+    total_registros = len(boms_data)
+    partes_unicas = len(set(bom.fg_part_no for bom in boms_data))
+    materiales_unicos = len(set(bom.material for bom in boms_data))
+    
+    return templates.TemplateResponse(
+        "boms.html",
+        {
+            "request": request,
+            "active_page": "boms",
+            "current_user": current_user,
+            "boms": boms_data,
+            "total_registros": total_registros,
+            "partes_unicas": partes_unicas,
+            "materiales_unicos": materiales_unicos
+        }
+    )
+
+
 @app.post("/api/compras/iniciar-descarga")
 async def iniciar_descarga(
     request: Request,

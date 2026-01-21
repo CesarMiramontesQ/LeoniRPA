@@ -134,6 +134,29 @@
                           Compras
                         </a>
                       </li>
+                      <li>
+                        <a
+                          href="/boms"
+                          class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page == 'boms' %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke-width="1.5"
+                            stroke="currentColor"
+                            class="size-6 shrink-0 {% if active_page == 'boms' %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z"
+                            />
+                          </svg>
+
+                          BOMs
+                        </a>
+                      </li>
                       {% if current_user and current_user.rol == 'admin' %}
                       <li>
                         <a
@@ -259,6 +282,28 @@
                       />
                     </svg>
                     Compras
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href="/boms"
+                    class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page == 'boms' %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke-width="1.5"
+                      stroke="currentColor"
+                      class="size-6 shrink-0 {% if active_page == 'boms' %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z"
+                      />
+                    </svg>
+                    BOMs
                   </a>
                 </li>
                 {% if current_user and current_user.rol == 'admin' %}
