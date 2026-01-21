@@ -152,6 +152,79 @@ async def boms(request: Request, current_user: User = Depends(get_current_user),
     )
 
 
+@app.get("/proveedores")
+async def proveedores(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Página de proveedores - requiere autenticación."""
+    # Cargar los proveedores desde la base de datos
+    proveedores_data = await crud.list_proveedores(db, limit=1000)
+    
+    # Calcular estadísticas
+    total_proveedores = await crud.count_proveedores(db)
+    proveedores_activos = await crud.count_proveedores(db, estatus=True)
+    proveedores_inactivos = await crud.count_proveedores(db, estatus=False)
+    
+    return templates.TemplateResponse(
+        "proveedores.html",
+        {
+            "request": request,
+            "active_page": "proveedores",
+            "current_user": current_user,
+            "proveedores": proveedores_data,
+            "total_proveedores": total_proveedores,
+            "proveedores_activos": proveedores_activos,
+            "proveedores_inactivos": proveedores_inactivos
+        }
+    )
+
+
+@app.get("/api/proveedores")
+async def api_proveedores(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    search: Optional[str] = None,
+    estatus: Optional[bool] = None,
+    pais: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0
+):
+    """API para obtener proveedores con filtros y paginación."""
+    proveedores = await crud.list_proveedores(
+        db,
+        estatus=estatus,
+        pais=pais,
+        search=search,
+        limit=limit,
+        offset=offset
+    )
+    
+    total = await crud.count_proveedores(
+        db,
+        estatus=estatus,
+        pais=pais,
+        search=search
+    )
+    
+    return JSONResponse({
+        "proveedores": [
+            {
+                "id": p.id,
+                "nombre": p.nombre,
+                "pais": p.pais,
+                "domicilio": p.domicilio,
+                "estatus": p.estatus,
+                "codigo_cliente": p.codigo_cliente,
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+                "updated_at": p.updated_at.isoformat() if p.updated_at else None
+            }
+            for p in proveedores
+        ],
+        "total": total,
+        "limit": limit,
+        "offset": offset
+    })
+
+
 @app.post("/api/compras/iniciar-descarga")
 async def iniciar_descarga(
     request: Request,

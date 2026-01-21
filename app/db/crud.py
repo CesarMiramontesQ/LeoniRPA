@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from decimal import Decimal
-from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole
+from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor
 from app.core.security import hash_password
 
 
@@ -638,3 +638,151 @@ async def delete_all_bom_flat(db: AsyncSession) -> int:
     result = await db.execute(stmt)
     await db.commit()
     return result.rowcount
+
+
+# ==================== CRUD para Proveedores ====================
+
+async def get_proveedor_by_id(db: AsyncSession, proveedor_id: int) -> Optional[Proveedor]:
+    """Obtiene un proveedor por ID."""
+    result = await db.execute(select(Proveedor).where(Proveedor.id == proveedor_id))
+    return result.scalar_one_or_none()
+
+
+async def get_proveedor_by_codigo_cliente(db: AsyncSession, codigo_cliente: str) -> Optional[Proveedor]:
+    """Obtiene un proveedor por código de cliente."""
+    result = await db.execute(select(Proveedor).where(Proveedor.codigo_cliente == codigo_cliente))
+    return result.scalar_one_or_none()
+
+
+async def create_proveedor(
+    db: AsyncSession,
+    nombre: str,
+    pais: Optional[str] = None,
+    domicilio: Optional[str] = None,
+    estatus: bool = True,
+    codigo_cliente: Optional[str] = None
+) -> Proveedor:
+    """Crea un nuevo proveedor."""
+    proveedor = Proveedor(
+        nombre=nombre,
+        pais=pais,
+        domicilio=domicilio,
+        estatus=estatus,
+        codigo_cliente=codigo_cliente
+    )
+    db.add(proveedor)
+    await db.commit()
+    await db.refresh(proveedor)
+    return proveedor
+
+
+async def update_proveedor(
+    db: AsyncSession,
+    proveedor_id: int,
+    nombre: Optional[str] = None,
+    pais: Optional[str] = None,
+    domicilio: Optional[str] = None,
+    estatus: Optional[bool] = None,
+    codigo_cliente: Optional[str] = None
+) -> Optional[Proveedor]:
+    """Actualiza un proveedor."""
+    proveedor = await get_proveedor_by_id(db, proveedor_id)
+    if not proveedor:
+        return None
+    
+    # Verificar si el código_cliente ya existe en otro proveedor
+    if codigo_cliente is not None:
+        existing_proveedor = await get_proveedor_by_codigo_cliente(db, codigo_cliente)
+        if existing_proveedor and existing_proveedor.id != proveedor_id:
+            raise ValueError("El código de cliente ya está registrado")
+    
+    if nombre is not None:
+        proveedor.nombre = nombre
+    if pais is not None:
+        proveedor.pais = pais
+    if domicilio is not None:
+        proveedor.domicilio = domicilio
+    if estatus is not None:
+        proveedor.estatus = estatus
+    if codigo_cliente is not None:
+        proveedor.codigo_cliente = codigo_cliente
+    
+    await db.commit()
+    await db.refresh(proveedor)
+    return proveedor
+
+
+async def delete_proveedor(db: AsyncSession, proveedor_id: int) -> bool:
+    """Elimina un proveedor."""
+    from sqlalchemy import delete
+    
+    proveedor = await get_proveedor_by_id(db, proveedor_id)
+    if not proveedor:
+        return False
+    
+    stmt = delete(Proveedor).where(Proveedor.id == proveedor_id)
+    await db.execute(stmt)
+    await db.commit()
+    return True
+
+
+async def list_proveedores(
+    db: AsyncSession,
+    estatus: Optional[bool] = None,
+    pais: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0
+) -> List[Proveedor]:
+    """Lista proveedores con filtros opcionales."""
+    query = select(Proveedor)
+    
+    if estatus is not None:
+        query = query.where(Proveedor.estatus == estatus)
+    
+    if pais:
+        query = query.where(Proveedor.pais == pais)
+    
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                Proveedor.nombre.ilike(search_pattern),
+                Proveedor.codigo_cliente.ilike(search_pattern),
+                Proveedor.domicilio.ilike(search_pattern)
+            )
+        )
+    
+    query = query.order_by(desc(Proveedor.created_at)).limit(limit).offset(offset)
+    
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def count_proveedores(
+    db: AsyncSession,
+    estatus: Optional[bool] = None,
+    pais: Optional[str] = None,
+    search: Optional[str] = None
+) -> int:
+    """Cuenta el total de proveedores con filtros opcionales."""
+    query = select(func.count(Proveedor.id))
+    
+    if estatus is not None:
+        query = query.where(Proveedor.estatus == estatus)
+    
+    if pais:
+        query = query.where(Proveedor.pais == pais)
+    
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                Proveedor.nombre.ilike(search_pattern),
+                Proveedor.codigo_cliente.ilike(search_pattern),
+                Proveedor.domicilio.ilike(search_pattern)
+            )
+        )
+    
+    result = await db.execute(query)
+    return result.scalar_one()

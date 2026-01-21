@@ -234,3 +234,32 @@ class BomFlat(Base):
     def __repr__(self):
         return f"<BomFlat(id={self.id}, fg={self.fg_part_no}, material={self.material}, qty={self.qty})>"
 
+
+class Proveedor(Base):
+    """Modelo para proveedores."""
+    __tablename__ = "proveedores"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Nombre del proveedor
+    nombre = Column(String, nullable=False, index=True)
+    
+    # País
+    pais = Column(String, nullable=True, index=True)
+    
+    # Domicilio
+    domicilio = Column(Text, nullable=True)
+    
+    # Estatus (activo/inactivo)
+    estatus = Column(Boolean, default=True, nullable=False, index=True)
+    
+    # Código Cliente (identificador único)
+    codigo_cliente = Column(String, unique=True, nullable=True, index=True)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    def __repr__(self):
+        return f"<Proveedor(id={self.id}, nombre={self.nombre}, codigo_cliente={self.codigo_cliente})>"
+
