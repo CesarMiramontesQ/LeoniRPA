@@ -177,6 +177,48 @@ async def proveedores(request: Request, current_user: User = Depends(get_current
     )
 
 
+@app.get("/materiales")
+async def materiales(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Página de materiales - requiere autenticación."""
+    # Cargar los materiales desde la base de datos
+    materiales_data = await crud.list_materiales(db, limit=1000)
+    
+    # Calcular estadísticas
+    total_materiales = await crud.count_materiales(db)
+    
+    return templates.TemplateResponse(
+        "materiales.html",
+        {
+            "request": request,
+            "active_page": "materiales",
+            "current_user": current_user,
+            "materiales": materiales_data,
+            "total_materiales": total_materiales
+        }
+    )
+
+
+@app.get("/precios-compra")
+async def precios_compra(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Página de precios de compra - requiere autenticación."""
+    # Cargar los precios de materiales desde la base de datos con relaciones
+    precios_data = await crud.list_precios_materiales(db, limit=1000)
+    
+    # Calcular estadísticas
+    total_precios = await crud.count_precios_materiales(db)
+    
+    return templates.TemplateResponse(
+        "precios_compra.html",
+        {
+            "request": request,
+            "active_page": "precios_compra",
+            "current_user": current_user,
+            "precios": precios_data,
+            "total_precios": total_precios
+        }
+    )
+
+
 @app.get("/api/proveedores")
 async def api_proveedores(
     request: Request,
@@ -311,11 +353,10 @@ async def procesar_archivos(
     request: Request,
     archivo_ventas: UploadFile = File(...),
     archivo_po: UploadFile = File(...),
-    carpeta_salida: str = Form(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Procesa dos archivos Excel: cruza información usando 'Purchasing Document' y actualiza la columna 'Proveedor'."""
+    """Procesa dos archivos Excel: cruza información usando 'Purchasing Document' y sube los datos a la tabla compras."""
     import tempfile
     import shutil
     import os
@@ -395,27 +436,6 @@ async def procesar_archivos(
             return JSONResponse(
                 status_code=400,
                 content={"error": error_msg}
-            )
-        
-        # Validar carpeta de salida
-        if not carpeta_salida or carpeta_salida.strip() == '':
-            return JSONResponse(
-                status_code=400,
-                content={"error": "La carpeta de salida es requerida"}
-            )
-        
-        # Asegurar que la carpeta termine con el separador correcto
-        carpeta_salida_path = Path(carpeta_salida)
-        if not carpeta_salida_path.exists():
-            return JSONResponse(
-                status_code=400,
-                content={"error": f"La carpeta de salida no existe: {carpeta_salida}"}
-            )
-        
-        if not carpeta_salida_path.is_dir():
-            return JSONResponse(
-                status_code=400,
-                content={"error": f"La ruta especificada no es una carpeta: {carpeta_salida}"}
             )
         
         # Crear directorio temporal para los archivos
@@ -636,21 +656,104 @@ async def procesar_archivos(
                     # Si hay error en la conversión o división, dejar vacío
                     df_archivo1.at[idx, "U/P"] = ""
             
-            # Generar nombre del archivo de salida con sufijo
-            nombre_base = Path(nombre_archivo_ventas).stem
-            extension_base = Path(nombre_archivo_ventas).suffix
-            nombre_archivo_procesado = f"{nombre_base}_procesado{extension_base}"
-            archivo_resultado_path = carpeta_salida_path / nombre_archivo_procesado
+            # Mapear columnas del DataFrame a la tabla compras
+            # Función auxiliar para convertir valores
+            def convertir_valor(valor, tipo='int'):
+                """Convierte un valor de pandas a tipo Python apropiado."""
+                if pd.isna(valor) or valor == '' or valor is None:
+                    return None
+                try:
+                    if tipo == 'int':
+                        return int(float(valor)) if pd.notna(valor) else None
+                    elif tipo == 'float':
+                        return float(valor) if pd.notna(valor) else None
+                    elif tipo == 'date':
+                        if isinstance(valor, pd.Timestamp):
+                            return valor.to_pydatetime()
+                        elif isinstance(valor, datetime):
+                            return valor
+                        elif isinstance(valor, str):
+                            return pd.to_datetime(valor, errors='coerce').to_pydatetime() if pd.notna(pd.to_datetime(valor, errors='coerce')) else None
+                        return None
+                    else:
+                        return str(valor).strip() if pd.notna(valor) else None
+                except (ValueError, TypeError, OverflowError):
+                    return None
             
-            # Guardar el archivo procesado
-            try:
-                # Asegurar que el archivo se guarde como .xlsx
-                if extension_base.lower() == '.xls':
-                    archivo_resultado_path = carpeta_salida_path / f"{nombre_base}_procesado.xlsx"
+            # Función para mapear una fila del DataFrame a un diccionario para Compra
+            def mapear_fila_a_compra(row, df_columns):
+                """Mapea una fila del DataFrame a un diccionario para insertar en Compra."""
+                compra_data = {}
                 
-                df_archivo1.to_excel(archivo_resultado_path, index=False, engine='openpyxl')
+                # Mapeo de columnas (case-insensitive)
+                columnas_mapeo = {
+                    'purchasing_document': ['Purchasing Document'],
+                    'item': ['Item'],
+                    'material_doc_year': ['Material Doc. Year'],
+                    'material_document': ['Material Document'],
+                    'material_doc_item': ['Material Doc.Item'],
+                    'movement_type': ['Movement Type'],
+                    'posting_date': ['Posting Date'],
+                    'quantity': ['Quantity'],
+                    'order_unit': ['Order Unit'],
+                    'quantity_in_opun': ['Quantity in OPUn'],
+                    'order_price_unit': ['Order Price Unit'],
+                    'amount_in_lc': ['Amount in LC'],
+                    'local_currency': ['Local currency'],
+                    'amount': ['Amount'],
+                    'currency': ['Currency'],
+                    'gr_ir_clearing_value_lc': ['GR/IR clearing value in local currency'],
+                    'gr_blck_stock_oun': ['GR Blck.Stock in OUn'],
+                    'gr_blocked_stck_opun': ['GR blocked stck.OPUn'],
+                    'delivery_completed': ['Delivery Completed'],
+                    'fisc_year_ref_doc': ['Fisc. Year Ref. Doc.'],
+                    'reference_document': ['Reference Document'],
+                    'reference_doc_item': ['Reference Doc. Item'],
+                    'invoice_value': ['Invoice Value'],
+                    'numero_material': ['numero_Material', 'Material'],
+                    'plant': ['Plant'],
+                    'descripcion_material': ['descripcion_material', 'Material Description'],
+                    'nombre_proveedor': ['Proveedor', 'nombre_proveedor'],
+                    'numero_proveedor': ['numero_proveedor'],
+                }
+                
+                # Buscar y mapear cada columna
+                for campo_db, nombres_posibles in columnas_mapeo.items():
+                    valor = None
+                    for nombre_col in nombres_posibles:
+                        # Buscar columna case-insensitive
+                        for col in df_columns:
+                            if str(col).strip() == nombre_col:
+                                valor = row[col]
+                                break
+                        if valor is not None and not pd.isna(valor):
+                            break
+                    
+                    # Convertir según el tipo de campo
+                    if campo_db in ['purchasing_document', 'item', 'material_doc_year', 'material_document', 
+                                    'material_doc_item', 'quantity', 'quantity_in_opun', 'numero_material', 'numero_proveedor']:
+                        compra_data[campo_db] = convertir_valor(valor, 'int')
+                    elif campo_db == 'posting_date':
+                        compra_data[campo_db] = convertir_valor(valor, 'date')
+                    elif campo_db in ['amount_in_lc', 'amount', 'gr_ir_clearing_value_lc', 'gr_blck_stock_oun', 
+                                     'gr_blocked_stck_opun', 'invoice_value']:
+                        compra_data[campo_db] = convertir_valor(valor, 'float')
+                    else:
+                        compra_data[campo_db] = convertir_valor(valor, 'str')
+                
+                return compra_data
+            
+            # Preparar datos para inserción en la base de datos
+            compras_data = []
+            for idx, row in df_archivo1.iterrows():
+                compra_data = mapear_fila_a_compra(row, df_archivo1.columns)
+                compras_data.append(compra_data)
+            
+            # Insertar datos en la base de datos
+            try:
+                registros_insertados = await crud.bulk_create_compras(db, compras_data)
             except Exception as e:
-                error_msg = f"Error al guardar el archivo procesado: {str(e)}"
+                error_msg = f"Error al insertar datos en la base de datos: {str(e)}"
                 if execution_id:
                     await crud.update_execution_status(
                         db=db,
@@ -675,23 +778,19 @@ async def procesar_archivos(
                     execution_id=execution_id,
                     estado=ExecutionStatus.SUCCESS,
                     fecha_fin_ejecucion=fecha_fin_ejecucion,
-                    duracion_segundos=duracion_segundos,
-                    archivo_ruta=str(archivo_resultado_path),
-                    archivo_nombre=nombre_archivo_procesado
+                    duracion_segundos=duracion_segundos
                 )
             
             return JSONResponse(
                 status_code=200,
                 content={
                     "success": True,
-                    "message": f"Archivo procesado exitosamente. Guardado en: {str(archivo_resultado_path)}",
-                    "archivo_resultado": str(archivo_resultado_path),
-                    "nombre_archivo": nombre_archivo_procesado,
+                    "message": f"Datos procesados exitosamente. Se insertaron {registros_insertados} registros en la tabla compras.",
+                    "registros_insertados": registros_insertados,
                     "archivos_recibidos": {
                         "archivo_base": nombre_archivo_ventas,
                         "archivo_referencia": nombre_archivo_po
                     },
-                    "carpeta_salida": str(carpeta_salida_path),
                     "execution_id": execution_id
                 }
             )

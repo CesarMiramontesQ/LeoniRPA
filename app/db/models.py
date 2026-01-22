@@ -263,3 +263,169 @@ class Proveedor(Base):
     def __repr__(self):
         return f"<Proveedor(id={self.id}, nombre={self.nombre}, codigo_cliente={self.codigo_cliente})>"
 
+
+class Material(Base):
+    """Modelo para materiales."""
+    __tablename__ = "materiales"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Número de material
+    numero_material = Column(String, unique=True, nullable=False, index=True)
+    
+    # Descripción del material
+    descripcion_material = Column(Text, nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    # Relaciones
+    precios = relationship("PrecioMaterial", back_populates="material")
+    
+    def __repr__(self):
+        return f"<Material(id={self.id}, numero_material={self.numero_material}, descripcion_material={self.descripcion_material})>"
+
+
+class PrecioMaterial(Base):
+    """Modelo para precios de materiales por proveedor."""
+    __tablename__ = "precios_materiales"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Claves foráneas
+    codigo_cliente = Column(String, ForeignKey("proveedores.codigo_cliente"), nullable=False, index=True)
+    numero_material = Column(String, ForeignKey("materiales.numero_material"), nullable=False, index=True)
+    
+    # Precio
+    precio = Column(Numeric(18, 6), nullable=False)
+    
+    # Moneda y unidad de medida (ej. USD/KG, EUR/KG)
+    currency_uom = Column(String, nullable=True)
+    
+    # País de origen
+    country_origin = Column(String, nullable=True)
+    
+    # Porcentaje de compra
+    Porcentaje_Compra = Column(Numeric(18, 6), nullable=True)
+    
+    # Comentario
+    Comentario = Column(Text, nullable=True)
+    
+    # Timestamp de actualización
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    # Relaciones
+    proveedor = relationship("Proveedor", foreign_keys=[codigo_cliente], backref="precios_materiales")
+    material = relationship("Material", foreign_keys=[numero_material], back_populates="precios")
+    
+    # Restricciones
+    __table_args__ = (
+        # Constraint único: un solo precio vigente por combinación de proveedor y material
+        UniqueConstraint(
+            'codigo_cliente', 'numero_material',
+            name='uq_precios_materiales_proveedor_material'
+        ),
+    )
+    
+    def __repr__(self):
+        return f"<PrecioMaterial(id={self.id}, codigo_cliente={self.codigo_cliente}, numero_material={self.numero_material}, precio={self.precio})>"
+
+
+class Compra(Base):
+    """Modelo para compras."""
+    __tablename__ = "compras"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Purchasing Document
+    purchasing_document = Column(Integer, nullable=True, index=True)
+    
+    # Item
+    item = Column(Integer, nullable=True)
+    
+    # Material Doc. Year
+    material_doc_year = Column(Integer, nullable=True, index=True)
+    
+    # Material Document
+    material_document = Column(Integer, nullable=True, index=True)
+    
+    # Material Doc.Item
+    material_doc_item = Column(Integer, nullable=True)
+    
+    # Movement Type
+    movement_type = Column(String, nullable=True)
+    
+    # Posting Date
+    posting_date = Column(DateTime(timezone=True), nullable=True, index=True)
+    
+    # Quantity
+    quantity = Column(Integer, nullable=True)
+    
+    # Order Unit
+    order_unit = Column(String, nullable=True)
+    
+    # Quantity in OPUn
+    quantity_in_opun = Column(Integer, nullable=True)
+    
+    # Order Price Unit
+    order_price_unit = Column(String, nullable=True)
+    
+    # Amount in LC
+    amount_in_lc = Column(Numeric(18, 6), nullable=True)
+    
+    # Local currency
+    local_currency = Column(String, nullable=True)
+    
+    # Amount
+    amount = Column(Numeric(18, 6), nullable=True)
+    
+    # Currency
+    currency = Column(String, nullable=True)
+    
+    # GR/IR clearing value in local currency
+    gr_ir_clearing_value_lc = Column(Numeric(18, 6), nullable=True)
+    
+    # GR Blck.Stock in OUn
+    gr_blck_stock_oun = Column(Numeric(18, 6), nullable=True)
+    
+    # GR blocked stck.OPUn
+    gr_blocked_stck_opun = Column(Numeric(18, 6), nullable=True)
+    
+    # Delivery Completed
+    delivery_completed = Column(String, nullable=True)
+    
+    # Fisc. Year Ref. Doc.
+    fisc_year_ref_doc = Column(String, nullable=True)
+    
+    # Reference Document
+    reference_document = Column(String, nullable=True)
+    
+    # Reference Doc. Item
+    reference_doc_item = Column(String, nullable=True)
+    
+    # Invoice Value
+    invoice_value = Column(Numeric(18, 6), nullable=True)
+    
+    # numero_Material
+    numero_material = Column(Integer, nullable=True, index=True)
+    
+    # Plant
+    plant = Column(String, nullable=True, index=True)
+    
+    # descripcion_material
+    descripcion_material = Column(Text, nullable=True)
+    
+    # nombre_proveedor
+    nombre_proveedor = Column(String, nullable=True, index=True)
+    
+    # numero_proveedor
+    numero_proveedor = Column(Integer, nullable=True, index=True)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    def __repr__(self):
+        return f"<Compra(id={self.id}, purchasing_document={self.purchasing_document}, material_document={self.material_document}, posting_date={self.posting_date})>"
+

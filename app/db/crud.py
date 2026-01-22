@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from decimal import Decimal
-from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor
+from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra
 from app.core.security import hash_password
 
 
@@ -786,3 +786,381 @@ async def count_proveedores(
     
     result = await db.execute(query)
     return result.scalar_one()
+
+
+# ==================== CRUD para Materiales ====================
+
+async def get_material_by_id(db: AsyncSession, material_id: int) -> Optional[Material]:
+    """Obtiene un material por ID."""
+    result = await db.execute(select(Material).where(Material.id == material_id))
+    return result.scalar_one_or_none()
+
+
+async def get_material_by_numero(db: AsyncSession, numero_material: str) -> Optional[Material]:
+    """Obtiene un material por número de material."""
+    result = await db.execute(select(Material).where(Material.numero_material == numero_material))
+    return result.scalar_one_or_none()
+
+
+async def create_material(
+    db: AsyncSession,
+    numero_material: str,
+    descripcion_material: Optional[str] = None
+) -> Material:
+    """Crea un nuevo material."""
+    material = Material(
+        numero_material=numero_material,
+        descripcion_material=descripcion_material
+    )
+    db.add(material)
+    await db.commit()
+    await db.refresh(material)
+    return material
+
+
+async def update_material(
+    db: AsyncSession,
+    material_id: int,
+    descripcion_material: Optional[str] = None
+) -> Optional[Material]:
+    """Actualiza un material."""
+    material = await get_material_by_id(db, material_id)
+    if not material:
+        return None
+    
+    if descripcion_material is not None:
+        material.descripcion_material = descripcion_material
+    
+    await db.commit()
+    await db.refresh(material)
+    return material
+
+
+async def list_materiales(
+    db: AsyncSession,
+    search: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0
+) -> List[Material]:
+    """Lista materiales con filtros opcionales."""
+    query = select(Material)
+    
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                Material.numero_material.ilike(search_pattern),
+                Material.descripcion_material.ilike(search_pattern)
+            )
+        )
+    
+    query = query.order_by(desc(Material.created_at)).limit(limit).offset(offset)
+    
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def count_materiales(
+    db: AsyncSession,
+    search: Optional[str] = None
+) -> int:
+    """Cuenta el total de materiales con filtros opcionales."""
+    query = select(func.count(Material.id))
+    
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                Material.numero_material.ilike(search_pattern),
+                Material.descripcion_material.ilike(search_pattern)
+            )
+        )
+    
+    result = await db.execute(query)
+    return result.scalar_one()
+
+
+# ==================== CRUD para Precios Materiales ====================
+
+async def get_precio_material_by_id(db: AsyncSession, precio_id: int) -> Optional[PrecioMaterial]:
+    """Obtiene un precio de material por ID."""
+    result = await db.execute(select(PrecioMaterial).where(PrecioMaterial.id == precio_id))
+    return result.scalar_one_or_none()
+
+
+async def get_precio_material_by_proveedor_material(
+    db: AsyncSession,
+    codigo_cliente: str,
+    numero_material: str
+) -> Optional[PrecioMaterial]:
+    """Obtiene un precio de material por código de cliente y número de material."""
+    result = await db.execute(
+        select(PrecioMaterial).where(
+            PrecioMaterial.codigo_cliente == codigo_cliente,
+            PrecioMaterial.numero_material == numero_material
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def create_precio_material(
+    db: AsyncSession,
+    codigo_cliente: str,
+    numero_material: str,
+    precio: Decimal,
+    currency_uom: Optional[str] = None,
+    country_origin: Optional[str] = None,
+    Porcentaje_Compra: Optional[Decimal] = None,
+    Comentario: Optional[str] = None
+) -> PrecioMaterial:
+    """Crea un nuevo precio de material."""
+    precio_material = PrecioMaterial(
+        codigo_cliente=codigo_cliente,
+        numero_material=numero_material,
+        precio=precio,
+        currency_uom=currency_uom,
+        country_origin=country_origin,
+        Porcentaje_Compra=Porcentaje_Compra,
+        Comentario=Comentario
+    )
+    db.add(precio_material)
+    await db.commit()
+    await db.refresh(precio_material)
+    return precio_material
+
+
+async def update_precio_material(
+    db: AsyncSession,
+    precio_id: int,
+    precio: Optional[Decimal] = None,
+    currency_uom: Optional[str] = None,
+    country_origin: Optional[str] = None,
+    Porcentaje_Compra: Optional[Decimal] = None,
+    Comentario: Optional[str] = None
+) -> Optional[PrecioMaterial]:
+    """Actualiza un precio de material."""
+    precio_material = await get_precio_material_by_id(db, precio_id)
+    if not precio_material:
+        return None
+    
+    if precio is not None:
+        precio_material.precio = precio
+    if currency_uom is not None:
+        precio_material.currency_uom = currency_uom
+    if country_origin is not None:
+        precio_material.country_origin = country_origin
+    if Porcentaje_Compra is not None:
+        precio_material.Porcentaje_Compra = Porcentaje_Compra
+    if Comentario is not None:
+        precio_material.Comentario = Comentario
+    
+    await db.commit()
+    await db.refresh(precio_material)
+    return precio_material
+
+
+async def upsert_precio_material(
+    db: AsyncSession,
+    codigo_cliente: str,
+    numero_material: str,
+    precio: Decimal,
+    currency_uom: Optional[str] = None,
+    country_origin: Optional[str] = None,
+    Porcentaje_Compra: Optional[Decimal] = None,
+    Comentario: Optional[str] = None
+) -> PrecioMaterial:
+    """Crea o actualiza un precio de material (upsert)."""
+    existing = await get_precio_material_by_proveedor_material(db, codigo_cliente, numero_material)
+    
+    if existing:
+        # Actualizar existente
+        if precio is not None:
+            existing.precio = precio
+        if currency_uom is not None:
+            existing.currency_uom = currency_uom
+        if country_origin is not None:
+            existing.country_origin = country_origin
+        if Porcentaje_Compra is not None:
+            existing.Porcentaje_Compra = Porcentaje_Compra
+        if Comentario is not None:
+            existing.Comentario = Comentario
+        
+        await db.commit()
+        await db.refresh(existing)
+        return existing
+    else:
+        # Crear nuevo
+        return await create_precio_material(
+            db,
+            codigo_cliente=codigo_cliente,
+            numero_material=numero_material,
+            precio=precio,
+            currency_uom=currency_uom,
+            country_origin=country_origin,
+            Porcentaje_Compra=Porcentaje_Compra,
+            Comentario=Comentario
+        )
+
+
+async def list_precios_materiales(
+    db: AsyncSession,
+    codigo_cliente: Optional[str] = None,
+    numero_material: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0
+) -> List[PrecioMaterial]:
+    """Lista precios de materiales con filtros opcionales."""
+    query = select(PrecioMaterial).options(
+        selectinload(PrecioMaterial.proveedor),
+        selectinload(PrecioMaterial.material)
+    )
+    
+    if codigo_cliente:
+        query = query.where(PrecioMaterial.codigo_cliente == codigo_cliente)
+    
+    if numero_material:
+        query = query.where(PrecioMaterial.numero_material == numero_material)
+    
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                PrecioMaterial.codigo_cliente.ilike(search_pattern),
+                PrecioMaterial.numero_material.ilike(search_pattern),
+                PrecioMaterial.currency_uom.ilike(search_pattern),
+                PrecioMaterial.country_origin.ilike(search_pattern)
+            )
+        )
+    
+    query = query.order_by(desc(PrecioMaterial.updated_at)).limit(limit).offset(offset)
+    
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def count_precios_materiales(
+    db: AsyncSession,
+    codigo_cliente: Optional[str] = None,
+    numero_material: Optional[str] = None,
+    search: Optional[str] = None
+) -> int:
+    """Cuenta el total de precios de materiales con filtros opcionales."""
+    query = select(func.count(PrecioMaterial.id))
+    
+    if codigo_cliente:
+        query = query.where(PrecioMaterial.codigo_cliente == codigo_cliente)
+    
+    if numero_material:
+        query = query.where(PrecioMaterial.numero_material == numero_material)
+    
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                PrecioMaterial.codigo_cliente.ilike(search_pattern),
+                PrecioMaterial.numero_material.ilike(search_pattern),
+                PrecioMaterial.currency_uom.ilike(search_pattern),
+                PrecioMaterial.country_origin.ilike(search_pattern)
+            )
+        )
+    
+    result = await db.execute(query)
+    return result.scalar_one()
+
+
+# ==================== CRUD para Compra ====================
+
+async def create_compra(
+    db: AsyncSession,
+    purchasing_document: Optional[int] = None,
+    item: Optional[int] = None,
+    material_doc_year: Optional[int] = None,
+    material_document: Optional[int] = None,
+    material_doc_item: Optional[int] = None,
+    movement_type: Optional[str] = None,
+    posting_date: Optional[datetime] = None,
+    quantity: Optional[int] = None,
+    order_unit: Optional[str] = None,
+    quantity_in_opun: Optional[int] = None,
+    order_price_unit: Optional[str] = None,
+    amount_in_lc: Optional[Decimal] = None,
+    local_currency: Optional[str] = None,
+    amount: Optional[Decimal] = None,
+    currency: Optional[str] = None,
+    gr_ir_clearing_value_lc: Optional[Decimal] = None,
+    gr_blck_stock_oun: Optional[Decimal] = None,
+    gr_blocked_stck_opun: Optional[Decimal] = None,
+    delivery_completed: Optional[str] = None,
+    fisc_year_ref_doc: Optional[str] = None,
+    reference_document: Optional[str] = None,
+    reference_doc_item: Optional[str] = None,
+    invoice_value: Optional[Decimal] = None,
+    numero_material: Optional[int] = None,
+    plant: Optional[str] = None,
+    descripcion_material: Optional[str] = None,
+    nombre_proveedor: Optional[str] = None,
+    numero_proveedor: Optional[int] = None,
+) -> Compra:
+    """Crea un nuevo registro de compra."""
+    db_compra = Compra(
+        purchasing_document=purchasing_document,
+        item=item,
+        material_doc_year=material_doc_year,
+        material_document=material_document,
+        material_doc_item=material_doc_item,
+        movement_type=movement_type,
+        posting_date=posting_date,
+        quantity=quantity,
+        order_unit=order_unit,
+        quantity_in_opun=quantity_in_opun,
+        order_price_unit=order_price_unit,
+        amount_in_lc=amount_in_lc,
+        local_currency=local_currency,
+        amount=amount,
+        currency=currency,
+        gr_ir_clearing_value_lc=gr_ir_clearing_value_lc,
+        gr_blck_stock_oun=gr_blck_stock_oun,
+        gr_blocked_stck_opun=gr_blocked_stck_opun,
+        delivery_completed=delivery_completed,
+        fisc_year_ref_doc=fisc_year_ref_doc,
+        reference_document=reference_document,
+        reference_doc_item=reference_doc_item,
+        invoice_value=invoice_value,
+        numero_material=numero_material,
+        plant=plant,
+        descripcion_material=descripcion_material,
+        nombre_proveedor=nombre_proveedor,
+        numero_proveedor=numero_proveedor,
+    )
+    db.add(db_compra)
+    await db.commit()
+    await db.refresh(db_compra)
+    return db_compra
+
+
+async def bulk_create_compras(
+    db: AsyncSession,
+    compras_data: List[Dict[str, Any]]
+) -> int:
+    """Inserta múltiples registros de compras de manera eficiente.
+    
+    Args:
+        db: Sesión de base de datos
+        compras_data: Lista de diccionarios con los datos de las compras
+        
+    Returns:
+        Número de registros insertados
+    """
+    if not compras_data:
+        return 0
+    
+    compras_objects = []
+    for compra_data in compras_data:
+        compra = Compra(**compra_data)
+        compras_objects.append(compra)
+    
+    db.add_all(compras_objects)
+    await db.commit()
+    
+    return len(compras_objects)

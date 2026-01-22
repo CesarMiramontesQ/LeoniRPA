@@ -1,0 +1,541 @@
+{% extends "base.html" %} {% block content %}
+<div class="space-y-6">
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold text-gray-900">Precios de Compra</h1>
+      <p class="mt-1 text-sm text-gray-600">
+        Gestión y consulta de precios de materiales por proveedor
+      </p>
+    </div>
+  </div>
+
+  <!-- Tarjetas de Estadísticas -->
+  <div>
+    <dl class="grid grid-cols-1 gap-5 sm:grid-cols-1">
+      <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
+        <dt class="truncate text-sm font-medium text-gray-500">Total de Precios Registrados</dt>
+        <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900">{{ "{:,}".format(total_precios) }}</dd>
+      </div>
+    </dl>
+  </div>
+
+  <!-- Panel de Filtros -->
+  <div class="rounded-lg bg-white p-6 shadow-sm">
+    <div class="flex flex-wrap items-end gap-4">
+      <div class="flex-1 min-w-[200px]">
+        <label for="busqueda-general" class="block text-sm/6 font-medium text-gray-900">Buscar</label>
+        <div class="mt-2">
+          <input
+            type="text"
+            id="busqueda-general"
+            placeholder="Buscar por proveedor, material, código cliente, moneda..."
+            class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6"
+          />
+        </div>
+      </div>
+      <div class="flex items-end">
+        <button
+          id="btn-limpiar-filtros"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+        >
+          Limpiar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabla de Precios -->
+  <div class="rounded-lg bg-white shadow-sm">
+    <!-- Encabezado de la tabla con información y controles -->
+    <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+      <div class="flex items-center gap-4">
+        <span class="text-sm text-gray-600">
+          Mostrando <span id="registros-mostrados" class="font-medium">0</span> de <span id="total-registros" class="font-medium">0</span> precios
+        </span>
+      </div>
+      <div class="flex items-center gap-4">
+        <!-- Selector de registros por página -->
+        <div class="flex items-center gap-2">
+          <label for="registros-por-pagina" class="text-sm text-gray-600">Mostrar:</label>
+          <select
+            id="registros-por-pagina"
+            class="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+          >
+            <option value="10">10</option>
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabla -->
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200" id="tabla-precios">
+        <thead class="bg-gray-50">
+          <tr>
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="proveedor_nombre">
+              <div class="flex items-center gap-1">
+                Proveedor
+                <svg class="h-4 w-4 text-gray-400 sort-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
+                </svg>
+              </div>
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Código Cliente
+            </th>
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="numero_material">
+              <div class="flex items-center gap-1">
+                Número Material
+                <svg class="h-4 w-4 text-gray-400 sort-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
+                </svg>
+              </div>
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Descripción Material
+            </th>
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="precio">
+              <div class="flex items-center gap-1">
+                Precio
+                <svg class="h-4 w-4 text-gray-400 sort-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
+                </svg>
+              </div>
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Moneda/UOM
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              País Origen
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              % Compra
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Comentario
+            </th>
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="updated_at">
+              <div class="flex items-center gap-1">
+                Última Actualización
+                <svg class="h-4 w-4 text-gray-400 sort-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
+                </svg>
+              </div>
+            </th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200 bg-white" id="tabla-precios-body">
+          <!-- Los datos se cargarán dinámicamente -->
+          <tr id="fila-sin-datos">
+            <td colspan="10" class="px-6 py-12 text-center text-sm text-gray-500">
+              <div class="flex flex-col items-center">
+                <svg class="h-12 w-12 text-gray-400 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p class="text-gray-500 font-medium">No hay precios registrados</p>
+                <p class="text-gray-400 mt-1">Los datos se mostrarán aquí cuando estén disponibles</p>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Paginación -->
+    <div class="flex items-center justify-between border-t border-gray-200 px-6 py-4">
+      <div class="flex items-center gap-2">
+        <button
+          id="btn-primera-pagina"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled
+        >
+          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m18.75 4.5-7.5 7.5 7.5 7.5m-6-15L5.25 12l7.5 7.5" />
+          </svg>
+        </button>
+        <button
+          id="btn-pagina-anterior"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled
+        >
+          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <span class="text-sm text-gray-600">Página</span>
+        <input
+          type="number"
+          id="pagina-actual"
+          value="1"
+          min="1"
+          class="w-16 rounded-md border border-gray-300 bg-white px-2 py-1 text-center text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+        />
+        <span class="text-sm text-gray-600">de <span id="total-paginas">1</span></span>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button
+          id="btn-pagina-siguiente"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled
+        >
+          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+          </svg>
+        </button>
+        <button
+          id="btn-ultima-pagina"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled
+        >
+          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m5.25 4.5 7.5 7.5-7.5 7.5m6-15 7.5 7.5-7.5 7.5" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Datos ocultos del backend -->
+<div id="datos-precios" style="display: none;">
+{% if precios %}
+  {% for precio in precios %}
+  <div data-precio-item
+       data-id="{{ precio.id }}"
+       data-codigo-cliente="{{ precio.codigo_cliente or '' }}"
+       data-numero-material="{{ precio.numero_material or '' }}"
+       data-precio-valor="{{ precio.precio }}"
+       data-currency-uom="{{ precio.currency_uom or '' }}"
+       data-country-origin="{{ precio.country_origin or '' }}"
+       data-porcentaje-compra="{% if precio.Porcentaje_Compra %}{{ precio.Porcentaje_Compra }}{% else %}{% endif %}"
+       data-comentario="{{ precio.Comentario or '' }}"
+       data-updated-at="{% if precio.updated_at %}{{ precio.updated_at.isoformat() }}{% else %}{% endif %}"
+       data-proveedor-nombre="{% if precio.proveedor %}{{ precio.proveedor.nombre }}{% else %}{% endif %}"
+       data-material-descripcion="{% if precio.material %}{{ precio.material.descripcion_material or '' }}{% else %}{% endif %}">
+  </div>
+  {% endfor %}
+{% endif %}
+</div>
+
+<script>
+  // Variables de estado
+  let todosLosPrecios = [];
+  let preciosFiltrados = [];
+  let paginaActual = 1;
+  let registrosPorPagina = 25;
+  let columnaOrden = null;
+  let ordenAscendente = true;
+  let filtros = {
+    search: ''
+  };
+
+  // Inicialización
+  document.addEventListener('DOMContentLoaded', function() {
+    // Extraer datos del div oculto
+    extraerDatos();
+    
+    // Configurar eventos
+    configurarEventos();
+    
+    // Renderizar siempre, incluso si no hay datos
+    aplicarFiltros();
+    renderizarTabla();
+  });
+
+  function extraerDatos() {
+    const elementos = document.querySelectorAll('#datos-precios [data-precio-item]');
+    todosLosPrecios = [];
+    
+    console.log('Elementos encontrados:', elementos.length);
+    
+    elementos.forEach((el, index) => {
+      // Usar getAttribute para obtener el valor exacto del atributo
+      const precioVal = el.getAttribute('data-precio-valor');
+      
+      // Debug para los primeros 3 elementos
+      if (index < 3) {
+        console.log(`DEBUG Elemento ${index + 1}:`, {
+          precioVal: precioVal,
+          tipo: typeof precioVal,
+          dataset: el.dataset.precioValor,
+          innerHTML: el.innerHTML.substring(0, 100)
+        });
+      }
+      
+      // Convertir el precio a número
+      let precioNum = 0;
+      if (precioVal && precioVal !== '' && precioVal !== 'None' && precioVal !== 'null' && precioVal !== 'undefined') {
+        const cleaned = String(precioVal).trim();
+        const parsed = parseFloat(cleaned);
+        if (!isNaN(parsed)) {
+          precioNum = parsed;
+        }
+      }
+      
+      todosLosPrecios.push({
+        id: parseInt(el.dataset.id) || 0,
+        codigo_cliente: el.dataset.codigoCliente || '',
+        numero_material: el.dataset.numeroMaterial || '',
+        precio: precioNum,
+        currency_uom: el.dataset.currencyUom || null,
+        country_origin: el.dataset.countryOrigin || null,
+        porcentaje_compra: el.dataset.porcentajeCompra ? parseFloat(el.dataset.porcentajeCompra) : null,
+        comentario: el.dataset.comentario || null,
+        updated_at: el.dataset.updatedAt || null,
+        proveedor_nombre: el.dataset.proveedorNombre || null,
+        material_descripcion: el.dataset.materialDescripcion || null
+      });
+    });
+    
+    console.log('Precios extraídos:', todosLosPrecios.length);
+    preciosFiltrados = [...todosLosPrecios];
+    actualizarContadores();
+    actualizarPaginacion();
+  }
+
+  function configurarEventos() {
+    // Filtros
+    document.getElementById('btn-limpiar-filtros').addEventListener('click', limpiarFiltros);
+    document.getElementById('busqueda-general').addEventListener('input', debounce(aplicarFiltros, 300));
+    
+    // Registros por página
+    document.getElementById('registros-por-pagina').addEventListener('change', function() {
+      registrosPorPagina = parseInt(this.value);
+      paginaActual = 1;
+      renderizarTabla();
+    });
+
+    // Paginación
+    document.getElementById('btn-primera-pagina').addEventListener('click', () => irAPagina(1));
+    document.getElementById('btn-pagina-anterior').addEventListener('click', () => irAPagina(paginaActual - 1));
+    document.getElementById('btn-pagina-siguiente').addEventListener('click', () => irAPagina(paginaActual + 1));
+    document.getElementById('btn-ultima-pagina').addEventListener('click', () => irAPagina(Math.ceil(preciosFiltrados.length / registrosPorPagina)));
+    document.getElementById('pagina-actual').addEventListener('change', function() {
+      const pagina = parseInt(this.value);
+      if (pagina >= 1 && pagina <= Math.ceil(preciosFiltrados.length / registrosPorPagina)) {
+        irAPagina(pagina);
+      } else {
+        this.value = paginaActual;
+      }
+    });
+
+    // Ordenamiento
+    document.querySelectorAll('th[data-sort]').forEach(th => {
+      th.addEventListener('click', function() {
+        const columna = this.getAttribute('data-sort');
+        ordenarPor(columna);
+      });
+    });
+  }
+
+  function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+      const later = () => {
+        clearTimeout(timeout);
+        func(...args);
+      };
+      clearTimeout(timeout);
+      timeout = setTimeout(later, wait);
+    };
+  }
+
+  function aplicarFiltros() {
+    const busqueda = document.getElementById('busqueda-general').value.toLowerCase().trim();
+
+    filtros.search = busqueda;
+
+    preciosFiltrados = todosLosPrecios.filter(precio => {
+      // Filtro de búsqueda
+      if (busqueda) {
+        const proveedorMatch = precio.proveedor_nombre && precio.proveedor_nombre.toLowerCase().includes(busqueda);
+        const codigoClienteMatch = precio.codigo_cliente && precio.codigo_cliente.toLowerCase().includes(busqueda);
+        const materialMatch = precio.numero_material && precio.numero_material.toLowerCase().includes(busqueda);
+        const descripcionMatch = precio.material_descripcion && precio.material_descripcion.toLowerCase().includes(busqueda);
+        const currencyMatch = precio.currency_uom && precio.currency_uom.toLowerCase().includes(busqueda);
+        const countryMatch = precio.country_origin && precio.country_origin.toLowerCase().includes(busqueda);
+        
+        if (!proveedorMatch && !codigoClienteMatch && !materialMatch && !descripcionMatch && !currencyMatch && !countryMatch) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    paginaActual = 1;
+    renderizarTabla();
+  }
+
+  function limpiarFiltros() {
+    document.getElementById('busqueda-general').value = '';
+    filtros = { search: '' };
+    preciosFiltrados = [...todosLosPrecios];
+    paginaActual = 1;
+    renderizarTabla();
+  }
+
+  function ordenarPor(columna) {
+    if (columnaOrden === columna) {
+      ordenAscendente = !ordenAscendente;
+    } else {
+      columnaOrden = columna;
+      ordenAscendente = true;
+    }
+
+    preciosFiltrados.sort((a, b) => {
+      let valorA = a[columna];
+      let valorB = b[columna];
+
+      // Manejar valores nulos
+      if (valorA === null || valorA === undefined) valorA = '';
+      if (valorB === null || valorB === undefined) valorB = '';
+
+      // Para números, comparar numéricamente
+      if (columna === 'precio' || columna === 'porcentaje_compra') {
+        valorA = parseFloat(valorA) || 0;
+        valorB = parseFloat(valorB) || 0;
+        return ordenAscendente ? valorA - valorB : valorB - valorA;
+      }
+
+      // Para fechas
+      if (columna === 'updated_at') {
+        valorA = valorA ? new Date(valorA).getTime() : 0;
+        valorB = valorB ? new Date(valorB).getTime() : 0;
+        return ordenAscendente ? valorA - valorB : valorB - valorA;
+      }
+
+      // Convertir a string para comparación
+      valorA = String(valorA).toLowerCase();
+      valorB = String(valorB).toLowerCase();
+
+      if (valorA < valorB) return ordenAscendente ? -1 : 1;
+      if (valorA > valorB) return ordenAscendente ? 1 : -1;
+      return 0;
+    });
+
+    actualizarIndicadoresOrden();
+    renderizarTabla();
+  }
+
+  function actualizarIndicadoresOrden() {
+    document.querySelectorAll('th[data-sort]').forEach(th => {
+      const icono = th.querySelector('.sort-icon');
+      if (th.getAttribute('data-sort') === columnaOrden) {
+        icono.classList.remove('text-gray-400');
+        icono.classList.add('text-[#003D89]');
+        if (ordenAscendente) {
+          icono.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M4.5 15.75l7.5-7.5 7.5 7.5" />';
+        } else {
+          icono.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />';
+        }
+      } else {
+        icono.classList.add('text-gray-400');
+        icono.classList.remove('text-[#003D89]');
+        icono.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />';
+      }
+    });
+  }
+
+  function renderizarTabla() {
+    const tbody = document.getElementById('tabla-precios-body');
+    const inicio = (paginaActual - 1) * registrosPorPagina;
+    const fin = inicio + registrosPorPagina;
+    const datosPagina = preciosFiltrados.slice(inicio, fin);
+
+    if (datosPagina.length === 0) {
+      tbody.innerHTML = `
+        <tr id="fila-sin-datos">
+          <td colspan="10" class="px-6 py-12 text-center text-sm text-gray-500">
+            <div class="flex flex-col items-center">
+              <svg class="h-12 w-12 text-gray-400 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <p class="text-gray-500 font-medium">No se encontraron resultados</p>
+              <p class="text-gray-400 mt-1">Intenta ajustar los filtros de búsqueda</p>
+            </div>
+          </td>
+        </tr>
+      `;
+    } else {
+      tbody.innerHTML = datosPagina.map(precio => {
+        const fechaActualizacion = precio.updated_at ? new Date(precio.updated_at).toLocaleDateString('es-MX') : 'N/A';
+        const precioFormateado = precio.precio ? precio.precio.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 6 }) : '0.00';
+        const porcentajeFormateado = precio.porcentaje_compra ? precio.porcentaje_compra.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%' : 'N/A';
+        const comentarioTruncado = precio.comentario && precio.comentario.length > 50 
+          ? precio.comentario.substring(0, 50) + '...' 
+          : (precio.comentario || 'N/A');
+        
+        return `
+          <tr class="hover:bg-gray-50">
+            <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">${escapeHtml(precio.proveedor_nombre || 'N/A')}</td>
+            <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">${escapeHtml(precio.codigo_cliente || 'N/A')}</td>
+            <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">${escapeHtml(precio.numero_material || 'N/A')}</td>
+            <td class="px-4 py-3 text-sm text-gray-500 max-w-xs truncate" title="${escapeHtml(precio.material_descripcion || '')}">${escapeHtml(precio.material_descripcion || 'N/A')}</td>
+            <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">${precioFormateado}</td>
+            <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">${escapeHtml(precio.currency_uom || 'N/A')}</td>
+            <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">${escapeHtml(precio.country_origin || 'N/A')}</td>
+            <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">${porcentajeFormateado}</td>
+            <td class="px-4 py-3 text-sm text-gray-500 max-w-xs truncate" title="${escapeHtml(precio.comentario || '')}">${escapeHtml(comentarioTruncado)}</td>
+            <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">${fechaActualizacion}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    actualizarContadores();
+    actualizarPaginacion();
+  }
+
+  function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+
+  function actualizarContadores() {
+    const inicio = Math.min((paginaActual - 1) * registrosPorPagina + 1, preciosFiltrados.length);
+    const fin = Math.min(paginaActual * registrosPorPagina, preciosFiltrados.length);
+    
+    document.getElementById('registros-mostrados').textContent = preciosFiltrados.length > 0 ? `${inicio}-${fin}` : '0';
+    document.getElementById('total-registros').textContent = preciosFiltrados.length;
+  }
+
+  function actualizarPaginacion() {
+    const totalPaginas = Math.max(1, Math.ceil(preciosFiltrados.length / registrosPorPagina));
+    
+    document.getElementById('total-paginas').textContent = totalPaginas;
+    document.getElementById('pagina-actual').value = paginaActual;
+    document.getElementById('pagina-actual').max = totalPaginas;
+
+    // Habilitar/deshabilitar botones
+    document.getElementById('btn-primera-pagina').disabled = paginaActual === 1;
+    document.getElementById('btn-pagina-anterior').disabled = paginaActual === 1;
+    document.getElementById('btn-pagina-siguiente').disabled = paginaActual >= totalPaginas;
+    document.getElementById('btn-ultima-pagina').disabled = paginaActual >= totalPaginas;
+  }
+
+  function irAPagina(pagina) {
+    const totalPaginas = Math.ceil(preciosFiltrados.length / registrosPorPagina);
+    if (pagina >= 1 && pagina <= totalPaginas) {
+      paginaActual = pagina;
+      renderizarTabla();
+    }
+  }
+</script>
+{% endblock %}
+
