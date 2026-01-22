@@ -37,7 +37,7 @@
           <input
             type="text"
             id="busqueda-general"
-            placeholder="Buscar por nombre, código cliente o domicilio..."
+            placeholder="Buscar por nombre, código proveedor o domicilio..."
             class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6"
           />
         </div>
@@ -109,6 +109,9 @@
       <table class="min-w-full divide-y divide-gray-200" id="tabla-proveedores">
         <thead class="bg-gray-50">
           <tr>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Código Proveedor
+            </th>
             <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="nombre">
               <div class="flex items-center gap-1">
                 Nombre
@@ -137,7 +140,7 @@
               </div>
             </th>
             <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-              Código Cliente
+              Estatus Compras
             </th>
             <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
               Fecha Creación
@@ -147,7 +150,7 @@
         <tbody class="divide-y divide-gray-200 bg-white" id="tabla-proveedores-body">
           <!-- Los datos se cargarán dinámicamente -->
           <tr id="fila-sin-datos">
-            <td colspan="6" class="px-6 py-12 text-center text-sm text-gray-500">
+            <td colspan="7" class="px-6 py-12 text-center text-sm text-gray-500">
               <div class="flex flex-col items-center">
                 <svg class="h-12 w-12 text-gray-400 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
@@ -228,12 +231,14 @@
 <div id="datos-proveedores" style="display: none;">
 {% for proveedor in proveedores %}
 <div data-proveedor
-     data-id="{{ proveedor.id }}"
+     data-codigo-proveedor="{{ proveedor.codigo_proveedor }}"
      data-nombre="{{ proveedor.nombre }}"
      data-pais="{{ proveedor.pais or '' }}"
      data-domicilio="{{ proveedor.domicilio or '' }}"
+     data-poblacion="{{ proveedor.poblacion or '' }}"
+     data-cp="{{ proveedor.cp or '' }}"
      data-estatus="{{ proveedor.estatus }}"
-     data-codigo-cliente="{{ proveedor.codigo_cliente or '' }}"
+     data-estatus-compras="{{ proveedor.estatus_compras or '' }}"
      data-created-at="{{ proveedor.created_at.isoformat() if proveedor.created_at else '' }}">
 </div>
 {% endfor %}
@@ -274,12 +279,14 @@
     
     elementos.forEach(el => {
       todosLosProveedores.push({
-        id: parseInt(el.dataset.id),
+        codigo_proveedor: el.dataset.codigoProveedor || null,
         nombre: el.dataset.nombre,
         pais: el.dataset.pais || null,
         domicilio: el.dataset.domicilio || null,
+        poblacion: el.dataset.poblacion || null,
+        cp: el.dataset.cp || null,
         estatus: el.dataset.estatus === 'True',
-        codigo_cliente: el.dataset.codigoCliente || null,
+        estatus_compras: el.dataset.estatusCompras || null,
         created_at: el.dataset.createdAt || null
       });
     });
@@ -351,7 +358,7 @@
       // Filtro de búsqueda
       if (busqueda) {
         const nombreMatch = prov.nombre.toLowerCase().includes(busqueda);
-        const codigoMatch = prov.codigo_cliente && prov.codigo_cliente.toLowerCase().includes(busqueda);
+        const codigoMatch = prov.codigo_proveedor && prov.codigo_proveedor.toLowerCase().includes(busqueda);
         const domicilioMatch = prov.domicilio && prov.domicilio.toLowerCase().includes(busqueda);
         if (!nombreMatch && !codigoMatch && !domicilioMatch) {
           return false;
@@ -442,7 +449,7 @@
     if (datosPagina.length === 0) {
       tbody.innerHTML = `
         <tr id="fila-sin-datos">
-          <td colspan="6" class="px-6 py-12 text-center text-sm text-gray-500">
+          <td colspan="7" class="px-6 py-12 text-center text-sm text-gray-500">
             <div class="flex flex-col items-center">
               <svg class="h-12 w-12 text-gray-400 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
@@ -460,13 +467,20 @@
           ? '<span class="inline-flex rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-800">Activo</span>'
           : '<span class="inline-flex rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-800">Inactivo</span>';
         
+        // Estatus Compras: si tiene "X" es inactivo (rojo), si no tiene "X" es activo (verde)
+        const tieneX = prov.estatus_compras && prov.estatus_compras.toUpperCase().includes('X');
+        const estatusComprasBadge = tieneX
+          ? '<span class="inline-flex rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-800">Inactivo</span>'
+          : '<span class="inline-flex rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-800">Activo</span>';
+        
         return `
           <tr class="hover:bg-gray-50">
+            <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">${escapeHtml(prov.codigo_proveedor || 'N/A')}</td>
             <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">${escapeHtml(prov.nombre)}</td>
             <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">${escapeHtml(prov.pais || 'N/A')}</td>
             <td class="px-4 py-3 text-sm text-gray-500 max-w-xs truncate" title="${escapeHtml(prov.domicilio || '')}">${escapeHtml(prov.domicilio || 'N/A')}</td>
             <td class="whitespace-nowrap px-4 py-3 text-sm">${estatusBadge}</td>
-            <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">${escapeHtml(prov.codigo_cliente || 'N/A')}</td>
+            <td class="whitespace-nowrap px-4 py-3 text-sm">${estatusComprasBadge}</td>
             <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">${fechaCreacion}</td>
           </tr>
         `;

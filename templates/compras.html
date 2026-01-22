@@ -316,82 +316,37 @@
       </div>
     </div>
 
-    <!-- Segunda fila: Tabla de Compras -->
+    <!-- Segunda fila: Botón para ver todas las compras -->
     <div>
       <div class="rounded-lg bg-white p-6 shadow-sm">
-        <h2 class="mb-4 text-lg font-medium text-gray-900">
-          Compras Registradas
-        </h2>
-
-        <div class="overflow-x-auto">
-          <table class="min-w-full divide-y divide-gray-200">
-            <thead class="bg-gray-50">
-              <tr>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                  Fecha
-                </th>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                  Purchasing Document
-                </th>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                  Material Document
-                </th>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                  Material
-                </th>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                  Proveedor
-                </th>
-                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                  Unit Price
-                </th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-200 bg-white" id="tabla-compras-body">
-              {% if compras %}
-                {% for compra in compras %}
-                <tr>
-                  <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-900">
-                    {% if compra.posting_date %}
-                      {{ compra.posting_date | datetime_cdmx('%d/%m/%Y') }}
-                    {% else %}
-                      N/A
-                    {% endif %}
-                  </td>
-                  <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-500">
-                    {{ compra.purchasing_document or 'N/A' }}
-                  </td>
-                  <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-500">
-                    {{ compra.material_document or 'N/A' }}
-                  </td>
-                  <td class="px-3 py-2 text-sm text-gray-500">
-                    <div class="max-w-xs truncate" title="{{ compra.numero_material or compra.descripcion_material or 'N/A' }}">
-                      {{ compra.numero_material or compra.descripcion_material or 'N/A' }}
-                    </div>
-                  </td>
-                  <td class="px-3 py-2 text-sm text-gray-500">
-                    <div class="max-w-xs truncate" title="{{ compra.nombre_proveedor or 'N/A' }}">
-                      {{ compra.nombre_proveedor or 'N/A' }}
-                    </div>
-                  </td>
-                  <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-500">
-                    {% if compra.price %}
-                      {{ compra.price }}
-                    {% else %}
-                      N/A
-                    {% endif %}
-                  </td>
-                </tr>
-                {% endfor %}
-              {% else %}
-                <tr>
-                  <td colspan="6" class="px-3 py-4 text-center text-sm text-gray-500">
-                    No hay compras registradas
-                  </td>
-                </tr>
-              {% endif %}
-            </tbody>
-          </table>
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-lg font-medium text-gray-900">
+              Compras Registradas
+            </h2>
+            <p class="mt-1 text-sm text-gray-600">
+              Visualiza y gestiona todas las compras registradas en el sistema
+            </p>
+          </div>
+          <a
+            href="/todas-compras"
+            class="inline-flex items-center gap-2 rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white hover:bg-[#003070]"
+          >
+            Ver todas las compras
+            <svg
+              class="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M9 5l7 7-7 7"
+              />
+            </svg>
+          </a>
         </div>
       </div>
     </div>

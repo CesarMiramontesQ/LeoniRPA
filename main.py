@@ -116,17 +116,30 @@ async def compras(request: Request, current_user: User = Depends(get_current_use
     # Obtener el historial de ejecuciones para mostrar en la tabla (últimos 5)
     executions = await crud.list_executions(db, user_id=current_user.id, limit=5)
     
-    # Obtener las compras para mostrar en la tabla
-    compras_list = await crud.list_compras(db, limit=100)
-    
     return templates.TemplateResponse(
         "compras.html",
         {
             "request": request,
             "active_page": "compras",
             "current_user": current_user,
-            "executions": executions,
-            "compras": compras_list
+            "executions": executions
+        }
+    )
+
+
+@app.get("/todas-compras")
+async def todas_compras(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Página para ver todas las compras con filtros - requiere autenticación."""
+    # Obtener el total de compras para mostrar en la estadística
+    total_compras = await crud.count_compras(db)
+    
+    return templates.TemplateResponse(
+        "todas_compras.html",
+        {
+            "request": request,
+            "active_page": "compras",
+            "current_user": current_user,
+            "total_compras": total_compras
         }
     )
 
@@ -254,16 +267,124 @@ async def api_proveedores(
     return JSONResponse({
         "proveedores": [
             {
-                "id": p.id,
+                "codigo_proveedor": p.codigo_proveedor,
                 "nombre": p.nombre,
                 "pais": p.pais,
                 "domicilio": p.domicilio,
+                "poblacion": p.poblacion,
+                "cp": p.cp,
                 "estatus": p.estatus,
-                "codigo_cliente": p.codigo_cliente,
+                "estatus_compras": p.estatus_compras,
                 "created_at": p.created_at.isoformat() if p.created_at else None,
                 "updated_at": p.updated_at.isoformat() if p.updated_at else None
             }
             for p in proveedores
+        ],
+        "total": total,
+        "limit": limit,
+        "offset": offset
+    })
+
+
+@app.get("/api/compras")
+async def api_compras(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    search: Optional[str] = None,
+    fecha_inicio: Optional[str] = None,
+    fecha_fin: Optional[str] = None,
+    numero_proveedor: Optional[int] = None,
+    numero_material: Optional[str] = None,
+    purchasing_document: Optional[int] = None,
+    material_document: Optional[int] = None,
+    limit: int = 100,
+    offset: int = 0
+):
+    """API para obtener compras con filtros y paginación."""
+    # Convertir fechas de string a datetime si están presentes
+    fecha_inicio_dt = None
+    fecha_fin_dt = None
+    
+    if fecha_inicio:
+        try:
+            fecha_inicio_dt = datetime.strptime(fecha_inicio, "%Y-%m-%d")
+        except ValueError:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Formato de fecha_inicio inválido. Use formato YYYY-MM-DD"}
+            )
+    
+    if fecha_fin:
+        try:
+            fecha_fin_dt = datetime.strptime(fecha_fin, "%Y-%m-%d")
+        except ValueError:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "Formato de fecha_fin inválido. Use formato YYYY-MM-DD"}
+            )
+    
+    compras = await crud.list_compras(
+        db,
+        search=search,
+        fecha_inicio=fecha_inicio_dt,
+        fecha_fin=fecha_fin_dt,
+        numero_proveedor=numero_proveedor,
+        numero_material=numero_material,
+        purchasing_document=purchasing_document,
+        material_document=material_document,
+        limit=limit,
+        offset=offset
+    )
+    
+    total = await crud.count_compras(
+        db,
+        search=search,
+        fecha_inicio=fecha_inicio_dt,
+        fecha_fin=fecha_fin_dt,
+        numero_proveedor=numero_proveedor,
+        numero_material=numero_material,
+        purchasing_document=purchasing_document,
+        material_document=material_document
+    )
+    
+    return JSONResponse({
+        "compras": [
+            {
+                "id": c.id,
+                "purchasing_document": c.purchasing_document,
+                "item": c.item,
+                "material_doc_year": c.material_doc_year,
+                "material_document": c.material_document,
+                "material_doc_item": c.material_doc_item,
+                "movement_type": c.movement_type,
+                "posting_date": c.posting_date.isoformat() if c.posting_date else None,
+                "quantity": c.quantity,
+                "order_unit": c.order_unit,
+                "quantity_in_opun": c.quantity_in_opun,
+                "order_price_unit": c.order_price_unit,
+                "amount_in_lc": float(c.amount_in_lc) if c.amount_in_lc else None,
+                "local_currency": c.local_currency,
+                "amount": float(c.amount) if c.amount else None,
+                "currency": c.currency,
+                "gr_ir_clearing_value_lc": float(c.gr_ir_clearing_value_lc) if c.gr_ir_clearing_value_lc else None,
+                "gr_blck_stock_oun": float(c.gr_blck_stock_oun) if c.gr_blck_stock_oun else None,
+                "gr_blocked_stck_opun": float(c.gr_blocked_stck_opun) if c.gr_blocked_stck_opun else None,
+                "delivery_completed": c.delivery_completed,
+                "fisc_year_ref_doc": c.fisc_year_ref_doc,
+                "reference_document": c.reference_document,
+                "reference_doc_item": c.reference_doc_item,
+                "invoice_value": float(c.invoice_value) if c.invoice_value else None,
+                "numero_material": c.numero_material,
+                "plant": c.plant,
+                "descripcion_material": c.descripcion_material,
+                "nombre_proveedor": c.nombre_proveedor,
+                "numero_proveedor": c.numero_proveedor,
+                "price": float(c.price) if c.price else None,
+                "created_at": c.created_at.isoformat() if c.created_at else None,
+                "updated_at": c.updated_at.isoformat() if c.updated_at else None
+            }
+            for c in compras
         ],
         "total": total,
         "limit": limit,

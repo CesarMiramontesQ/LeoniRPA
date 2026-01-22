@@ -113,6 +113,15 @@ async def import_proveedores(file_path: str):
             estatus_col = col
             break
     
+    # Buscar columna de Código Proveedor
+    codigo_proveedor_col = None
+    for col in df.columns:
+        col_lower = col.lower()
+        if col_lower in ['código proveedor', 'codigo proveedor', 'codigo_proveedor', 'código_proveedor', 
+                         'codigo cliente', 'código cliente', 'codigo_cliente', 'código_cliente']:
+            codigo_proveedor_col = col
+            break
+    
     # Verificar que existe la columna Nombre
     if nombre_col is None:
         print(f"✗ Error: No se encontró la columna 'Nombre o Razón social' en el archivo")
@@ -121,6 +130,7 @@ async def import_proveedores(file_path: str):
     
     print(f"\nColumnas mapeadas:")
     print(f"  - Nombre: {nombre_col}")
+    print(f"  - Código Proveedor: {codigo_proveedor_col if codigo_proveedor_col else 'No encontrada (se generará automáticamente)'}")
     print(f"  - País: {pais_col if pais_col else 'No encontrada'}")
     print(f"  - Domicilio: {domicilio_col if domicilio_col else 'No encontrada'}")
     print(f"  - Estatus: {estatus_col if estatus_col else 'No encontrada (usará True por defecto)'}")
@@ -147,48 +157,42 @@ async def import_proveedores(file_path: str):
                 domicilio = clean_string(row.get(domicilio_col)) if domicilio_col else None
                 estatus = clean_boolean(row.get(estatus_col), default=True) if estatus_col else True
                 
-                # Código cliente se deja en blanco (None) como se solicitó
-                codigo_cliente = None
+                # Obtener código proveedor del Excel o generar uno automáticamente
+                codigo_proveedor = clean_string(row.get(codigo_proveedor_col)) if codigo_proveedor_col else None
                 
-                # Verificar si el proveedor ya existe (por nombre)
-                existing_proveedores = await crud.list_proveedores(
-                    session,
-                    search=nombre,
-                    limit=1
-                )
+                # Si no hay código proveedor, generar uno basado en el nombre
+                if not codigo_proveedor:
+                    # Generar código basado en el nombre (primeras letras + número de fila)
+                    codigo_proveedor = f"PROV_{index + 1:04d}"
+                    print(f"  Fila {index + 2}: Generado código automático: {codigo_proveedor}")
                 
-                # Si existe un proveedor con el mismo nombre exacto, actualizar
-                proveedor_existente = None
-                for prov in existing_proveedores:
-                    if prov.nombre.lower() == nombre.lower():
-                        proveedor_existente = prov
-                        break
+                # Verificar si el código proveedor ya existe
+                proveedor_existente = await crud.get_proveedor_by_codigo_proveedor(session, codigo_proveedor)
                 
                 if proveedor_existente:
                     # Actualizar proveedor existente
                     await crud.update_proveedor(
                         session,
-                        proveedor_existente.id,
+                        codigo_proveedor,
                         nombre=nombre,
                         pais=pais,
                         domicilio=domicilio,
-                        estatus=estatus,
-                        codigo_cliente=codigo_cliente
+                        estatus=estatus
                     )
                     updated += 1
-                    print(f"  Fila {index + 2}: Actualizado - {nombre}")
+                    print(f"  Fila {index + 2}: Actualizado - {nombre} ({codigo_proveedor})")
                 else:
                     # Crear nuevo proveedor
                     await crud.create_proveedor(
                         session,
+                        codigo_proveedor=codigo_proveedor,
                         nombre=nombre,
                         pais=pais,
                         domicilio=domicilio,
-                        estatus=estatus,
-                        codigo_cliente=codigo_cliente
+                        estatus=estatus
                     )
                     inserted += 1
-                    print(f"  Fila {index + 2}: Insertado - {nombre}")
+                    print(f"  Fila {index + 2}: Insertado - {nombre} ({codigo_proveedor})")
                     
             except Exception as e:
                 errors += 1
@@ -227,7 +231,7 @@ async def show_sample_data():
             print(f"\nMostrando {len(proveedores)} proveedores:\n")
             for prov in proveedores:
                 estatus_str = "Activo" if prov.estatus else "Inactivo"
-                codigo_str = prov.codigo_cliente if prov.codigo_cliente else "(sin código)"
+                codigo_str = prov.codigo_proveedor if prov.codigo_proveedor else "(sin código)"
                 print(f"  ID: {prov.id}")
                 print(f"  Nombre: {prov.nombre}")
                 print(f"  País: {prov.pais or 'N/A'}")

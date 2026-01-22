@@ -239,7 +239,8 @@ class Proveedor(Base):
     """Modelo para proveedores."""
     __tablename__ = "proveedores"
     
-    id = Column(Integer, primary_key=True, index=True)
+    # Código Proveedor (clave primaria)
+    codigo_proveedor = Column(String, primary_key=True, index=True)
     
     # Nombre del proveedor
     nombre = Column(String, nullable=False, index=True)
@@ -250,18 +251,24 @@ class Proveedor(Base):
     # Domicilio
     domicilio = Column(Text, nullable=True)
     
+    # Población
+    poblacion = Column(String, nullable=True)
+    
+    # Código Postal
+    cp = Column(String, nullable=True)
+    
     # Estatus (activo/inactivo)
     estatus = Column(Boolean, default=True, nullable=False, index=True)
     
-    # Código Cliente (identificador único)
-    codigo_cliente = Column(String, unique=True, nullable=True, index=True)
+    # Estatus de compras
+    estatus_compras = Column(String, nullable=True)
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     
     def __repr__(self):
-        return f"<Proveedor(id={self.id}, nombre={self.nombre}, codigo_cliente={self.codigo_cliente})>"
+        return f"<Proveedor(codigo_proveedor={self.codigo_proveedor}, nombre={self.nombre})>"
 
 
 class Material(Base):
@@ -294,7 +301,7 @@ class PrecioMaterial(Base):
     id = Column(Integer, primary_key=True, index=True)
     
     # Claves foráneas
-    codigo_cliente = Column(String, ForeignKey("proveedores.codigo_cliente"), nullable=False, index=True)
+    codigo_proveedor = Column(String, ForeignKey("proveedores.codigo_proveedor"), nullable=False, index=True)
     numero_material = Column(String, ForeignKey("materiales.numero_material"), nullable=False, index=True)
     
     # Precio
@@ -316,20 +323,20 @@ class PrecioMaterial(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     
     # Relaciones
-    proveedor = relationship("Proveedor", foreign_keys=[codigo_cliente], backref="precios_materiales")
+    proveedor = relationship("Proveedor", foreign_keys=[codigo_proveedor], backref="precios_materiales")
     material = relationship("Material", foreign_keys=[numero_material], back_populates="precios")
     
     # Restricciones
     __table_args__ = (
         # Constraint único: un solo precio vigente por combinación de proveedor y material
         UniqueConstraint(
-            'codigo_cliente', 'numero_material',
+            'codigo_proveedor', 'numero_material',
             name='uq_precios_materiales_proveedor_material'
         ),
     )
     
     def __repr__(self):
-        return f"<PrecioMaterial(id={self.id}, codigo_cliente={self.codigo_cliente}, numero_material={self.numero_material}, precio={self.precio})>"
+        return f"<PrecioMaterial(id={self.id}, codigo_proveedor={self.codigo_proveedor}, numero_material={self.numero_material}, precio={self.precio})>"
 
 
 class Compra(Base):

@@ -1,0 +1,576 @@
+{% extends "base.html" %} {% block content %}
+<div class="space-y-6">
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold text-gray-900">Todas las Compras</h1>
+      <p class="mt-1 text-sm text-gray-600">
+        Visualiza y gestiona todas las compras registradas en el sistema
+      </p>
+    </div>
+  </div>
+
+  <!-- Tarjetas de Estadísticas -->
+  <div>
+    <dl class="grid grid-cols-1 gap-5 sm:grid-cols-1">
+      <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
+        <dt class="truncate text-sm font-medium text-gray-500">Total de Compras Registradas</dt>
+        <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900" id="total-compras">0</dd>
+      </div>
+    </dl>
+  </div>
+
+  <!-- Panel de Filtros -->
+  <div class="rounded-lg bg-white p-6 shadow-sm">
+    <div class="space-y-4">
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div>
+          <label for="busqueda-general" class="block text-sm/6 font-medium text-gray-900">Buscar</label>
+          <div class="mt-2">
+            <input
+              type="text"
+              id="busqueda-general"
+              placeholder="Buscar por material, proveedor, documento..."
+              class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6"
+            />
+          </div>
+        </div>
+        <div>
+          <label for="fecha-inicio" class="block text-sm/6 font-medium text-gray-900">Fecha Inicio</label>
+          <div class="mt-2">
+            <input
+              type="date"
+              id="fecha-inicio"
+              class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6"
+            />
+          </div>
+        </div>
+        <div>
+          <label for="fecha-fin" class="block text-sm/6 font-medium text-gray-900">Fecha Fin</label>
+          <div class="mt-2">
+            <input
+              type="date"
+              id="fecha-fin"
+              class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6"
+            />
+          </div>
+        </div>
+        <div>
+          <label for="numero-proveedor" class="block text-sm/6 font-medium text-gray-900">Número Proveedor</label>
+          <div class="mt-2">
+            <input
+              type="number"
+              id="numero-proveedor"
+              placeholder="Filtrar por número de proveedor"
+              class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6"
+            />
+          </div>
+        </div>
+        <div>
+          <label for="numero-material" class="block text-sm/6 font-medium text-gray-900">Número Material</label>
+          <div class="mt-2">
+            <input
+              type="text"
+              id="numero-material"
+              placeholder="Filtrar por número de material"
+              class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6"
+            />
+          </div>
+        </div>
+        <div>
+          <label for="purchasing-document" class="block text-sm/6 font-medium text-gray-900">Purchasing Document</label>
+          <div class="mt-2">
+            <input
+              type="number"
+              id="purchasing-document"
+              placeholder="Filtrar por purchasing document"
+              class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6"
+            />
+          </div>
+        </div>
+      </div>
+      <div class="flex items-end">
+        <button
+          id="btn-limpiar-filtros"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+        >
+          Limpiar Filtros
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabla de Compras -->
+  <div class="rounded-lg bg-white shadow-sm">
+    <!-- Encabezado de la tabla con información y controles -->
+    <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+      <div class="flex items-center gap-4">
+        <span class="text-sm text-gray-600">
+          Mostrando <span id="registros-mostrados" class="font-medium">0</span> de <span id="total-registros" class="font-medium">0</span> compras
+        </span>
+      </div>
+      <div class="flex items-center gap-4">
+        <!-- Selector de registros por página -->
+        <div class="flex items-center gap-2">
+          <label for="registros-por-pagina" class="text-sm text-gray-600">Mostrar:</label>
+          <select
+            id="registros-por-pagina"
+            class="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+          >
+            <option value="10">10</option>
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabla -->
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200" id="tabla-compras">
+        <thead class="bg-gray-50">
+          <tr>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Fecha
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Purchasing Document
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Material Document
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Material
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Descripción Material
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Proveedor
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Cantidad
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Precio Unitario
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Monto Total
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Moneda
+            </th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200 bg-white" id="tabla-compras-body">
+          <!-- Los datos se cargarán dinámicamente -->
+          <tr id="fila-sin-datos">
+            <td colspan="10" class="px-6 py-12 text-center text-sm text-gray-500">
+              <div class="flex flex-col items-center">
+                <svg class="h-12 w-12 text-gray-400 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p class="text-gray-500 font-medium">Cargando compras...</p>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Paginación -->
+    <div class="flex items-center justify-between border-t border-gray-200 px-6 py-4">
+      <div class="flex items-center gap-2">
+        <button
+          id="btn-primera-pagina"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled
+        >
+          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m18.75 4.5-7.5 7.5 7.5 7.5m-6-15L5.25 12l7.5 7.5" />
+          </svg>
+        </button>
+        <button
+          id="btn-pagina-anterior"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled
+        >
+          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <span class="text-sm text-gray-600">Página</span>
+        <input
+          type="number"
+          id="pagina-actual"
+          value="1"
+          min="1"
+          class="w-16 rounded-md border border-gray-300 bg-white px-2 py-1 text-center text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+        />
+        <span class="text-sm text-gray-600">de <span id="total-paginas">1</span></span>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button
+          id="btn-pagina-siguiente"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled
+        >
+          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+          </svg>
+        </button>
+        <button
+          id="btn-ultima-pagina"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled
+        >
+          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m5.25 4.5 7.5 7.5-7.5 7.5m6-15 7.5 7.5-7.5 7.5" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Variables de estado
+  let paginaActual = 1;
+  let registrosPorPagina = 25;
+  let totalCompras = 0;
+  let comprasActuales = [];
+
+  // Inicialización
+  document.addEventListener('DOMContentLoaded', function() {
+    configurarEventos();
+    cargarCompras();
+  });
+
+  function configurarEventos() {
+    // Filtros
+    document.getElementById('btn-limpiar-filtros').addEventListener('click', limpiarFiltros);
+    document.getElementById('busqueda-general').addEventListener('input', debounce(cargarCompras, 300));
+    document.getElementById('fecha-inicio').addEventListener('change', cargarCompras);
+    document.getElementById('fecha-fin').addEventListener('change', cargarCompras);
+    document.getElementById('numero-proveedor').addEventListener('input', debounce(cargarCompras, 300));
+    document.getElementById('numero-material').addEventListener('input', debounce(cargarCompras, 300));
+    document.getElementById('purchasing-document').addEventListener('input', debounce(cargarCompras, 300));
+    
+    // Registros por página
+    document.getElementById('registros-por-pagina').addEventListener('change', function() {
+      registrosPorPagina = parseInt(this.value);
+      paginaActual = 1;
+      cargarCompras();
+    });
+
+    // Paginación
+    const btnPrimera = document.getElementById('btn-primera-pagina');
+    const btnAnterior = document.getElementById('btn-pagina-anterior');
+    const btnSiguiente = document.getElementById('btn-pagina-siguiente');
+    const btnUltima = document.getElementById('btn-ultima-pagina');
+    const inputPagina = document.getElementById('pagina-actual');
+    
+    if (btnPrimera) {
+      btnPrimera.addEventListener('click', function(e) {
+        e.preventDefault();
+        paginaActual = 1;
+        cargarCompras();
+      });
+    }
+    
+    if (btnAnterior) {
+      btnAnterior.addEventListener('click', function(e) {
+        e.preventDefault();
+        if (paginaActual > 1) {
+          paginaActual--;
+          cargarCompras();
+        }
+      });
+    }
+    
+    if (btnSiguiente) {
+      btnSiguiente.addEventListener('click', function(e) {
+        e.preventDefault();
+        paginaActual++;
+        cargarCompras();
+      });
+    }
+    
+    if (btnUltima) {
+      btnUltima.addEventListener('click', function(e) {
+        e.preventDefault();
+        // Establecer a un número grande, se ajustará después de cargar los datos
+        paginaActual = 999999;
+        cargarCompras();
+      });
+    }
+    
+    if (inputPagina) {
+      inputPagina.addEventListener('change', function(e) {
+        e.preventDefault();
+        const pagina = parseInt(this.value);
+        if (pagina >= 1) {
+          paginaActual = pagina;
+          cargarCompras();
+        } else {
+          this.value = paginaActual;
+        }
+      });
+      
+      inputPagina.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const pagina = parseInt(this.value);
+          if (pagina >= 1) {
+            paginaActual = pagina;
+            cargarCompras();
+          } else {
+            this.value = paginaActual;
+          }
+        }
+      });
+    }
+  }
+
+  function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+      const later = () => {
+        clearTimeout(timeout);
+        func(...args);
+      };
+      clearTimeout(timeout);
+      timeout = setTimeout(later, wait);
+    };
+  }
+
+  async function cargarCompras() {
+    // Asegurar que paginaActual sea válida antes de calcular el offset
+    if (paginaActual < 1) {
+      paginaActual = 1;
+    }
+    
+    const offset = (paginaActual - 1) * registrosPorPagina;
+    
+    // Construir parámetros de búsqueda
+    const params = new URLSearchParams();
+    params.append('limit', registrosPorPagina.toString());
+    params.append('offset', offset.toString());
+    
+    const busqueda = document.getElementById('busqueda-general').value.trim();
+    if (busqueda) {
+      params.append('search', busqueda);
+    }
+    
+    const fechaInicio = document.getElementById('fecha-inicio').value;
+    if (fechaInicio) {
+      params.append('fecha_inicio', fechaInicio);
+    }
+    
+    const fechaFin = document.getElementById('fecha-fin').value;
+    if (fechaFin) {
+      params.append('fecha_fin', fechaFin);
+    }
+    
+    const numeroProveedor = document.getElementById('numero-proveedor').value.trim();
+    if (numeroProveedor) {
+      params.append('numero_proveedor', numeroProveedor);
+    }
+    
+    const numeroMaterial = document.getElementById('numero-material').value.trim();
+    if (numeroMaterial) {
+      params.append('numero_material', numeroMaterial);
+    }
+    
+    const purchasingDocument = document.getElementById('purchasing-document').value.trim();
+    if (purchasingDocument) {
+      params.append('purchasing_document', purchasingDocument);
+    }
+    
+    // Mostrar estado de carga
+    const tbody = document.getElementById('tabla-compras-body');
+    tbody.innerHTML = '<tr id="fila-sin-datos"><td colspan="10" class="px-6 py-12 text-center text-sm text-gray-500"><div class="flex flex-col items-center"><p class="text-gray-500 font-medium">Cargando compras...</p></div></td></tr>';
+    
+    try {
+      const response = await fetch(`/api/compras?${params.toString()}`);
+      const data = await response.json();
+      
+      if (response.ok) {
+        comprasActuales = data.compras || [];
+        totalCompras = data.total || 0;
+        
+        // Ajustar paginaActual después de obtener el total
+        const totalPaginas = Math.ceil(totalCompras / registrosPorPagina) || 1;
+        if (paginaActual > totalPaginas && totalPaginas > 0) {
+          paginaActual = totalPaginas;
+          // Si la página cambió, recargar con la página correcta
+          if (paginaActual !== Math.ceil((offset + 1) / registrosPorPagina)) {
+            return cargarCompras();
+          }
+        }
+        
+        renderizarTabla();
+        actualizarContadores();
+        actualizarPaginacion();
+      } else {
+        console.error('Error al cargar compras:', data.error);
+        mostrarError('Error al cargar las compras. Por favor, intenta nuevamente.');
+      }
+    } catch (error) {
+      console.error('Error al cargar compras:', error);
+      mostrarError('Error al conectar con el servidor. Por favor, intenta nuevamente.');
+    }
+  }
+
+  function renderizarTabla() {
+    const tbody = document.getElementById('tabla-compras-body');
+    
+    // Limpiar el tbody completamente
+    tbody.innerHTML = '';
+    
+    if (comprasActuales.length === 0) {
+      const filaVacia = document.createElement('tr');
+      filaVacia.id = 'fila-sin-datos';
+      filaVacia.innerHTML = `
+        <td colspan="10" class="px-6 py-12 text-center text-sm text-gray-500">
+          <div class="flex flex-col items-center">
+            <svg class="h-12 w-12 text-gray-400 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <p class="text-gray-500 font-medium">No hay compras registradas</p>
+            <p class="text-gray-400 mt-1">Los datos se mostrarán aquí cuando estén disponibles</p>
+          </div>
+        </td>
+      `;
+      tbody.appendChild(filaVacia);
+      return;
+    }
+    
+    // Renderizar las filas de compras
+    comprasActuales.forEach(compra => {
+      const fecha = compra.posting_date ? new Date(compra.posting_date).toLocaleDateString('es-MX') : 'N/A';
+      const precio = compra.price ? parseFloat(compra.price).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'N/A';
+      const cantidad = compra.quantity || 'N/A';
+      const montoTotal = compra.amount ? parseFloat(compra.amount).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 'N/A';
+      const moneda = compra.currency || compra.local_currency || 'N/A';
+      
+      const fila = document.createElement('tr');
+      fila.className = 'hover:bg-gray-50';
+      fila.innerHTML = `
+        <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-900">${fecha}</td>
+        <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">${compra.purchasing_document || 'N/A'}</td>
+        <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">${compra.material_document || 'N/A'}</td>
+        <td class="px-4 py-3 text-sm text-gray-500">
+          <div class="max-w-xs truncate" title="${compra.numero_material || 'N/A'}">
+            ${compra.numero_material || 'N/A'}
+          </div>
+        </td>
+        <td class="px-4 py-3 text-sm text-gray-500">
+          <div class="max-w-xs truncate" title="${compra.descripcion_material || 'N/A'}">
+            ${compra.descripcion_material || 'N/A'}
+          </div>
+        </td>
+        <td class="px-4 py-3 text-sm text-gray-500">
+          <div class="max-w-xs truncate" title="${compra.nombre_proveedor || 'N/A'}">
+            ${compra.nombre_proveedor || 'N/A'}
+          </div>
+        </td>
+        <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">${cantidad}</td>
+        <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">${precio}</td>
+        <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">${montoTotal}</td>
+        <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">${moneda}</td>
+      `;
+      tbody.appendChild(fila);
+    });
+  }
+
+  function actualizarContadores() {
+    document.getElementById('total-compras').textContent = totalCompras.toLocaleString('es-MX');
+    document.getElementById('registros-mostrados').textContent = comprasActuales.length.toLocaleString('es-MX');
+    document.getElementById('total-registros').textContent = totalCompras.toLocaleString('es-MX');
+  }
+
+  function actualizarPaginacion() {
+    const totalPaginas = Math.ceil(totalCompras / registrosPorPagina) || 1;
+    
+    // Ajustar paginaActual si es mayor que el total de páginas (por ejemplo, cuando se hace clic en "última página")
+    if (paginaActual > totalPaginas && totalPaginas > 0) {
+      paginaActual = totalPaginas;
+    }
+    
+    // Asegurar que paginaActual sea al menos 1
+    if (paginaActual < 1) {
+      paginaActual = 1;
+    }
+    
+    const totalPaginasElement = document.getElementById('total-paginas');
+    const paginaActualElement = document.getElementById('pagina-actual');
+    
+    if (totalPaginasElement) {
+      totalPaginasElement.textContent = totalPaginas;
+    }
+    
+    if (paginaActualElement) {
+      paginaActualElement.value = paginaActual;
+    }
+    
+    const btnPrimera = document.getElementById('btn-primera-pagina');
+    const btnAnterior = document.getElementById('btn-pagina-anterior');
+    const btnSiguiente = document.getElementById('btn-pagina-siguiente');
+    const btnUltima = document.getElementById('btn-ultima-pagina');
+    
+    if (btnPrimera) {
+      btnPrimera.disabled = paginaActual === 1 || totalCompras === 0;
+    }
+    if (btnAnterior) {
+      btnAnterior.disabled = paginaActual === 1 || totalCompras === 0;
+    }
+    if (btnSiguiente) {
+      btnSiguiente.disabled = paginaActual >= totalPaginas || totalCompras === 0;
+    }
+    if (btnUltima) {
+      btnUltima.disabled = paginaActual >= totalPaginas || totalCompras === 0;
+    }
+  }
+
+  function limpiarFiltros() {
+    document.getElementById('busqueda-general').value = '';
+    document.getElementById('fecha-inicio').value = '';
+    document.getElementById('fecha-fin').value = '';
+    document.getElementById('numero-proveedor').value = '';
+    document.getElementById('numero-material').value = '';
+    document.getElementById('purchasing-document').value = '';
+    paginaActual = 1;
+    cargarCompras();
+  }
+
+  function mostrarError(mensaje) {
+    const tbody = document.getElementById('tabla-compras-body');
+    tbody.innerHTML = '';
+    const filaError = document.createElement('tr');
+    filaError.id = 'fila-sin-datos';
+    filaError.innerHTML = `
+      <td colspan="10" class="px-6 py-12 text-center text-sm text-red-500">
+        <div class="flex flex-col items-center">
+          <svg class="h-12 w-12 text-red-400 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+          </svg>
+          <p class="text-red-500 font-medium">${mensaje}</p>
+        </div>
+      </td>
+    `;
+    tbody.appendChild(filaError);
+  }
+</script>
+{% endblock %}
+

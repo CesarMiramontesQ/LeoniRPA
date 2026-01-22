@@ -1,5 +1,5 @@
 """Operaciones CRUD para usuarios, ejecuciones y BOM."""
-from sqlalchemy import select, desc, func, or_
+from sqlalchemy import select, desc, func, or_, String
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.dialects.postgresql import insert
@@ -642,33 +642,33 @@ async def delete_all_bom_flat(db: AsyncSession) -> int:
 
 # ==================== CRUD para Proveedores ====================
 
-async def get_proveedor_by_id(db: AsyncSession, proveedor_id: int) -> Optional[Proveedor]:
-    """Obtiene un proveedor por ID."""
-    result = await db.execute(select(Proveedor).where(Proveedor.id == proveedor_id))
-    return result.scalar_one_or_none()
-
-
-async def get_proveedor_by_codigo_cliente(db: AsyncSession, codigo_cliente: str) -> Optional[Proveedor]:
-    """Obtiene un proveedor por código de cliente."""
-    result = await db.execute(select(Proveedor).where(Proveedor.codigo_cliente == codigo_cliente))
+async def get_proveedor_by_codigo_proveedor(db: AsyncSession, codigo_proveedor: str) -> Optional[Proveedor]:
+    """Obtiene un proveedor por código de proveedor."""
+    result = await db.execute(select(Proveedor).where(Proveedor.codigo_proveedor == codigo_proveedor))
     return result.scalar_one_or_none()
 
 
 async def create_proveedor(
     db: AsyncSession,
+    codigo_proveedor: str,
     nombre: str,
     pais: Optional[str] = None,
     domicilio: Optional[str] = None,
+    poblacion: Optional[str] = None,
+    cp: Optional[str] = None,
     estatus: bool = True,
-    codigo_cliente: Optional[str] = None
+    estatus_compras: Optional[str] = None
 ) -> Proveedor:
     """Crea un nuevo proveedor."""
     proveedor = Proveedor(
+        codigo_proveedor=codigo_proveedor,
         nombre=nombre,
         pais=pais,
         domicilio=domicilio,
+        poblacion=poblacion,
+        cp=cp,
         estatus=estatus,
-        codigo_cliente=codigo_cliente
+        estatus_compras=estatus_compras
     )
     db.add(proveedor)
     await db.commit()
@@ -678,23 +678,19 @@ async def create_proveedor(
 
 async def update_proveedor(
     db: AsyncSession,
-    proveedor_id: int,
+    codigo_proveedor: str,
     nombre: Optional[str] = None,
     pais: Optional[str] = None,
     domicilio: Optional[str] = None,
+    poblacion: Optional[str] = None,
+    cp: Optional[str] = None,
     estatus: Optional[bool] = None,
-    codigo_cliente: Optional[str] = None
+    estatus_compras: Optional[str] = None
 ) -> Optional[Proveedor]:
     """Actualiza un proveedor."""
-    proveedor = await get_proveedor_by_id(db, proveedor_id)
+    proveedor = await get_proveedor_by_codigo_proveedor(db, codigo_proveedor)
     if not proveedor:
         return None
-    
-    # Verificar si el código_cliente ya existe en otro proveedor
-    if codigo_cliente is not None:
-        existing_proveedor = await get_proveedor_by_codigo_cliente(db, codigo_cliente)
-        if existing_proveedor and existing_proveedor.id != proveedor_id:
-            raise ValueError("El código de cliente ya está registrado")
     
     if nombre is not None:
         proveedor.nombre = nombre
@@ -702,25 +698,29 @@ async def update_proveedor(
         proveedor.pais = pais
     if domicilio is not None:
         proveedor.domicilio = domicilio
+    if poblacion is not None:
+        proveedor.poblacion = poblacion
+    if cp is not None:
+        proveedor.cp = cp
     if estatus is not None:
         proveedor.estatus = estatus
-    if codigo_cliente is not None:
-        proveedor.codigo_cliente = codigo_cliente
+    if estatus_compras is not None:
+        proveedor.estatus_compras = estatus_compras
     
     await db.commit()
     await db.refresh(proveedor)
     return proveedor
 
 
-async def delete_proveedor(db: AsyncSession, proveedor_id: int) -> bool:
+async def delete_proveedor(db: AsyncSession, codigo_proveedor: str) -> bool:
     """Elimina un proveedor."""
     from sqlalchemy import delete
     
-    proveedor = await get_proveedor_by_id(db, proveedor_id)
+    proveedor = await get_proveedor_by_codigo_proveedor(db, codigo_proveedor)
     if not proveedor:
         return False
     
-    stmt = delete(Proveedor).where(Proveedor.id == proveedor_id)
+    stmt = delete(Proveedor).where(Proveedor.codigo_proveedor == codigo_proveedor)
     await db.execute(stmt)
     await db.commit()
     return True
@@ -748,7 +748,7 @@ async def list_proveedores(
         query = query.where(
             or_(
                 Proveedor.nombre.ilike(search_pattern),
-                Proveedor.codigo_cliente.ilike(search_pattern),
+                Proveedor.codigo_proveedor.ilike(search_pattern),
                 Proveedor.domicilio.ilike(search_pattern)
             )
         )
@@ -766,7 +766,7 @@ async def count_proveedores(
     search: Optional[str] = None
 ) -> int:
     """Cuenta el total de proveedores con filtros opcionales."""
-    query = select(func.count(Proveedor.id))
+    query = select(func.count(Proveedor.codigo_proveedor))
     
     if estatus is not None:
         query = query.where(Proveedor.estatus == estatus)
@@ -779,7 +779,7 @@ async def count_proveedores(
         query = query.where(
             or_(
                 Proveedor.nombre.ilike(search_pattern),
-                Proveedor.codigo_cliente.ilike(search_pattern),
+                Proveedor.codigo_proveedor.ilike(search_pattern),
                 Proveedor.domicilio.ilike(search_pattern)
             )
         )
@@ -890,13 +890,13 @@ async def get_precio_material_by_id(db: AsyncSession, precio_id: int) -> Optiona
 
 async def get_precio_material_by_proveedor_material(
     db: AsyncSession,
-    codigo_cliente: str,
+    codigo_proveedor: str,
     numero_material: str
 ) -> Optional[PrecioMaterial]:
-    """Obtiene un precio de material por código de cliente y número de material."""
+    """Obtiene un precio de material por código de proveedor y número de material."""
     result = await db.execute(
         select(PrecioMaterial).where(
-            PrecioMaterial.codigo_cliente == codigo_cliente,
+            PrecioMaterial.codigo_proveedor == codigo_proveedor,
             PrecioMaterial.numero_material == numero_material
         )
     )
@@ -905,7 +905,7 @@ async def get_precio_material_by_proveedor_material(
 
 async def create_precio_material(
     db: AsyncSession,
-    codigo_cliente: str,
+    codigo_proveedor: str,
     numero_material: str,
     precio: Decimal,
     currency_uom: Optional[str] = None,
@@ -915,7 +915,7 @@ async def create_precio_material(
 ) -> PrecioMaterial:
     """Crea un nuevo precio de material."""
     precio_material = PrecioMaterial(
-        codigo_cliente=codigo_cliente,
+        codigo_proveedor=codigo_proveedor,
         numero_material=numero_material,
         precio=precio,
         currency_uom=currency_uom,
@@ -961,7 +961,7 @@ async def update_precio_material(
 
 async def upsert_precio_material(
     db: AsyncSession,
-    codigo_cliente: str,
+    codigo_proveedor: str,
     numero_material: str,
     precio: Decimal,
     currency_uom: Optional[str] = None,
@@ -970,7 +970,7 @@ async def upsert_precio_material(
     Comentario: Optional[str] = None
 ) -> PrecioMaterial:
     """Crea o actualiza un precio de material (upsert)."""
-    existing = await get_precio_material_by_proveedor_material(db, codigo_cliente, numero_material)
+    existing = await get_precio_material_by_proveedor_material(db, codigo_proveedor, numero_material)
     
     if existing:
         # Actualizar existente
@@ -992,7 +992,7 @@ async def upsert_precio_material(
         # Crear nuevo
         return await create_precio_material(
             db,
-            codigo_cliente=codigo_cliente,
+            codigo_proveedor=codigo_proveedor,
             numero_material=numero_material,
             precio=precio,
             currency_uom=currency_uom,
@@ -1004,7 +1004,7 @@ async def upsert_precio_material(
 
 async def list_precios_materiales(
     db: AsyncSession,
-    codigo_cliente: Optional[str] = None,
+    codigo_proveedor: Optional[str] = None,
     numero_material: Optional[str] = None,
     search: Optional[str] = None,
     limit: int = 100,
@@ -1016,8 +1016,8 @@ async def list_precios_materiales(
         selectinload(PrecioMaterial.material)
     )
     
-    if codigo_cliente:
-        query = query.where(PrecioMaterial.codigo_cliente == codigo_cliente)
+    if codigo_proveedor:
+        query = query.where(PrecioMaterial.codigo_proveedor == codigo_proveedor)
     
     if numero_material:
         query = query.where(PrecioMaterial.numero_material == numero_material)
@@ -1026,7 +1026,7 @@ async def list_precios_materiales(
         search_pattern = f"%{search}%"
         query = query.where(
             or_(
-                PrecioMaterial.codigo_cliente.ilike(search_pattern),
+                PrecioMaterial.codigo_proveedor.ilike(search_pattern),
                 PrecioMaterial.numero_material.ilike(search_pattern),
                 PrecioMaterial.currency_uom.ilike(search_pattern),
                 PrecioMaterial.country_origin.ilike(search_pattern)
@@ -1041,15 +1041,15 @@ async def list_precios_materiales(
 
 async def count_precios_materiales(
     db: AsyncSession,
-    codigo_cliente: Optional[str] = None,
+    codigo_proveedor: Optional[str] = None,
     numero_material: Optional[str] = None,
     search: Optional[str] = None
 ) -> int:
     """Cuenta el total de precios de materiales con filtros opcionales."""
     query = select(func.count(PrecioMaterial.id))
     
-    if codigo_cliente:
-        query = query.where(PrecioMaterial.codigo_cliente == codigo_cliente)
+    if codigo_proveedor:
+        query = query.where(PrecioMaterial.codigo_proveedor == codigo_proveedor)
     
     if numero_material:
         query = query.where(PrecioMaterial.numero_material == numero_material)
@@ -1058,7 +1058,7 @@ async def count_precios_materiales(
         search_pattern = f"%{search}%"
         query = query.where(
             or_(
-                PrecioMaterial.codigo_cliente.ilike(search_pattern),
+                PrecioMaterial.codigo_proveedor.ilike(search_pattern),
                 PrecioMaterial.numero_material.ilike(search_pattern),
                 PrecioMaterial.currency_uom.ilike(search_pattern),
                 PrecioMaterial.country_origin.ilike(search_pattern)
@@ -1235,19 +1235,117 @@ async def bulk_create_compras(
 async def list_compras(
     db: AsyncSession,
     limit: int = 100,
-    offset: int = 0
+    offset: int = 0,
+    search: Optional[str] = None,
+    fecha_inicio: Optional[datetime] = None,
+    fecha_fin: Optional[datetime] = None,
+    numero_proveedor: Optional[int] = None,
+    numero_material: Optional[str] = None,
+    purchasing_document: Optional[int] = None,
+    material_document: Optional[int] = None
 ) -> List[Compra]:
-    """Lista compras con paginación."""
-    query = select(Compra).order_by(desc(Compra.created_at)).limit(limit).offset(offset)
+    """Lista compras con paginación y filtros."""
+    query = select(Compra)
+    
+    # Aplicar filtros
+    conditions = []
+    
+    if search:
+        search_pattern = f"%{search.lower()}%"
+        conditions.append(
+            or_(
+                Compra.numero_material.ilike(search_pattern),
+                Compra.descripcion_material.ilike(search_pattern),
+                Compra.nombre_proveedor.ilike(search_pattern),
+                Compra.purchasing_document.cast(String).ilike(search_pattern),
+                Compra.material_document.cast(String).ilike(search_pattern),
+                Compra.movement_type.ilike(search_pattern),
+                Compra.currency.ilike(search_pattern),
+                Compra.local_currency.ilike(search_pattern)
+            )
+        )
+    
+    if fecha_inicio:
+        conditions.append(Compra.posting_date >= fecha_inicio)
+    
+    if fecha_fin:
+        # Asegurar que incluya todo el día
+        fecha_fin_con_hora = fecha_fin.replace(hour=23, minute=59, second=59)
+        conditions.append(Compra.posting_date <= fecha_fin_con_hora)
+    
+    if numero_proveedor:
+        conditions.append(Compra.numero_proveedor == numero_proveedor)
+    
+    if numero_material:
+        conditions.append(Compra.numero_material.ilike(f"%{numero_material}%"))
+    
+    if purchasing_document:
+        conditions.append(Compra.purchasing_document == purchasing_document)
+    
+    if material_document:
+        conditions.append(Compra.material_document == material_document)
+    
+    if conditions:
+        query = query.where(*conditions)
+    
+    query = query.order_by(desc(Compra.posting_date), desc(Compra.created_at)).limit(limit).offset(offset)
     
     result = await db.execute(query)
     return list(result.scalars().all())
 
 
 async def count_compras(
-    db: AsyncSession
+    db: AsyncSession,
+    search: Optional[str] = None,
+    fecha_inicio: Optional[datetime] = None,
+    fecha_fin: Optional[datetime] = None,
+    numero_proveedor: Optional[int] = None,
+    numero_material: Optional[str] = None,
+    purchasing_document: Optional[int] = None,
+    material_document: Optional[int] = None
 ) -> int:
-    """Cuenta el total de compras."""
+    """Cuenta el total de compras con filtros."""
     query = select(func.count(Compra.id))
+    
+    # Aplicar los mismos filtros que en list_compras
+    conditions = []
+    
+    if search:
+        search_pattern = f"%{search.lower()}%"
+        conditions.append(
+            or_(
+                Compra.numero_material.ilike(search_pattern),
+                Compra.descripcion_material.ilike(search_pattern),
+                Compra.nombre_proveedor.ilike(search_pattern),
+                Compra.purchasing_document.cast(String).ilike(search_pattern),
+                Compra.material_document.cast(String).ilike(search_pattern),
+                Compra.movement_type.ilike(search_pattern),
+                Compra.currency.ilike(search_pattern),
+                Compra.local_currency.ilike(search_pattern)
+            )
+        )
+    
+    if fecha_inicio:
+        conditions.append(Compra.posting_date >= fecha_inicio)
+    
+    if fecha_fin:
+        fecha_fin_con_hora = fecha_fin.replace(hour=23, minute=59, second=59)
+        conditions.append(Compra.posting_date <= fecha_fin_con_hora)
+    
+    if numero_proveedor:
+        conditions.append(Compra.numero_proveedor == numero_proveedor)
+    
+    if numero_material:
+        conditions.append(Compra.numero_material.ilike(f"%{numero_material}%"))
+    
+    if purchasing_document:
+        conditions.append(Compra.purchasing_document == purchasing_document)
+    
+    if material_document:
+        conditions.append(Compra.material_document == material_document)
+    
+    if conditions:
+        query = query.where(*conditions)
+    
     result = await db.execute(query)
     return result.scalar() or 0

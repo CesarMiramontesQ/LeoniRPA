@@ -9,7 +9,8 @@ Ejemplo:
 
 Columnas esperadas del Excel:
     - codigo_cliente (requerido) - FK a proveedores.codigo_cliente
-    - numero_material (requerido) - FK a materiales.numero_material
+    - numero_material (requerido) - Si el material no existe, se crea automáticamente
+    - descripcion_material (opcional) - Descripción del material (se usa al crear materiales nuevos)
     - precio (requerido)
     - currency_uom (opcional) - Moneda y unidad de medida (ej. USD/KG, EUR/KG)
     - country_origin (opcional) - País de origen
@@ -17,6 +18,8 @@ Columnas esperadas del Excel:
     - Comentario (opcional)
 
 Si un precio ya existe (por codigo_cliente + numero_material), se actualiza.
+Si un material no existe en la tabla materiales, se crea automáticamente usando
+el numero_material y la descripcion_material (si está disponible).
 """
 import asyncio
 import sys
@@ -75,6 +78,7 @@ async def import_precios_materiales(file_path: str):
     # Buscar columnas por diferentes nombres posibles
     codigo_cliente_col = None
     numero_material_col = None
+    descripcion_material_col = None
     precio_col = None
     currency_uom_col = None
     country_origin_col = None
@@ -100,6 +104,26 @@ async def import_precios_materiales(file_path: str):
                                                      'material number', 'material_no', 'nro material']):
             numero_material_col = col
             break
+    
+    # Buscar columna de descripcion_material - primero buscar exactamente "Material Description"
+    for col in df.columns:
+        col_stripped = col.strip()
+        if col_stripped == "Material Description" or col_stripped.lower() == "material description":
+            descripcion_material_col = col
+            break
+    
+    # Si no se encuentra, buscar variaciones
+    if descripcion_material_col is None:
+        for col in df.columns:
+            col_lower = col.lower().strip().replace('_', ' ').replace('-', ' ')
+            # Buscar variaciones de "descripción material" o "material description"
+            if any(keyword in col_lower for keyword in ['descripcion material', 'descripción material',
+                                                         'descripcion de material', 'descripción de material',
+                                                         'descripcion_material', 'descripción_material',
+                                                         'material description', 'material_desc', 'description',
+                                                         'material desc', 'desc material']):
+                descripcion_material_col = col
+                break
     
     # Buscar columna de precio - primero buscar exactamente "Price"
     for col in df.columns:
@@ -165,6 +189,7 @@ async def import_precios_materiales(file_path: str):
     print(f"\nColumnas mapeadas:")
     print(f"  - Código Cliente: {codigo_cliente_col}")
     print(f"  - Número Material: {numero_material_col}")
+    print(f"  - Descripción Material: {descripcion_material_col if descripcion_material_col else 'No encontrada'}")
     print(f"  - Precio: {precio_col}")
     print(f"  - Currency/UOM: {currency_uom_col if currency_uom_col else 'No encontrada'}")
     print(f"  - País Origen: {country_origin_col if country_origin_col else 'No encontrada'}")
@@ -177,7 +202,8 @@ async def import_precios_materiales(file_path: str):
     errors = 0
     skipped = 0
     not_found_proveedor = 0
-    not_found_material = 0
+    materiales_creados = 0
+    materiales_actualizados = 0
     
     async with AsyncSessionLocal() as session:
         for index, row in df.iterrows():
@@ -209,20 +235,54 @@ async def import_precios_materiales(file_path: str):
                     continue
                 
                 # Verificar que el proveedor existe
-                proveedor = await crud.get_proveedor_by_codigo_cliente(session, codigo_cliente)
+                proveedor = await crud.get_proveedor_by_codigo_proveedor(session, codigo_cliente)
                 if not proveedor:
                     not_found_proveedor += 1
                     print(f"  Fila {index + 2}: Error - Proveedor con código '{codigo_cliente}' no encontrado")
                     errors += 1
                     continue
                 
-                # Verificar que el material existe
+                # Obtener descripción del material si está disponible
+                descripcion_material = None
+                if descripcion_material_col:
+                    descripcion_raw = row.get(descripcion_material_col)
+                    descripcion_material = clean_string(descripcion_raw)
+                    # Debug: mostrar la descripción obtenida para las primeras filas
+                    if index < 3:
+                        print(f"  DEBUG Fila {index + 2}: descripcion_raw={descripcion_raw}, descripcion_material={descripcion_material}, columna={descripcion_material_col}")
+                
+                # Verificar que el material existe, si no existe, crearlo
                 material = await crud.get_material_by_numero(session, numero_material)
                 if not material:
-                    not_found_material += 1
-                    print(f"  Fila {index + 2}: Error - Material '{numero_material}' no encontrado")
-                    errors += 1
-                    continue
+                    # Crear el material automáticamente
+                    try:
+                        material = await crud.create_material(
+                            session,
+                            numero_material=numero_material,
+                            descripcion_material=descripcion_material
+                        )
+                        materiales_creados += 1
+                        desc_str = f" (descripción: {descripcion_material})" if descripcion_material else " (sin descripción)"
+                        print(f"  Fila {index + 2}: Material creado - {numero_material}{desc_str}")
+                    except Exception as e:
+                        print(f"  Fila {index + 2}: Error al crear material '{numero_material}' - {str(e)}")
+                        errors += 1
+                        continue
+                else:
+                    # Material existe, verificar si necesita actualizar la descripción
+                    # Si el material no tiene descripción y el Excel sí tiene una, actualizarlo
+                    if descripcion_material and (not material.descripcion_material or not material.descripcion_material.strip()):
+                        try:
+                            await crud.update_material(
+                                session,
+                                material.id,
+                                descripcion_material=descripcion_material
+                            )
+                            materiales_actualizados += 1
+                            print(f"  Fila {index + 2}: Descripción actualizada - {numero_material} (descripción: {descripcion_material})")
+                        except Exception as e:
+                            print(f"  Fila {index + 2}: Error al actualizar descripción de material '{numero_material}' - {str(e)}")
+                            # No incrementar errors aquí, solo registrar el warning
                 
                 # Obtener valores opcionales
                 currency_uom = clean_string(row.get(currency_uom_col)) if currency_uom_col else None
@@ -233,7 +293,7 @@ async def import_precios_materiales(file_path: str):
                 # Verificar si el precio ya existe
                 existing_precio = await crud.get_precio_material_by_proveedor_material(
                     session,
-                    codigo_cliente,
+                    codigo_cliente,  # Este es el valor del Excel, se pasa como codigo_proveedor
                     numero_material
                 )
                 
@@ -254,7 +314,7 @@ async def import_precios_materiales(file_path: str):
                     # Crear nuevo precio
                     await crud.create_precio_material(
                         session,
-                        codigo_cliente=codigo_cliente,
+                        codigo_proveedor=codigo_cliente,  # El valor del Excel se pasa como codigo_proveedor
                         numero_material=numero_material,
                         precio=precio_val,
                         currency_uom=currency_uom,
@@ -279,9 +339,10 @@ async def import_precios_materiales(file_path: str):
     print(f"Total filas en Excel: {len(df)}")
     print(f"Precios insertados: {inserted}")
     print(f"Precios actualizados: {updated}")
+    print(f"Materiales creados: {materiales_creados}")
+    print(f"Materiales con descripción actualizada: {materiales_actualizados}")
     print(f"Filas saltadas (datos faltantes): {skipped}")
     print(f"Errores (proveedor no encontrado): {not_found_proveedor}")
-    print(f"Errores (material no encontrado): {not_found_material}")
     print(f"Errores totales: {errors}")
     print("="*50)
     
@@ -291,7 +352,7 @@ async def import_precios_materiales(file_path: str):
         print(f"\n⚠ IMPORTACIÓN COMPLETADA CON {errors} ERRORES")
         print("\nNota: Asegúrate de que:")
         print("  - Los proveedores estén importados con sus códigos de cliente")
-        print("  - Los materiales estén importados con sus números de material")
+        print("  - Los materiales se crean automáticamente si no existen")
 
 
 async def show_sample_data():
@@ -314,7 +375,7 @@ async def show_sample_data():
                 comentario_str = precio.Comentario[:50] + "..." if precio.Comentario and len(precio.Comentario) > 50 else (precio.Comentario or "N/A")
                 
                 print(f"  ID: {precio.id}")
-                print(f"  Código Cliente: {precio.codigo_cliente}")
+                print(f"  Código Proveedor: {precio.codigo_proveedor}")
                 print(f"  Número Material: {precio.numero_material}")
                 print(f"  Precio: {precio.precio}")
                 print(f"  Currency/UOM: {currency_str}")

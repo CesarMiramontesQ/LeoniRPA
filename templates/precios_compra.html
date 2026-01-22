@@ -215,7 +215,7 @@
   {% for precio in precios %}
   <div data-precio-item
        data-id="{{ precio.id }}"
-       data-codigo-cliente="{{ precio.codigo_cliente or '' }}"
+       data-codigo-proveedor="{{ precio.codigo_proveedor or '' }}"
        data-numero-material="{{ precio.numero_material or '' }}"
        data-precio-valor="{{ precio.precio }}"
        data-currency-uom="{{ precio.currency_uom or '' }}"
@@ -287,7 +287,7 @@
       
       todosLosPrecios.push({
         id: parseInt(el.dataset.id) || 0,
-        codigo_cliente: el.dataset.codigoCliente || '',
+        codigo_proveedor: el.dataset.codigoProveedor || '',
         numero_material: el.dataset.numeroMaterial || '',
         precio: precioNum,
         currency_uom: el.dataset.currencyUom || null,
@@ -362,13 +362,13 @@
       // Filtro de búsqueda
       if (busqueda) {
         const proveedorMatch = precio.proveedor_nombre && precio.proveedor_nombre.toLowerCase().includes(busqueda);
-        const codigoClienteMatch = precio.codigo_cliente && precio.codigo_cliente.toLowerCase().includes(busqueda);
+        const codigoProveedorMatch = precio.codigo_proveedor && precio.codigo_proveedor.toLowerCase().includes(busqueda);
         const materialMatch = precio.numero_material && precio.numero_material.toLowerCase().includes(busqueda);
         const descripcionMatch = precio.material_descripcion && precio.material_descripcion.toLowerCase().includes(busqueda);
         const currencyMatch = precio.currency_uom && precio.currency_uom.toLowerCase().includes(busqueda);
         const countryMatch = precio.country_origin && precio.country_origin.toLowerCase().includes(busqueda);
         
-        if (!proveedorMatch && !codigoClienteMatch && !materialMatch && !descripcionMatch && !currencyMatch && !countryMatch) {
+        if (!proveedorMatch && !codigoProveedorMatch && !materialMatch && !descripcionMatch && !currencyMatch && !countryMatch) {
           return false;
         }
       }
@@ -482,7 +482,7 @@
         return `
           <tr class="hover:bg-gray-50">
             <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">${escapeHtml(precio.proveedor_nombre || 'N/A')}</td>
-            <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">${escapeHtml(precio.codigo_cliente || 'N/A')}</td>
+            <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">${escapeHtml(precio.codigo_proveedor || 'N/A')}</td>
             <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">${escapeHtml(precio.numero_material || 'N/A')}</td>
             <td class="px-4 py-3 text-sm text-gray-500 max-w-xs truncate" title="${escapeHtml(precio.material_descripcion || '')}">${escapeHtml(precio.material_descripcion || 'N/A')}</td>
             <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">${precioFormateado}</td>
