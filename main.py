@@ -664,7 +664,20 @@ async def procesar_archivos(
                     return None
                 try:
                     if tipo == 'int':
-                        return int(float(valor)) if pd.notna(valor) else None
+                        # Para valores grandes, Python maneja automáticamente enteros de cualquier tamaño
+                        # Convertir directamente sin pasar por float para evitar pérdida de precisión
+                        if isinstance(valor, int):
+                            return valor
+                        elif isinstance(valor, float):
+                            # Si es float, convertir a int (puede manejar valores grandes)
+                            return int(valor)
+                        else:
+                            # Para strings u otros tipos, convertir directamente
+                            # Usar pd.to_numeric para manejar mejor los valores grandes
+                            valor_numerico = pd.to_numeric(valor, errors='coerce')
+                            if pd.notna(valor_numerico):
+                                return int(valor_numerico)
+                            return None
                     elif tipo == 'float':
                         return float(valor) if pd.notna(valor) else None
                     elif tipo == 'date':

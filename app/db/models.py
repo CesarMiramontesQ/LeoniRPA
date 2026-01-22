@@ -339,7 +339,7 @@ class Compra(Base):
     id = Column(Integer, primary_key=True, index=True)
     
     # Purchasing Document
-    purchasing_document = Column(Integer, nullable=True, index=True)
+    purchasing_document = Column(BigInteger, nullable=True, index=True)
     
     # Item
     item = Column(Integer, nullable=True)
@@ -348,7 +348,7 @@ class Compra(Base):
     material_doc_year = Column(Integer, nullable=True, index=True)
     
     # Material Document
-    material_document = Column(Integer, nullable=True, index=True)
+    material_document = Column(BigInteger, nullable=True, index=True)
     
     # Material Doc.Item
     material_doc_item = Column(Integer, nullable=True)
@@ -408,7 +408,7 @@ class Compra(Base):
     invoice_value = Column(Numeric(18, 6), nullable=True)
     
     # numero_Material
-    numero_material = Column(Integer, nullable=True, index=True)
+    numero_material = Column(BigInteger, nullable=True, index=True)
     
     # Plant
     plant = Column(String, nullable=True, index=True)
@@ -420,7 +420,7 @@ class Compra(Base):
     nombre_proveedor = Column(String, nullable=True, index=True)
     
     # numero_proveedor
-    numero_proveedor = Column(Integer, nullable=True, index=True)
+    numero_proveedor = Column(BigInteger, nullable=True, index=True)
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
