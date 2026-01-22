@@ -113,8 +113,11 @@ templates.env.filters['datetime_cdmx'] = datetime_cdmx_filter
 @app.get("/compras")
 async def compras(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Página de compras - requiere autenticación."""
-    # Obtener el historial de ejecuciones para mostrar en la tabla
-    executions = await crud.list_executions(db, user_id=current_user.id, limit=50)
+    # Obtener el historial de ejecuciones para mostrar en la tabla (últimos 5)
+    executions = await crud.list_executions(db, user_id=current_user.id, limit=5)
+    
+    # Obtener las compras para mostrar en la tabla
+    compras_list = await crud.list_compras(db, limit=100)
     
     return templates.TemplateResponse(
         "compras.html",
@@ -122,7 +125,8 @@ async def compras(request: Request, current_user: User = Depends(get_current_use
             "request": request,
             "active_page": "compras",
             "current_user": current_user,
-            "executions": executions
+            "executions": executions,
+            "compras": compras_list
         }
     )
 
@@ -543,34 +547,83 @@ async def procesar_archivos(
                     content={"error": error_msg}
                 )
             
-            # Buscar o crear columna "Proveedor" en Archivo 1 (búsqueda case-insensitive)
+            # Buscar la columna "Supplier" en el Archivo 2 para numero_proveedor
+            columna_supplier = None
+            for col in df_archivo2.columns:
+                if str(col).strip().lower() == "supplier":
+                    columna_supplier = col
+                    break
+            
+            if columna_supplier is None:
+                error_msg = "No se encontró la columna 'Supplier' en el Archivo 2 (referencia)"
+                if execution_id:
+                    await crud.update_execution_status(
+                        db=db,
+                        execution_id=execution_id,
+                        estado=ExecutionStatus.FAILED,
+                        mensaje_error=error_msg
+                    )
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": error_msg}
+                )
+            
+            # Buscar columna "Proveedor" original en Archivo 1 para numero_proveedor (antes del cruce)
+            # Esta columna puede contener el número del proveedor
+            columna_proveedor_numero = None
+            for col in df_archivo1.columns:
+                if str(col).strip().lower() == "proveedor":
+                    columna_proveedor_numero = col
+                    break
+            
+            # Guardar los valores originales de "Proveedor" para numero_proveedor si existe
+            # Esto debe hacerse ANTES de que se modifique la columna "Proveedor" con el cruce
+            if columna_proveedor_numero is not None:
+                # Guardar una copia del valor original antes del cruce
+                df_archivo1["Proveedor_Numero_Original"] = df_archivo1[columna_proveedor_numero].copy()
+            else:
+                # Si no existe "Proveedor" originalmente, crear columna vacía
+                df_archivo1["Proveedor_Numero_Original"] = None
+            
+            # Buscar o crear columna "Proveedor" en Archivo 1 para nombre_proveedor (búsqueda case-insensitive)
             columna_proveedor = None
             for col in df_archivo1.columns:
                 if str(col).strip().lower() == "proveedor":
                     columna_proveedor = col
                     break
             
-            # Si no existe, crear la columna "Proveedor"
+            # Si no existe, crear la columna "Proveedor" para el nombre
             if columna_proveedor is None:
                 df_archivo1["Proveedor"] = ""
                 columna_proveedor = "Proveedor"
             
-            # Crear un diccionario de mapeo desde Archivo 2
-            # Clave: Purchasing Document (normalizado), Valor: Name 1
+            # Crear columna para numero_proveedor (Supplier del archivo 2)
+            df_archivo1["Supplier_Numero"] = None
+            
+            # Crear diccionarios de mapeo desde Archivo 2
+            # Clave: Purchasing Document (normalizado), Valor: Name 1 (para nombre_proveedor)
+            # Clave: Purchasing Document (normalizado), Valor: Supplier (para numero_proveedor)
             # Usar la primera coincidencia si hay múltiples
             mapa_proveedores = {}
+            mapa_suppliers = {}
             for idx, row in df_archivo2.iterrows():
                 purchasing_doc = row[columna_purchasing_doc_archivo2]
                 name1 = row[columna_name1]
+                supplier = row[columna_supplier]
                 
                 # Normalizar: convertir a string, trim, y asegurar tipo comparable
-                if pd.notna(purchasing_doc) and pd.notna(name1):
+                if pd.notna(purchasing_doc):
                     purchasing_doc_normalizado = str(purchasing_doc).strip()
-                    name1_valor = str(name1).strip()
                     
-                    # Solo agregar si no existe ya (para usar la primera coincidencia)
-                    if purchasing_doc_normalizado and purchasing_doc_normalizado not in mapa_proveedores:
+                    # Mapeo para nombre_proveedor (Name 1)
+                    if pd.notna(name1) and purchasing_doc_normalizado and purchasing_doc_normalizado not in mapa_proveedores:
+                        name1_valor = str(name1).strip()
                         mapa_proveedores[purchasing_doc_normalizado] = name1_valor
+                    
+                    # Mapeo para numero_proveedor (Supplier)
+                    if pd.notna(supplier) and purchasing_doc_normalizado and purchasing_doc_normalizado not in mapa_suppliers:
+                        supplier_valor = str(supplier).strip()
+                        mapa_suppliers[purchasing_doc_normalizado] = supplier_valor
             
             # Procesar cada fila del Archivo 1
             for idx, row in df_archivo1.iterrows():
@@ -580,7 +633,7 @@ async def procesar_archivos(
                 if pd.notna(purchasing_doc_valor):
                     purchasing_doc_normalizado = str(purchasing_doc_valor).strip()
                     
-                    # Buscar coincidencia en el mapa
+                    # Buscar coincidencia en el mapa para nombre_proveedor (Name 1)
                     if purchasing_doc_normalizado in mapa_proveedores:
                         # Asignar el valor de Name 1 a Proveedor
                         df_archivo1.at[idx, columna_proveedor] = mapa_proveedores[purchasing_doc_normalizado]
@@ -588,10 +641,19 @@ async def procesar_archivos(
                         # Si no hay coincidencia, dejar vacío (o conservar si ya existe)
                         if pd.isna(df_archivo1.at[idx, columna_proveedor]) or df_archivo1.at[idx, columna_proveedor] == "":
                             df_archivo1.at[idx, columna_proveedor] = ""
+                    
+                    # Buscar coincidencia en el mapa para numero_proveedor (Supplier)
+                    if purchasing_doc_normalizado in mapa_suppliers:
+                        # Asignar el valor de Supplier a Supplier_Numero
+                        df_archivo1.at[idx, "Supplier_Numero"] = mapa_suppliers[purchasing_doc_normalizado]
+                    else:
+                        # Si no hay coincidencia, dejar None
+                        df_archivo1.at[idx, "Supplier_Numero"] = None
                 else:
-                    # Si el valor de Purchasing Document está vacío, dejar Proveedor vacío
+                    # Si el valor de Purchasing Document está vacío, dejar vacío
                     if pd.isna(df_archivo1.at[idx, columna_proveedor]) or df_archivo1.at[idx, columna_proveedor] == "":
                         df_archivo1.at[idx, columna_proveedor] = ""
+                    df_archivo1.at[idx, "Supplier_Numero"] = None
             
             # Crear columna "U/P" = Invoice Value / Quantity in OPUn
             # Buscar columnas de manera case-insensitive
@@ -725,9 +787,10 @@ async def procesar_archivos(
                     'invoice_value': ['Invoice Value'],
                     'numero_material': ['numero_Material', 'Material'],
                     'plant': ['Plant'],
-                    'descripcion_material': ['descripcion_material', 'Material Description'],
-                    'nombre_proveedor': ['Proveedor', 'nombre_proveedor'],
-                    'numero_proveedor': ['numero_proveedor'],
+                    'descripcion_material': ['Short Text', 'descripcion_material', 'Material Description', 'Short text'],
+                    'nombre_proveedor': ['Supplier', 'supplier', 'SUPPLIER', 'Proveedor', 'proveedor', 'PROVEEDOR', 'nombre_proveedor'],
+                    'numero_proveedor': ['Supplier_Numero', 'Proveedor_Numero_Original', 'Proveedor', 'proveedor', 'PROVEEDOR', 'numero_proveedor'],
+                    'price': ['U/P', 'u/p', 'U/p', 'u/P', 'precio', 'Precio', 'PRECIO', 'Price', 'price', 'PRICE'],
                 }
                 
                 # Buscar y mapear cada columna
@@ -736,7 +799,7 @@ async def procesar_archivos(
                     for nombre_col in nombres_posibles:
                         # Buscar columna case-insensitive
                         for col in df_columns:
-                            if str(col).strip() == nombre_col:
+                            if str(col).strip().lower() == str(nombre_col).strip().lower():
                                 valor = row[col]
                                 break
                         if valor is not None and not pd.isna(valor):
@@ -744,14 +807,37 @@ async def procesar_archivos(
                     
                     # Convertir según el tipo de campo
                     if campo_db in ['purchasing_document', 'item', 'material_doc_year', 'material_document', 
-                                    'material_doc_item', 'quantity', 'quantity_in_opun', 'numero_material', 'numero_proveedor']:
+                                    'material_doc_item', 'quantity', 'quantity_in_opun']:
                         compra_data[campo_db] = convertir_valor(valor, 'int')
+                    elif campo_db == 'numero_proveedor':
+                        # numero_proveedor puede ser texto o número, intentar convertir a int primero
+                        # si falla, intentar extraer solo números del string
+                        if valor is not None and not pd.isna(valor):
+                            # Intentar convertir directamente
+                            valor_int = convertir_valor(valor, 'int')
+                            if valor_int is not None:
+                                compra_data[campo_db] = valor_int
+                            else:
+                                # Si falla, intentar extraer números del string
+                                import re
+                                valor_str = str(valor).strip()
+                                numeros = re.findall(r'\d+', valor_str)
+                                if numeros:
+                                    try:
+                                        compra_data[campo_db] = int(''.join(numeros))
+                                    except (ValueError, TypeError):
+                                        compra_data[campo_db] = None
+                                else:
+                                    compra_data[campo_db] = None
+                        else:
+                            compra_data[campo_db] = None
                     elif campo_db == 'posting_date':
                         compra_data[campo_db] = convertir_valor(valor, 'date')
                     elif campo_db in ['amount_in_lc', 'amount', 'gr_ir_clearing_value_lc', 'gr_blck_stock_oun', 
-                                     'gr_blocked_stck_opun', 'invoice_value']:
+                                     'gr_blocked_stck_opun', 'invoice_value', 'price']:
                         compra_data[campo_db] = convertir_valor(valor, 'float')
                     else:
+                        # numero_material y otros campos string
                         compra_data[campo_db] = convertir_valor(valor, 'str')
                 
                 return compra_data
@@ -762,11 +848,13 @@ async def procesar_archivos(
                 compra_data = mapear_fila_a_compra(row, df_archivo1.columns)
                 compras_data.append(compra_data)
             
-            # Insertar datos en la base de datos
+            # Insertar o actualizar datos en la base de datos
             try:
-                registros_insertados = await crud.bulk_create_compras(db, compras_data)
+                resultado = await crud.bulk_create_or_update_compras(db, compras_data)
+                registros_insertados = resultado["insertados"]
+                registros_actualizados = resultado["actualizados"]
             except Exception as e:
-                error_msg = f"Error al insertar datos en la base de datos: {str(e)}"
+                error_msg = f"Error al insertar/actualizar datos en la base de datos: {str(e)}"
                 if execution_id:
                     await crud.update_execution_status(
                         db=db,
@@ -794,12 +882,20 @@ async def procesar_archivos(
                     duracion_segundos=duracion_segundos
                 )
             
+            # Construir mensaje
+            mensaje = f"Datos procesados exitosamente."
+            if registros_insertados > 0:
+                mensaje += f" Se insertaron {registros_insertados} registros nuevos."
+            if registros_actualizados > 0:
+                mensaje += f" Se actualizaron {registros_actualizados} registros existentes."
+            
             return JSONResponse(
                 status_code=200,
                 content={
                     "success": True,
-                    "message": f"Datos procesados exitosamente. Se insertaron {registros_insertados} registros en la tabla compras.",
+                    "message": mensaje,
                     "registros_insertados": registros_insertados,
+                    "registros_actualizados": registros_actualizados,
                     "archivos_recibidos": {
                         "archivo_base": nombre_archivo_ventas,
                         "archivo_referencia": nombre_archivo_po

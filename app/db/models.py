@@ -408,7 +408,7 @@ class Compra(Base):
     invoice_value = Column(Numeric(18, 6), nullable=True)
     
     # numero_Material
-    numero_material = Column(BigInteger, nullable=True, index=True)
+    numero_material = Column(String, nullable=True, index=True)
     
     # Plant
     plant = Column(String, nullable=True, index=True)
@@ -421,6 +421,9 @@ class Compra(Base):
     
     # numero_proveedor
     numero_proveedor = Column(BigInteger, nullable=True, index=True)
+    
+    # price
+    price = Column(Numeric(18, 6), nullable=True)
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

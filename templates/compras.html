@@ -316,11 +316,91 @@
       </div>
     </div>
 
-    <!-- Segunda fila: Registro de Actividad -->
+    <!-- Segunda fila: Tabla de Compras -->
     <div>
       <div class="rounded-lg bg-white p-6 shadow-sm">
         <h2 class="mb-4 text-lg font-medium text-gray-900">
-          Registro de Actividad
+          Compras Registradas
+        </h2>
+
+        <div class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+              <tr>
+                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Fecha
+                </th>
+                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Purchasing Document
+                </th>
+                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Material Document
+                </th>
+                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Material
+                </th>
+                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Proveedor
+                </th>
+                <th class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Unit Price
+                </th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-200 bg-white" id="tabla-compras-body">
+              {% if compras %}
+                {% for compra in compras %}
+                <tr>
+                  <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-900">
+                    {% if compra.posting_date %}
+                      {{ compra.posting_date | datetime_cdmx('%d/%m/%Y') }}
+                    {% else %}
+                      N/A
+                    {% endif %}
+                  </td>
+                  <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-500">
+                    {{ compra.purchasing_document or 'N/A' }}
+                  </td>
+                  <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-500">
+                    {{ compra.material_document or 'N/A' }}
+                  </td>
+                  <td class="px-3 py-2 text-sm text-gray-500">
+                    <div class="max-w-xs truncate" title="{{ compra.numero_material or compra.descripcion_material or 'N/A' }}">
+                      {{ compra.numero_material or compra.descripcion_material or 'N/A' }}
+                    </div>
+                  </td>
+                  <td class="px-3 py-2 text-sm text-gray-500">
+                    <div class="max-w-xs truncate" title="{{ compra.nombre_proveedor or 'N/A' }}">
+                      {{ compra.nombre_proveedor or 'N/A' }}
+                    </div>
+                  </td>
+                  <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-500">
+                    {% if compra.price %}
+                      {{ compra.price }}
+                    {% else %}
+                      N/A
+                    {% endif %}
+                  </td>
+                </tr>
+                {% endfor %}
+              {% else %}
+                <tr>
+                  <td colspan="6" class="px-3 py-4 text-center text-sm text-gray-500">
+                    No hay compras registradas
+                  </td>
+                </tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tercera fila: Registro de Actividad -->
+    <div>
+      <div class="rounded-lg bg-white p-6 shadow-sm">
+        <h2 class="mb-4 text-lg font-medium text-gray-900">
+          Registro de Actividad (Últimos 5)
         </h2>
 
         <div class="overflow-x-auto">
@@ -692,19 +772,28 @@
       const data = await response.json();
       
       if (response.ok && data.success) {
-        // Mostrar mensaje de éxito con información de registros insertados
+        // Mostrar mensaje de éxito con información de registros insertados y actualizados
         let mensajeExito = '✓ Archivos procesados exitosamente.';
-        if (data.registros_insertados !== undefined) {
-          mensajeExito += `\n\nSe insertaron ${data.registros_insertados} registros en la tabla compras.`;
-        }
         if (data.message) {
           mensajeExito = data.message;
+        } else {
+          if (data.registros_insertados !== undefined && data.registros_insertados > 0) {
+            mensajeExito += `\n\nSe insertaron ${data.registros_insertados} registros nuevos.`;
+          }
+          if (data.registros_actualizados !== undefined && data.registros_actualizados > 0) {
+            mensajeExito += `\nSe actualizaron ${data.registros_actualizados} registros existentes.`;
+          }
         }
         mensajeTexto.textContent = mensajeExito;
         mensajeProcesamiento.classList.remove('bg-blue-50', 'border-blue-200', 'bg-red-50', 'border-red-200');
         mensajeProcesamiento.classList.add('bg-green-50', 'border-green-200');
         mensajeTexto.classList.remove('text-blue-800', 'text-red-800');
         mensajeTexto.classList.add('text-green-800');
+        
+        // Recargar la página para actualizar las tablas de compras y ejecuciones
+        setTimeout(() => {
+          window.location.reload();
+        }, 2000);
       } else {
         // Mostrar error
         mensajeTexto.textContent = 'Error: ' + (data.error || 'Error desconocido al procesar los archivos');

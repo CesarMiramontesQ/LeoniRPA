@@ -1096,11 +1096,12 @@ async def create_compra(
     reference_document: Optional[str] = None,
     reference_doc_item: Optional[str] = None,
     invoice_value: Optional[Decimal] = None,
-    numero_material: Optional[int] = None,
+    numero_material: Optional[str] = None,
     plant: Optional[str] = None,
     descripcion_material: Optional[str] = None,
     nombre_proveedor: Optional[str] = None,
     numero_proveedor: Optional[int] = None,
+    price: Optional[Decimal] = None,
 ) -> Compra:
     """Crea un nuevo registro de compra."""
     db_compra = Compra(
@@ -1132,11 +1133,76 @@ async def create_compra(
         descripcion_material=descripcion_material,
         nombre_proveedor=nombre_proveedor,
         numero_proveedor=numero_proveedor,
+        price=price,
     )
     db.add(db_compra)
     await db.commit()
     await db.refresh(db_compra)
     return db_compra
+
+
+async def get_compra_by_purchasing_and_material(
+    db: AsyncSession,
+    purchasing_document: Optional[int],
+    numero_material: Optional[str]
+) -> Optional[Compra]:
+    """Busca una compra por purchasing_document y numero_material."""
+    if purchasing_document is None or numero_material is None:
+        return None
+    
+    query = select(Compra).where(
+        Compra.purchasing_document == purchasing_document,
+        Compra.numero_material == numero_material
+    )
+    result = await db.execute(query)
+    return result.scalar_one_or_none()
+
+
+async def bulk_create_or_update_compras(
+    db: AsyncSession,
+    compras_data: List[Dict[str, Any]]
+) -> Dict[str, int]:
+    """Inserta o actualiza múltiples registros de compras.
+    Si ya existe un registro con la misma combinación de purchasing_document y numero_material,
+    se actualiza. Si no existe, se crea uno nuevo.
+    
+    Args:
+        db: Sesión de base de datos
+        compras_data: Lista de diccionarios con los datos de las compras
+        
+    Returns:
+        Diccionario con 'insertados' y 'actualizados'
+    """
+    if not compras_data:
+        return {"insertados": 0, "actualizados": 0}
+    
+    insertados = 0
+    actualizados = 0
+    
+    for compra_data in compras_data:
+        purchasing_doc = compra_data.get('purchasing_document')
+        numero_mat = compra_data.get('numero_material')
+        
+        # Buscar si ya existe
+        compra_existente = await get_compra_by_purchasing_and_material(
+            db, purchasing_doc, numero_mat
+        )
+        
+        if compra_existente:
+            # Actualizar registro existente
+            for key, value in compra_data.items():
+                if key not in ['id', 'created_at']:  # No actualizar id ni created_at
+                    setattr(compra_existente, key, value)
+            actualizados += 1
+        else:
+            # Crear nuevo registro
+            compra = Compra(**compra_data)
+            db.add(compra)
+            insertados += 1
+    
+    await db.commit()
+    
+    return {"insertados": insertados, "actualizados": actualizados}
 
 
 async def bulk_create_compras(
@@ -1164,3 +1230,24 @@ async def bulk_create_compras(
     await db.commit()
     
     return len(compras_objects)
+
+
+async def list_compras(
+    db: AsyncSession,
+    limit: int = 100,
+    offset: int = 0
+) -> List[Compra]:
+    """Lista compras con paginación."""
+    query = select(Compra).order_by(desc(Compra.created_at)).limit(limit).offset(offset)
+    
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def count_compras(
+    db: AsyncSession
+) -> int:
+    """Cuenta el total de compras."""
+    query = select(func.count(Compra.id))
+    result = await db.execute(query)
+    return result.scalar() or 0
