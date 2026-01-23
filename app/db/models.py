@@ -271,6 +271,52 @@ class Proveedor(Base):
         return f"<Proveedor(codigo_proveedor={self.codigo_proveedor}, nombre={self.nombre})>"
 
 
+class ProveedorOperacion(PyEnum):
+    """Tipos de operaciones en el historial de proveedores."""
+    CREATE = "CREATE"
+    UPDATE = "UPDATE"
+    DELETE = "DELETE"
+
+
+class ProveedorHistorial(Base):
+    """Modelo para el historial de cambios en proveedores."""
+    __tablename__ = "proveedores_historial"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Código del proveedor (puede ser NULL si se elimina)
+    codigo_proveedor = Column(String, nullable=True, index=True)
+    
+    # Tipo de operación
+    operacion = Column(
+        SQLEnum(ProveedorOperacion, name="proveedor_operacion_enum"),
+        nullable=False,
+        index=True
+    )
+    
+    # Usuario que realizó la operación
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user = relationship("User", backref="proveedores_historial")
+    
+    # Datos antes del cambio (NULL para CREATE)
+    datos_antes = Column(JSONB, nullable=True)
+    
+    # Datos después del cambio (NULL para DELETE)
+    datos_despues = Column(JSONB, nullable=True)
+    
+    # Campos que cambiaron (solo para UPDATE)
+    campos_modificados = Column(JSONB, nullable=True)
+    
+    # Comentario opcional
+    comentario = Column(Text, nullable=True)
+    
+    # Timestamp
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    
+    def __repr__(self):
+        return f"<ProveedorHistorial(id={self.id}, codigo_proveedor={self.codigo_proveedor}, operacion={self.operacion.value}, created_at={self.created_at})>"
+
+
 class Material(Base):
     """Modelo para materiales."""
     __tablename__ = "materiales"

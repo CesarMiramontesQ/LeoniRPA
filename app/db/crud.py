@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from decimal import Decimal
-from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial
+from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion
 from app.core.security import hash_password
 
 
@@ -648,6 +648,22 @@ async def get_proveedor_by_codigo_proveedor(db: AsyncSession, codigo_proveedor: 
     return result.scalar_one_or_none()
 
 
+def _proveedor_to_dict(proveedor: Proveedor) -> Dict[str, Any]:
+    """Convierte un objeto Proveedor a diccionario para el historial."""
+    return {
+        "codigo_proveedor": proveedor.codigo_proveedor,
+        "nombre": proveedor.nombre,
+        "pais": proveedor.pais,
+        "domicilio": proveedor.domicilio,
+        "poblacion": proveedor.poblacion,
+        "cp": proveedor.cp,
+        "estatus": proveedor.estatus,
+        "estatus_compras": proveedor.estatus_compras,
+        "created_at": proveedor.created_at.isoformat() if proveedor.created_at else None,
+        "updated_at": proveedor.updated_at.isoformat() if proveedor.updated_at else None
+    }
+
+
 async def create_proveedor(
     db: AsyncSession,
     codigo_proveedor: str,
@@ -657,7 +673,8 @@ async def create_proveedor(
     poblacion: Optional[str] = None,
     cp: Optional[str] = None,
     estatus: bool = True,
-    estatus_compras: Optional[str] = None
+    estatus_compras: Optional[str] = None,
+    user_id: Optional[int] = None
 ) -> Proveedor:
     """Crea un nuevo proveedor."""
     proveedor = Proveedor(
@@ -673,6 +690,20 @@ async def create_proveedor(
     db.add(proveedor)
     await db.commit()
     await db.refresh(proveedor)
+    
+    # Registrar en historial
+    if user_id is not None:
+        historial = ProveedorHistorial(
+            codigo_proveedor=codigo_proveedor,
+            operacion=ProveedorOperacion.CREATE,
+            user_id=user_id,
+            datos_antes=None,
+            datos_despues=_proveedor_to_dict(proveedor),
+            campos_modificados=None
+        )
+        db.add(historial)
+        await db.commit()
+    
     return proveedor
 
 
@@ -685,34 +716,66 @@ async def update_proveedor(
     poblacion: Optional[str] = None,
     cp: Optional[str] = None,
     estatus: Optional[bool] = None,
-    estatus_compras: Optional[str] = None
+    estatus_compras: Optional[str] = None,
+    user_id: Optional[int] = None
 ) -> Optional[Proveedor]:
     """Actualiza un proveedor."""
     proveedor = await get_proveedor_by_codigo_proveedor(db, codigo_proveedor)
     if not proveedor:
         return None
     
-    if nombre is not None:
+    # Guardar datos antes del cambio
+    datos_antes = _proveedor_to_dict(proveedor)
+    campos_modificados = []
+    
+    if nombre is not None and proveedor.nombre != nombre:
         proveedor.nombre = nombre
-    if pais is not None:
+        campos_modificados.append("nombre")
+    if pais is not None and proveedor.pais != pais:
         proveedor.pais = pais
-    if domicilio is not None:
+        campos_modificados.append("pais")
+    if domicilio is not None and proveedor.domicilio != domicilio:
         proveedor.domicilio = domicilio
-    if poblacion is not None:
+        campos_modificados.append("domicilio")
+    if poblacion is not None and proveedor.poblacion != poblacion:
         proveedor.poblacion = poblacion
-    if cp is not None:
+        campos_modificados.append("poblacion")
+    if cp is not None and proveedor.cp != cp:
         proveedor.cp = cp
-    if estatus is not None:
+        campos_modificados.append("cp")
+    if estatus is not None and proveedor.estatus != estatus:
         proveedor.estatus = estatus
-    if estatus_compras is not None:
+        campos_modificados.append("estatus")
+    if estatus_compras is not None and proveedor.estatus_compras != estatus_compras:
         proveedor.estatus_compras = estatus_compras
+        campos_modificados.append("estatus_compras")
+    
+    # Solo registrar en historial si hubo cambios
+    if campos_modificados and user_id is not None:
+        await db.flush()  # Para obtener los datos actualizados
+        await db.refresh(proveedor)
+        datos_despues = _proveedor_to_dict(proveedor)
+        
+        historial = ProveedorHistorial(
+            codigo_proveedor=codigo_proveedor,
+            operacion=ProveedorOperacion.UPDATE,
+            user_id=user_id,
+            datos_antes=datos_antes,
+            datos_despues=datos_despues,
+            campos_modificados=campos_modificados
+        )
+        db.add(historial)
     
     await db.commit()
     await db.refresh(proveedor)
     return proveedor
 
 
-async def delete_proveedor(db: AsyncSession, codigo_proveedor: str) -> bool:
+async def delete_proveedor(
+    db: AsyncSession, 
+    codigo_proveedor: str,
+    user_id: Optional[int] = None
+) -> bool:
     """Elimina un proveedor."""
     from sqlalchemy import delete
     
@@ -720,8 +783,24 @@ async def delete_proveedor(db: AsyncSession, codigo_proveedor: str) -> bool:
     if not proveedor:
         return False
     
+    # Guardar datos antes de eliminar
+    datos_antes = _proveedor_to_dict(proveedor)
+    
     stmt = delete(Proveedor).where(Proveedor.codigo_proveedor == codigo_proveedor)
     await db.execute(stmt)
+    
+    # Registrar en historial
+    if user_id is not None:
+        historial = ProveedorHistorial(
+            codigo_proveedor=codigo_proveedor,
+            operacion=ProveedorOperacion.DELETE,
+            user_id=user_id,
+            datos_antes=datos_antes,
+            datos_despues=None,
+            campos_modificados=None
+        )
+        db.add(historial)
+    
     await db.commit()
     return True
 
@@ -785,7 +864,160 @@ async def count_proveedores(
         )
     
     result = await db.execute(query)
-    return result.scalar_one()
+    return result.scalar() or 0
+
+
+# ==================== CRUD para Historial de Proveedores ====================
+
+async def list_proveedor_historial(
+    db: AsyncSession,
+    codigo_proveedor: Optional[str] = None,
+    operacion: Optional[ProveedorOperacion] = None,
+    user_id: Optional[int] = None,
+    limit: int = 100,
+    offset: int = 0
+) -> List[ProveedorHistorial]:
+    """Lista el historial de cambios en proveedores con filtros opcionales."""
+    query = select(ProveedorHistorial).options(selectinload(ProveedorHistorial.user))
+    
+    if codigo_proveedor:
+        query = query.where(ProveedorHistorial.codigo_proveedor == codigo_proveedor)
+    
+    if operacion:
+        query = query.where(ProveedorHistorial.operacion == operacion)
+    
+    if user_id:
+        query = query.where(ProveedorHistorial.user_id == user_id)
+    
+    query = query.order_by(desc(ProveedorHistorial.created_at)).limit(limit).offset(offset)
+    
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def get_proveedor_historial_by_id(
+    db: AsyncSession,
+    historial_id: int
+) -> Optional[ProveedorHistorial]:
+    """Obtiene un registro del historial por ID."""
+    result = await db.execute(
+        select(ProveedorHistorial).where(ProveedorHistorial.id == historial_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def count_proveedor_historial(
+    db: AsyncSession,
+    codigo_proveedor: Optional[str] = None,
+    operacion: Optional[ProveedorOperacion] = None,
+    user_id: Optional[int] = None
+) -> int:
+    """Cuenta el total de registros en el historial con filtros opcionales."""
+    query = select(func.count(ProveedorHistorial.id))
+    
+    if codigo_proveedor:
+        query = query.where(ProveedorHistorial.codigo_proveedor == codigo_proveedor)
+    
+    if operacion:
+        query = query.where(ProveedorHistorial.operacion == operacion)
+    
+    if user_id:
+        query = query.where(ProveedorHistorial.user_id == user_id)
+    
+    result = await db.execute(query)
+    return result.scalar() or 0
+
+
+async def sincronizar_proveedores_desde_compras(
+    db: AsyncSession,
+    user_id: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Sincroniza proveedores desde la tabla compras.
+    Busca todos los codigo_proveedor únicos en compras que no estén registrados
+    en proveedores y los crea usando el nombre_proveedor de compras.
+    
+    Returns:
+        Dict con estadísticas de la sincronización:
+        - total_encontrados: Total de códigos únicos en compras
+        - nuevos_creados: Cantidad de proveedores nuevos creados
+        - errores: Lista de errores encontrados
+    """
+    from sqlalchemy import distinct
+    
+    errores = []
+    nuevos_creados = 0
+    
+    try:
+        # 1. Obtener todos los codigo_proveedor únicos de compras que no sean NULL
+        # Usamos GROUP BY para obtener el nombre_proveedor más común (o el primero no nulo)
+        query_codigos = select(
+            Compra.codigo_proveedor,
+            func.max(Compra.nombre_proveedor).label('nombre_proveedor')
+        ).where(
+            Compra.codigo_proveedor.isnot(None),
+            Compra.codigo_proveedor != ''
+        ).group_by(Compra.codigo_proveedor)
+        
+        result = await db.execute(query_codigos)
+        proveedores_en_compras = result.all()
+        
+        total_encontrados = len(proveedores_en_compras)
+        
+        # 2. Obtener todos los códigos de proveedores existentes para comparación rápida
+        query_existentes = select(Proveedor.codigo_proveedor)
+        result_existentes = await db.execute(query_existentes)
+        codigos_existentes = {row[0] for row in result_existentes.all() if row[0]}
+        
+        # 3. Para cada codigo_proveedor, verificar si existe en proveedores
+        for codigo_proveedor, nombre_proveedor in proveedores_en_compras:
+            if not codigo_proveedor or codigo_proveedor.strip() == '':
+                continue
+            
+            # Verificar si el proveedor ya existe (usando el set para mejor rendimiento)
+            if codigo_proveedor not in codigos_existentes:
+                # Crear el proveedor con el nombre de compras
+                # Si nombre_proveedor es None o vacío, usar el código como nombre
+                nombre = nombre_proveedor if nombre_proveedor and nombre_proveedor.strip() else codigo_proveedor
+                
+                try:
+                    await create_proveedor(
+                        db=db,
+                        codigo_proveedor=codigo_proveedor,
+                        nombre=nombre,
+                        pais=None,
+                        domicilio=None,
+                        poblacion=None,
+                        cp=None,
+                        estatus=True,
+                        estatus_compras=None,
+                        user_id=user_id
+                    )
+                    nuevos_creados += 1
+                    # Agregar a la lista de existentes para evitar duplicados en la misma ejecución
+                    codigos_existentes.add(codigo_proveedor)
+                except Exception as e:
+                    error_msg = f"Error al crear proveedor {codigo_proveedor}: {str(e)}"
+                    errores.append(error_msg)
+                    # Continuar con el siguiente proveedor
+                    continue
+        
+        return {
+            "total_encontrados": total_encontrados,
+            "nuevos_creados": nuevos_creados,
+            "errores": errores,
+            "exitoso": len(errores) == 0
+        }
+        
+    except Exception as e:
+        error_msg = f"Error general en sincronización: {str(e)}"
+        errores.append(error_msg)
+        return {
+            "total_encontrados": 0,
+            "nuevos_creados": 0,
+            "errores": errores,
+            "exitoso": False
+        }
 
 
 # ==================== CRUD para Materiales ====================

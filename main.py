@@ -180,6 +180,9 @@ async def proveedores(request: Request, current_user: User = Depends(get_current
     proveedores_activos = await crud.count_proveedores(db, estatus=True)
     proveedores_inactivos = await crud.count_proveedores(db, estatus=False)
     
+    # Obtener los últimos 5 movimientos del historial
+    historial_reciente = await crud.list_proveedor_historial(db, limit=5, offset=0)
+    
     return templates.TemplateResponse(
         "proveedores.html",
         {
@@ -189,7 +192,8 @@ async def proveedores(request: Request, current_user: User = Depends(get_current
             "proveedores": proveedores_data,
             "total_proveedores": total_proveedores,
             "proveedores_activos": proveedores_activos,
-            "proveedores_inactivos": proveedores_inactivos
+            "proveedores_inactivos": proveedores_inactivos,
+            "historial_reciente": historial_reciente
         }
     )
 
@@ -315,6 +319,57 @@ async def api_proveedores(
         "limit": limit,
         "offset": offset
     })
+
+
+@app.post("/api/proveedores/actualizar")
+async def actualizar_proveedores_desde_compras(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Sincroniza proveedores desde la tabla compras.
+    
+    Busca todos los codigo_proveedor únicos en compras que no estén registrados
+    en proveedores y los crea automáticamente usando el nombre_proveedor de compras.
+    """
+    try:
+        resultado = await crud.sincronizar_proveedores_desde_compras(
+            db=db,
+            user_id=current_user.id
+        )
+        
+        # Determinar el mensaje según el resultado
+        if resultado["nuevos_creados"] > 0:
+            mensaje = f"✓ Sincronización completada. Se crearon {resultado['nuevos_creados']} nuevo(s) proveedor(es) de {resultado['total_encontrados']} encontrados en compras."
+        elif resultado["total_encontrados"] > 0:
+            mensaje = f"✓ Sincronización completada. Todos los proveedores ({resultado['total_encontrados']}) ya están registrados."
+        else:
+            mensaje = "✓ Sincronización completada. No se encontraron proveedores en la tabla de compras."
+        
+        if resultado["errores"]:
+            mensaje += f" Se encontraron {len(resultado['errores'])} error(es)."
+        
+        # Considerar exitoso si no hay errores críticos
+        success = len(resultado["errores"]) == 0 or resultado["nuevos_creados"] > 0
+        
+        return JSONResponse({
+            "success": success,
+            "total_encontrados": resultado["total_encontrados"],
+            "nuevos_creados": resultado["nuevos_creados"],
+            "errores": resultado["errores"],
+            "mensaje": mensaje
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "mensaje": f"Error al sincronizar proveedores desde compras: {str(e)}"
+            }
+        )
 
 
 @app.get("/api/compras")
