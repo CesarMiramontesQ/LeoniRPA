@@ -1129,12 +1129,30 @@ async def create_compra(
     return db_compra
 
 
+async def get_compra_by_material_document(
+    db: AsyncSession,
+    material_document: Optional[int],
+    material_doc_item: Optional[int]
+) -> Optional[Compra]:
+    """Busca una compra por material_document y material_doc_item (identificadores únicos)."""
+    if material_document is None or material_doc_item is None:
+        return None
+    
+    query = select(Compra).where(
+        Compra.material_document == material_document,
+        Compra.material_doc_item == material_doc_item
+    )
+    result = await db.execute(query)
+    return result.scalar_one_or_none()
+
+
 async def get_compra_by_purchasing_and_material(
     db: AsyncSession,
     purchasing_document: Optional[int],
-    numero_material: Optional[str]
+    numero_material: Optional[str],
+    item: Optional[int] = None
 ) -> Optional[Compra]:
-    """Busca una compra por purchasing_document y numero_material."""
+    """Busca una compra por purchasing_document, item y numero_material (fallback)."""
     if purchasing_document is None or numero_material is None:
         return None
     
@@ -1142,8 +1160,18 @@ async def get_compra_by_purchasing_and_material(
         Compra.purchasing_document == purchasing_document,
         Compra.numero_material == numero_material
     )
+    
+    # Si se proporciona item, también filtrar por item para mayor precisión
+    if item is not None:
+        query = query.where(Compra.item == item)
+    
     result = await db.execute(query)
-    return result.scalar_one_or_none()
+    # Si hay múltiples resultados, tomar el primero
+    try:
+        return result.scalar_one_or_none()
+    except Exception:
+        # Si hay múltiples resultados, tomar el primero
+        return result.scalars().first()
 
 
 async def bulk_create_or_update_compras(
@@ -1151,8 +1179,11 @@ async def bulk_create_or_update_compras(
     compras_data: List[Dict[str, Any]]
 ) -> Dict[str, int]:
     """Inserta o actualiza múltiples registros de compras.
-    Si ya existe un registro con la misma combinación de purchasing_document y numero_material,
-    se actualiza. Si no existe, se crea uno nuevo.
+    Si ya existe un registro, se actualiza. Si no existe, se crea uno nuevo.
+    
+    Prioridad de búsqueda:
+    1. material_document + material_doc_item (más preciso)
+    2. purchasing_document + item + numero_material (fallback)
     
     Args:
         db: Sesión de base de datos
@@ -1168,13 +1199,25 @@ async def bulk_create_or_update_compras(
     actualizados = 0
     
     for compra_data in compras_data:
+        material_doc = compra_data.get('material_document')
+        material_doc_item = compra_data.get('material_doc_item')
         purchasing_doc = compra_data.get('purchasing_document')
         numero_mat = compra_data.get('numero_material')
+        item = compra_data.get('item')
         
-        # Buscar si ya existe
-        compra_existente = await get_compra_by_purchasing_and_material(
-            db, purchasing_doc, numero_mat
-        )
+        compra_existente = None
+        
+        # Primero intentar buscar por material_document y material_doc_item (más preciso)
+        if material_doc is not None and material_doc_item is not None:
+            compra_existente = await get_compra_by_material_document(
+                db, material_doc, material_doc_item
+            )
+        
+        # Si no se encontró, intentar con purchasing_document, item y numero_material
+        if compra_existente is None and purchasing_doc is not None and numero_mat is not None:
+            compra_existente = await get_compra_by_purchasing_and_material(
+                db, purchasing_doc, numero_mat, item
+            )
         
         if compra_existente:
             # Actualizar registro existente
@@ -1261,7 +1304,7 @@ async def list_compras(
         fecha_fin_con_hora = fecha_fin.replace(hour=23, minute=59, second=59)
         conditions.append(Compra.posting_date <= fecha_fin_con_hora)
     
-    if numero_proveedor:
+    if codigo_proveedor:
         conditions.append(Compra.codigo_proveedor == codigo_proveedor)
     
     if numero_material:
@@ -1320,7 +1363,7 @@ async def count_compras(
         fecha_fin_con_hora = fecha_fin.replace(hour=23, minute=59, second=59)
         conditions.append(Compra.posting_date <= fecha_fin_con_hora)
     
-    if numero_proveedor:
+    if codigo_proveedor:
         conditions.append(Compra.codigo_proveedor == codigo_proveedor)
     
     if numero_material:

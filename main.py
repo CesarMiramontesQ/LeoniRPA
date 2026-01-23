@@ -340,6 +340,9 @@ async def api_compras(
     if fecha_inicio:
         try:
             fecha_inicio_dt = datetime.strptime(fecha_inicio, "%Y-%m-%d")
+            # Agregar zona horaria si no la tiene
+            if fecha_inicio_dt.tzinfo is None:
+                fecha_inicio_dt = fecha_inicio_dt.replace(tzinfo=ZoneInfo('America/Mexico_City'))
         except ValueError:
             return JSONResponse(
                 status_code=400,
@@ -349,6 +352,9 @@ async def api_compras(
     if fecha_fin:
         try:
             fecha_fin_dt = datetime.strptime(fecha_fin, "%Y-%m-%d")
+            # Agregar zona horaria si no la tiene
+            if fecha_fin_dt.tzinfo is None:
+                fecha_fin_dt = fecha_fin_dt.replace(tzinfo=ZoneInfo('America/Mexico_City'))
         except ValueError:
             return JSONResponse(
                 status_code=400,
@@ -399,12 +405,6 @@ async def api_compras(
                 "amount": float(c.amount) if c.amount else None,
                 "currency": c.currency,
                 "gr_ir_clearing_value_lc": float(c.gr_ir_clearing_value_lc) if c.gr_ir_clearing_value_lc else None,
-                "gr_blck_stock_oun": float(c.gr_blck_stock_oun) if c.gr_blck_stock_oun else None,
-                "gr_blocked_stck_opun": float(c.gr_blocked_stck_opun) if c.gr_blocked_stck_opun else None,
-                "delivery_completed": c.delivery_completed,
-                "fisc_year_ref_doc": c.fisc_year_ref_doc,
-                "reference_document": c.reference_document,
-                "reference_doc_item": c.reference_doc_item,
                 "invoice_value": float(c.invoice_value) if c.invoice_value else None,
                 "numero_material": c.numero_material,
                 "plant": c.plant,
@@ -1202,14 +1202,16 @@ async def procesar_compras_historial(
     request: Request,
     archivo_compras: UploadFile = File(...),
     archivo_historial: UploadFile = File(...),
-    carpeta_salida: str = Form(...),
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Procesa historial de compras, enriquece con Compras (Supplier->codigo proveedor, Name 1->nombre proveedor) y guarda archivo final."""
+    """Procesa historial de compras, enriquece con Compras (Supplier->codigo proveedor, Name 1->nombre proveedor) e inserta en la tabla compras."""
     import tempfile
     import shutil
     from pathlib import Path
     import pandas as pd
+    from decimal import Decimal
+    from datetime import datetime as dt
 
     ext_ok = ['.xlsx', '.xls']
     n_compras = archivo_compras.filename or ''
@@ -1219,10 +1221,6 @@ async def procesar_compras_historial(
 
     if e_compras not in ext_ok or e_hist not in ext_ok:
         return JSONResponse(status_code=400, content={"error": "Ambos archivos deben ser Excel (.xlsx o .xls)"})
-
-    carpeta = Path(carpeta_salida.strip().rstrip('/').rstrip('\\'))
-    if not carpeta.exists() or not carpeta.is_dir():
-        return JSONResponse(status_code=400, content={"error": f"La carpeta de salida no existe o no es válida: {carpeta_salida}"})
 
     try:
         with tempfile.TemporaryDirectory() as tmp:
@@ -1289,15 +1287,130 @@ async def procesar_compras_historial(
             df['codigo proveedor'] = codigos.astype('Int64')
             df['nombre proveedor'] = df[col_pd].map(lambda x: lookup(x)[1])
 
-            out = carpeta / "historial_compras_procesado.xlsx"
-            df.to_excel(out, index=False, engine='openpyxl')
+            # Buscar todas las columnas necesarias una sola vez
+            col_pd_map = col(df, 'Purchasing Document')
+            col_item = col(df, 'Item')
+            col_mdy = col(df, 'Material Doc. Year')
+            col_md = col(df, 'Material Document')
+            col_mdi = col(df, 'Material Doc.Item')
+            col_mt = col(df, 'Movement Type')
+            col_post = col(df, 'Posting Date')
+            col_qty = col(df, 'Quantity')
+            col_ou = col(df, 'Order Unit')
+            col_qop = col(df, 'Quantity in OPUn')
+            col_opu = col(df, 'Order Price Unit')
+            col_alc = col(df, 'Amount in LC')
+            col_lc = col(df, 'Local currency')
+            col_amt = col(df, 'Amount')
+            col_curr = col(df, 'Currency')
+            col_grir = col(df, 'GR/IR clearing value in local currency')
+            col_inv = col(df, 'Invoice Value')
+            col_mat = col(df, 'Material')
+            col_plant = col(df, 'Plant')
+            # Buscar "Short Text" primero, luego otras variantes
+            col_desc = col(df, 'Short Text') or col(df, 'descripcion_material') or col(df, 'Material Description') or col(df, 'Short text')
+            col_nom_prov = col(df, 'nombre proveedor')
+            col_cod_prov = col(df, 'codigo proveedor')
+            col_price = col(df, 'precio unitario')
 
-        return JSONResponse(
-            status_code=200,
-            content={"success": True, "message": "Archivo procesado correctamente", "archivo_guardado": str(out)}
-        )
+            # Funciones auxiliares para conversión segura
+            def safe_int(val):
+                if pd.isna(val) or val == '' or val is None:
+                    return None
+                try:
+                    return int(pd.to_numeric(val, errors='raise'))
+                except (ValueError, TypeError):
+                    return None
+
+            def safe_decimal(val):
+                if pd.isna(val) or val == '' or val is None:
+                    return None
+                try:
+                    return Decimal(str(val))
+                except (ValueError, TypeError):
+                    return None
+
+            def safe_str(val):
+                if pd.isna(val) or val == '' or val is None:
+                    return None
+                return str(val).strip()
+
+            def safe_date(val):
+                if pd.isna(val) or val == '' or val is None:
+                    return None
+                try:
+                    # Convertir a datetime si es necesario
+                    if isinstance(val, pd.Timestamp):
+                        dt_val = val.to_pydatetime()
+                    elif isinstance(val, dt):
+                        dt_val = val
+                    else:
+                        dt_val = pd.to_datetime(val).to_pydatetime()
+                    
+                    # Si no tiene zona horaria, agregar zona horaria de México (CDMX)
+                    if dt_val.tzinfo is None:
+                        dt_val = dt_val.replace(tzinfo=ZoneInfo('America/Mexico_City'))
+                    
+                    return dt_val
+                except Exception:
+                    return None
+
+            # Convertir DataFrame a lista de diccionarios
+            compras_data = []
+            for _, row in df.iterrows():
+                compra_dict = {
+                    'purchasing_document': safe_int(row[col_pd_map]) if col_pd_map else None,
+                    'item': safe_int(row[col_item]) if col_item else None,
+                    'material_doc_year': safe_int(row[col_mdy]) if col_mdy else None,
+                    'material_document': safe_int(row[col_md]) if col_md else None,
+                    'material_doc_item': safe_int(row[col_mdi]) if col_mdi else None,
+                    'movement_type': safe_str(row[col_mt]) if col_mt else None,
+                    'posting_date': safe_date(row[col_post]) if col_post else None,
+                    'quantity': safe_int(row[col_qty]) if col_qty else None,
+                    'order_unit': safe_str(row[col_ou]) if col_ou else None,
+                    'quantity_in_opun': safe_int(row[col_qop]) if col_qop else None,
+                    'order_price_unit': safe_str(row[col_opu]) if col_opu else None,
+                    'amount_in_lc': safe_decimal(row[col_alc]) if col_alc else None,
+                    'local_currency': safe_str(row[col_lc]) if col_lc else None,
+                    'amount': safe_decimal(row[col_amt]) if col_amt else None,
+                    'currency': safe_str(row[col_curr]) if col_curr else None,
+                    'gr_ir_clearing_value_lc': safe_decimal(row[col_grir]) if col_grir else None,
+                    'invoice_value': safe_decimal(row[col_inv]) if col_inv else None,
+                    'numero_material': safe_str(row[col_mat]) if col_mat else None,
+                    'plant': safe_str(row[col_plant]) if col_plant else None,
+                    'descripcion_material': safe_str(row[col_desc]) if col_desc else None,
+                    'nombre_proveedor': safe_str(row[col_nom_prov]) if col_nom_prov else None,
+                    'codigo_proveedor': safe_str(row[col_cod_prov]) if col_cod_prov and pd.notna(row[col_cod_prov]) else None,
+                    'price': safe_decimal(row[col_price]) if col_price else None,
+                }
+                # Solo agregar si tiene al menos purchasing_document o numero_material
+                if compra_dict.get('purchasing_document') or compra_dict.get('numero_material'):
+                    compras_data.append(compra_dict)
+
+            # Insertar o actualizar en la base de datos
+            if compras_data:
+                resultado = await crud.bulk_create_or_update_compras(db, compras_data)
+                return JSONResponse(
+                    status_code=200,
+                    content={
+                        "success": True,
+                        "message": f"Procesamiento completado: {resultado['insertados']} registros insertados, {resultado['actualizados']} registros actualizados",
+                        "insertados": resultado['insertados'],
+                        "actualizados": resultado['actualizados']
+                    }
+                )
+            else:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "No se encontraron datos válidos para insertar"}
+                )
+
     except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+        import traceback
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Error al procesar: {str(e)}\n{traceback.format_exc()}"}
+        )
 
 
 @app.post("/api/compras/procesar-historial")
