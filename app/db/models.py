@@ -439,3 +439,37 @@ class Compra(Base):
     def __repr__(self):
         return f"<Compra(id={self.id}, purchasing_document={self.purchasing_document}, material_document={self.material_document}, posting_date={self.posting_date})>"
 
+
+class PaisOrigenMaterial(Base):
+    """Modelo para país de origen de materiales por proveedor."""
+    __tablename__ = "pais_origen_material"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Claves foráneas
+    codigo_proveedor = Column(String, ForeignKey("proveedores.codigo_proveedor"), nullable=False, index=True)
+    numero_material = Column(String, ForeignKey("materiales.numero_material"), nullable=False, index=True)
+    
+    # País de origen
+    pais_origen = Column(String, nullable=False)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    # Relaciones
+    proveedor = relationship("Proveedor", foreign_keys=[codigo_proveedor], backref="paises_origen_materiales")
+    material = relationship("Material", foreign_keys=[numero_material], backref="paises_origen")
+    
+    # Restricciones
+    __table_args__ = (
+        # Constraint único: un solo país de origen por combinación de proveedor y material
+        UniqueConstraint(
+            'codigo_proveedor', 'numero_material',
+            name='uq_pais_origen_material_proveedor_material'
+        ),
+    )
+    
+    def __repr__(self):
+        return f"<PaisOrigenMaterial(id={self.id}, codigo_proveedor={self.codigo_proveedor}, numero_material={self.numero_material}, pais_origen={self.pais_origen})>"
+

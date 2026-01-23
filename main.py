@@ -236,6 +236,37 @@ async def precios_compra(request: Request, current_user: User = Depends(get_curr
     )
 
 
+@app.get("/paises-origen")
+async def paises_origen(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Página de países de origen de materiales - requiere autenticación."""
+    # Cargar los países de origen desde la base de datos con relaciones
+    paises_data = await crud.list_paises_origen_material(db, limit=1000)
+    
+    # Calcular estadísticas
+    total_paises = await crud.count_paises_origen_material(db)
+    
+    # Calcular número de partes únicos (numero_material únicos)
+    from sqlalchemy import select, func, distinct
+    from app.db.models import PaisOrigenMaterial
+    
+    result = await db.execute(
+        select(func.count(distinct(PaisOrigenMaterial.numero_material)))
+    )
+    total_partes_unicos = result.scalar() or 0
+    
+    return templates.TemplateResponse(
+        "paises_origen.html",
+        {
+            "request": request,
+            "active_page": "paises_origen",
+            "current_user": current_user,
+            "paises": paises_data,
+            "total_paises": total_paises,
+            "total_partes_unicos": total_partes_unicos
+        }
+    )
+
+
 @app.get("/api/proveedores")
 async def api_proveedores(
     request: Request,

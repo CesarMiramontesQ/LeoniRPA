@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from decimal import Decimal
-from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra
+from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial
 from app.core.security import hash_password
 
 
@@ -1349,3 +1349,152 @@ async def count_compras(
     
     result = await db.execute(query)
     return result.scalar() or 0
+
+
+# ==================== CRUD para PaisOrigenMaterial ====================
+
+async def get_pais_origen_material_by_id(db: AsyncSession, pais_id: int) -> Optional[PaisOrigenMaterial]:
+    """Obtiene un país de origen por ID."""
+    result = await db.execute(select(PaisOrigenMaterial).where(PaisOrigenMaterial.id == pais_id))
+    return result.scalar_one_or_none()
+
+
+async def get_pais_origen_material_by_proveedor_material(
+    db: AsyncSession,
+    codigo_proveedor: str,
+    numero_material: str
+) -> Optional[PaisOrigenMaterial]:
+    """Obtiene un país de origen por código de proveedor y número de material."""
+    result = await db.execute(
+        select(PaisOrigenMaterial).where(
+            PaisOrigenMaterial.codigo_proveedor == codigo_proveedor,
+            PaisOrigenMaterial.numero_material == numero_material
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def create_pais_origen_material(
+    db: AsyncSession,
+    codigo_proveedor: str,
+    numero_material: str,
+    pais_origen: str
+) -> PaisOrigenMaterial:
+    """Crea un nuevo país de origen de material."""
+    pais_origen_material = PaisOrigenMaterial(
+        codigo_proveedor=codigo_proveedor,
+        numero_material=numero_material,
+        pais_origen=pais_origen
+    )
+    db.add(pais_origen_material)
+    await db.commit()
+    await db.refresh(pais_origen_material)
+    return pais_origen_material
+
+
+async def update_pais_origen_material(
+    db: AsyncSession,
+    pais_id: int,
+    pais_origen: Optional[str] = None
+) -> Optional[PaisOrigenMaterial]:
+    """Actualiza un país de origen de material."""
+    pais_origen_material = await get_pais_origen_material_by_id(db, pais_id)
+    if not pais_origen_material:
+        return None
+    
+    if pais_origen is not None:
+        pais_origen_material.pais_origen = pais_origen
+    
+    await db.commit()
+    await db.refresh(pais_origen_material)
+    return pais_origen_material
+
+
+async def upsert_pais_origen_material(
+    db: AsyncSession,
+    codigo_proveedor: str,
+    numero_material: str,
+    pais_origen: str
+) -> PaisOrigenMaterial:
+    """Crea o actualiza un país de origen de material (upsert)."""
+    existing = await get_pais_origen_material_by_proveedor_material(db, codigo_proveedor, numero_material)
+    
+    if existing:
+        # Actualizar existente
+        existing.pais_origen = pais_origen
+        await db.commit()
+        await db.refresh(existing)
+        return existing
+    else:
+        # Crear nuevo
+        return await create_pais_origen_material(
+            db,
+            codigo_proveedor=codigo_proveedor,
+            numero_material=numero_material,
+            pais_origen=pais_origen
+        )
+
+
+async def list_paises_origen_material(
+    db: AsyncSession,
+    codigo_proveedor: Optional[str] = None,
+    numero_material: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0
+) -> List[PaisOrigenMaterial]:
+    """Lista países de origen de materiales con filtros opcionales."""
+    query = select(PaisOrigenMaterial).options(
+        selectinload(PaisOrigenMaterial.proveedor),
+        selectinload(PaisOrigenMaterial.material)
+    )
+    
+    if codigo_proveedor:
+        query = query.where(PaisOrigenMaterial.codigo_proveedor == codigo_proveedor)
+    
+    if numero_material:
+        query = query.where(PaisOrigenMaterial.numero_material == numero_material)
+    
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                PaisOrigenMaterial.codigo_proveedor.ilike(search_pattern),
+                PaisOrigenMaterial.numero_material.ilike(search_pattern),
+                PaisOrigenMaterial.pais_origen.ilike(search_pattern)
+            )
+        )
+    
+    query = query.order_by(desc(PaisOrigenMaterial.updated_at)).limit(limit).offset(offset)
+    
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def count_paises_origen_material(
+    db: AsyncSession,
+    codigo_proveedor: Optional[str] = None,
+    numero_material: Optional[str] = None,
+    search: Optional[str] = None
+) -> int:
+    """Cuenta el total de países de origen de materiales con filtros opcionales."""
+    query = select(func.count(PaisOrigenMaterial.id))
+    
+    if codigo_proveedor:
+        query = query.where(PaisOrigenMaterial.codigo_proveedor == codigo_proveedor)
+    
+    if numero_material:
+        query = query.where(PaisOrigenMaterial.numero_material == numero_material)
+    
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                PaisOrigenMaterial.codigo_proveedor.ilike(search_pattern),
+                PaisOrigenMaterial.numero_material.ilike(search_pattern),
+                PaisOrigenMaterial.pais_origen.ilike(search_pattern)
+            )
+        )
+    
+    result = await db.execute(query)
+    return result.scalar_one()
