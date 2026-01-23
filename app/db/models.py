@@ -393,24 +393,6 @@ class Compra(Base):
     # GR/IR clearing value in local currency
     gr_ir_clearing_value_lc = Column(Numeric(18, 6), nullable=True)
     
-    # GR Blck.Stock in OUn
-    gr_blck_stock_oun = Column(Numeric(18, 6), nullable=True)
-    
-    # GR blocked stck.OPUn
-    gr_blocked_stck_opun = Column(Numeric(18, 6), nullable=True)
-    
-    # Delivery Completed
-    delivery_completed = Column(String, nullable=True)
-    
-    # Fisc. Year Ref. Doc.
-    fisc_year_ref_doc = Column(String, nullable=True)
-    
-    # Reference Document
-    reference_document = Column(String, nullable=True)
-    
-    # Reference Doc. Item
-    reference_doc_item = Column(String, nullable=True)
-    
     # Invoice Value
     invoice_value = Column(Numeric(18, 6), nullable=True)
     
@@ -426,8 +408,8 @@ class Compra(Base):
     # nombre_proveedor
     nombre_proveedor = Column(String, nullable=True, index=True)
     
-    # numero_proveedor
-    numero_proveedor = Column(BigInteger, nullable=True, index=True)
+    # codigo_proveedor
+    codigo_proveedor = Column(String, nullable=True, index=True)
     
     # price
     price = Column(Numeric(18, 6), nullable=True)

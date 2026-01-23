@@ -1089,18 +1089,12 @@ async def create_compra(
     amount: Optional[Decimal] = None,
     currency: Optional[str] = None,
     gr_ir_clearing_value_lc: Optional[Decimal] = None,
-    gr_blck_stock_oun: Optional[Decimal] = None,
-    gr_blocked_stck_opun: Optional[Decimal] = None,
-    delivery_completed: Optional[str] = None,
-    fisc_year_ref_doc: Optional[str] = None,
-    reference_document: Optional[str] = None,
-    reference_doc_item: Optional[str] = None,
     invoice_value: Optional[Decimal] = None,
     numero_material: Optional[str] = None,
     plant: Optional[str] = None,
     descripcion_material: Optional[str] = None,
     nombre_proveedor: Optional[str] = None,
-    numero_proveedor: Optional[int] = None,
+    codigo_proveedor: Optional[str] = None,
     price: Optional[Decimal] = None,
 ) -> Compra:
     """Crea un nuevo registro de compra."""
@@ -1121,18 +1115,12 @@ async def create_compra(
         amount=amount,
         currency=currency,
         gr_ir_clearing_value_lc=gr_ir_clearing_value_lc,
-        gr_blck_stock_oun=gr_blck_stock_oun,
-        gr_blocked_stck_opun=gr_blocked_stck_opun,
-        delivery_completed=delivery_completed,
-        fisc_year_ref_doc=fisc_year_ref_doc,
-        reference_document=reference_document,
-        reference_doc_item=reference_doc_item,
         invoice_value=invoice_value,
         numero_material=numero_material,
         plant=plant,
         descripcion_material=descripcion_material,
         nombre_proveedor=nombre_proveedor,
-        numero_proveedor=numero_proveedor,
+        codigo_proveedor=codigo_proveedor,
         price=price,
     )
     db.add(db_compra)
@@ -1239,7 +1227,7 @@ async def list_compras(
     search: Optional[str] = None,
     fecha_inicio: Optional[datetime] = None,
     fecha_fin: Optional[datetime] = None,
-    numero_proveedor: Optional[int] = None,
+    codigo_proveedor: Optional[str] = None,
     numero_material: Optional[str] = None,
     purchasing_document: Optional[int] = None,
     material_document: Optional[int] = None
@@ -1274,7 +1262,7 @@ async def list_compras(
         conditions.append(Compra.posting_date <= fecha_fin_con_hora)
     
     if numero_proveedor:
-        conditions.append(Compra.numero_proveedor == numero_proveedor)
+        conditions.append(Compra.codigo_proveedor == codigo_proveedor)
     
     if numero_material:
         conditions.append(Compra.numero_material.ilike(f"%{numero_material}%"))
@@ -1299,7 +1287,7 @@ async def count_compras(
     search: Optional[str] = None,
     fecha_inicio: Optional[datetime] = None,
     fecha_fin: Optional[datetime] = None,
-    numero_proveedor: Optional[int] = None,
+    codigo_proveedor: Optional[str] = None,
     numero_material: Optional[str] = None,
     purchasing_document: Optional[int] = None,
     material_document: Optional[int] = None
@@ -1333,7 +1321,7 @@ async def count_compras(
         conditions.append(Compra.posting_date <= fecha_fin_con_hora)
     
     if numero_proveedor:
-        conditions.append(Compra.numero_proveedor == numero_proveedor)
+        conditions.append(Compra.codigo_proveedor == codigo_proveedor)
     
     if numero_material:
         conditions.append(Compra.numero_material.ilike(f"%{numero_material}%"))

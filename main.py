@@ -325,7 +325,7 @@ async def api_compras(
     search: Optional[str] = None,
     fecha_inicio: Optional[str] = None,
     fecha_fin: Optional[str] = None,
-    numero_proveedor: Optional[int] = None,
+    codigo_proveedor: Optional[str] = None,
     numero_material: Optional[str] = None,
     purchasing_document: Optional[int] = None,
     material_document: Optional[int] = None,
@@ -360,7 +360,7 @@ async def api_compras(
         search=search,
         fecha_inicio=fecha_inicio_dt,
         fecha_fin=fecha_fin_dt,
-        numero_proveedor=numero_proveedor,
+        codigo_proveedor=codigo_proveedor,
         numero_material=numero_material,
         purchasing_document=purchasing_document,
         material_document=material_document,
@@ -373,7 +373,7 @@ async def api_compras(
         search=search,
         fecha_inicio=fecha_inicio_dt,
         fecha_fin=fecha_fin_dt,
-        numero_proveedor=numero_proveedor,
+        codigo_proveedor=codigo_proveedor,
         numero_material=numero_material,
         purchasing_document=purchasing_document,
         material_document=material_document
@@ -410,7 +410,7 @@ async def api_compras(
                 "plant": c.plant,
                 "descripcion_material": c.descripcion_material,
                 "nombre_proveedor": c.nombre_proveedor,
-                "numero_proveedor": c.numero_proveedor,
+                "codigo_proveedor": c.codigo_proveedor,
                 "price": float(c.price) if c.price else None,
                 "created_at": c.created_at.isoformat() if c.created_at else None,
                 "updated_at": c.updated_at.isoformat() if c.updated_at else None
@@ -699,7 +699,7 @@ async def procesar_archivos(
                     content={"error": error_msg}
                 )
             
-            # Buscar la columna "Supplier" en el Archivo 2 para numero_proveedor
+            # Buscar la columna "Supplier" en el Archivo 2 para codigo_proveedor
             columna_supplier = None
             for col in df_archivo2.columns:
                 if str(col).strip().lower() == "supplier":
@@ -720,7 +720,7 @@ async def procesar_archivos(
                     content={"error": error_msg}
                 )
             
-            # Buscar columna "Proveedor" original en Archivo 1 para numero_proveedor (antes del cruce)
+            # Buscar columna "Proveedor" original en Archivo 1 para codigo_proveedor (antes del cruce)
             # Esta columna puede contener el número del proveedor
             columna_proveedor_numero = None
             for col in df_archivo1.columns:
@@ -728,7 +728,7 @@ async def procesar_archivos(
                     columna_proveedor_numero = col
                     break
             
-            # Guardar los valores originales de "Proveedor" para numero_proveedor si existe
+            # Guardar los valores originales de "Proveedor" para codigo_proveedor si existe
             # Esto debe hacerse ANTES de que se modifique la columna "Proveedor" con el cruce
             if columna_proveedor_numero is not None:
                 # Guardar una copia del valor original antes del cruce
@@ -749,12 +749,12 @@ async def procesar_archivos(
                 df_archivo1["Proveedor"] = ""
                 columna_proveedor = "Proveedor"
             
-            # Crear columna para numero_proveedor (Supplier del archivo 2)
+            # Crear columna para codigo_proveedor (Supplier del archivo 2)
             df_archivo1["Supplier_Numero"] = None
             
             # Crear diccionarios de mapeo desde Archivo 2
             # Clave: Purchasing Document (normalizado), Valor: Name 1 (para nombre_proveedor)
-            # Clave: Purchasing Document (normalizado), Valor: Supplier (para numero_proveedor)
+                    # Clave: Purchasing Document (normalizado), Valor: Supplier (para codigo_proveedor)
             # Usar la primera coincidencia si hay múltiples
             mapa_proveedores = {}
             mapa_suppliers = {}
@@ -772,7 +772,7 @@ async def procesar_archivos(
                         name1_valor = str(name1).strip()
                         mapa_proveedores[purchasing_doc_normalizado] = name1_valor
                     
-                    # Mapeo para numero_proveedor (Supplier)
+                    # Mapeo para codigo_proveedor (Supplier)
                     if pd.notna(supplier) and purchasing_doc_normalizado and purchasing_doc_normalizado not in mapa_suppliers:
                         supplier_valor = str(supplier).strip()
                         mapa_suppliers[purchasing_doc_normalizado] = supplier_valor
@@ -794,7 +794,7 @@ async def procesar_archivos(
                         if pd.isna(df_archivo1.at[idx, columna_proveedor]) or df_archivo1.at[idx, columna_proveedor] == "":
                             df_archivo1.at[idx, columna_proveedor] = ""
                     
-                    # Buscar coincidencia en el mapa para numero_proveedor (Supplier)
+                    # Buscar coincidencia en el mapa para codigo_proveedor (Supplier)
                     if purchasing_doc_normalizado in mapa_suppliers:
                         # Asignar el valor de Supplier a Supplier_Numero
                         df_archivo1.at[idx, "Supplier_Numero"] = mapa_suppliers[purchasing_doc_normalizado]
@@ -941,7 +941,7 @@ async def procesar_archivos(
                     'plant': ['Plant'],
                     'descripcion_material': ['Short Text', 'descripcion_material', 'Material Description', 'Short text'],
                     'nombre_proveedor': ['Supplier', 'supplier', 'SUPPLIER', 'Proveedor', 'proveedor', 'PROVEEDOR', 'nombre_proveedor'],
-                    'numero_proveedor': ['Supplier_Numero', 'Proveedor_Numero_Original', 'Proveedor', 'proveedor', 'PROVEEDOR', 'numero_proveedor'],
+                    'codigo_proveedor': ['Supplier_Numero', 'Proveedor_Numero_Original', 'Proveedor', 'proveedor', 'PROVEEDOR', 'codigo_proveedor'],
                     'price': ['U/P', 'u/p', 'U/p', 'u/P', 'precio', 'Precio', 'PRECIO', 'Price', 'price', 'PRICE'],
                 }
                 
@@ -961,32 +961,15 @@ async def procesar_archivos(
                     if campo_db in ['purchasing_document', 'item', 'material_doc_year', 'material_document', 
                                     'material_doc_item', 'quantity', 'quantity_in_opun']:
                         compra_data[campo_db] = convertir_valor(valor, 'int')
-                    elif campo_db == 'numero_proveedor':
-                        # numero_proveedor puede ser texto o número, intentar convertir a int primero
-                        # si falla, intentar extraer solo números del string
+                    elif campo_db == 'codigo_proveedor':
+                        # codigo_proveedor es un string, convertir a string directamente
                         if valor is not None and not pd.isna(valor):
-                            # Intentar convertir directamente
-                            valor_int = convertir_valor(valor, 'int')
-                            if valor_int is not None:
-                                compra_data[campo_db] = valor_int
-                            else:
-                                # Si falla, intentar extraer números del string
-                                import re
-                                valor_str = str(valor).strip()
-                                numeros = re.findall(r'\d+', valor_str)
-                                if numeros:
-                                    try:
-                                        compra_data[campo_db] = int(''.join(numeros))
-                                    except (ValueError, TypeError):
-                                        compra_data[campo_db] = None
-                                else:
-                                    compra_data[campo_db] = None
+                            compra_data[campo_db] = str(valor).strip()
                         else:
                             compra_data[campo_db] = None
                     elif campo_db == 'posting_date':
                         compra_data[campo_db] = convertir_valor(valor, 'date')
-                    elif campo_db in ['amount_in_lc', 'amount', 'gr_ir_clearing_value_lc', 'gr_blck_stock_oun', 
-                                     'gr_blocked_stck_opun', 'invoice_value', 'price']:
+                    elif campo_db in ['amount_in_lc', 'amount', 'gr_ir_clearing_value_lc', 'invoice_value', 'price']:
                         compra_data[campo_db] = convertir_valor(valor, 'float')
                     else:
                         # numero_material y otros campos string

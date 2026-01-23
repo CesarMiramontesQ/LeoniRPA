@@ -56,12 +56,12 @@
           </div>
         </div>
         <div>
-          <label for="numero-proveedor" class="block text-sm/6 font-medium text-gray-900">Número Proveedor</label>
+          <label for="codigo-proveedor" class="block text-sm/6 font-medium text-gray-900">Código Proveedor</label>
           <div class="mt-2">
             <input
-              type="number"
-              id="numero-proveedor"
-              placeholder="Filtrar por número de proveedor"
+              type="text"
+              id="codigo-proveedor"
+              placeholder="Filtrar por código de proveedor"
               class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6"
             />
           </div>
@@ -262,7 +262,7 @@
     document.getElementById('busqueda-general').addEventListener('input', debounce(cargarCompras, 300));
     document.getElementById('fecha-inicio').addEventListener('change', cargarCompras);
     document.getElementById('fecha-fin').addEventListener('change', cargarCompras);
-    document.getElementById('numero-proveedor').addEventListener('input', debounce(cargarCompras, 300));
+    document.getElementById('codigo-proveedor').addEventListener('input', debounce(cargarCompras, 300));
     document.getElementById('numero-material').addEventListener('input', debounce(cargarCompras, 300));
     document.getElementById('purchasing-document').addEventListener('input', debounce(cargarCompras, 300));
     
@@ -382,9 +382,9 @@
       params.append('fecha_fin', fechaFin);
     }
     
-    const numeroProveedor = document.getElementById('numero-proveedor').value.trim();
-    if (numeroProveedor) {
-      params.append('numero_proveedor', numeroProveedor);
+    const codigoProveedor = document.getElementById('codigo-proveedor').value.trim();
+    if (codigoProveedor) {
+      params.append('codigo_proveedor', codigoProveedor);
     }
     
     const numeroMaterial = document.getElementById('numero-material').value.trim();
@@ -547,7 +547,7 @@
     document.getElementById('busqueda-general').value = '';
     document.getElementById('fecha-inicio').value = '';
     document.getElementById('fecha-fin').value = '';
-    document.getElementById('numero-proveedor').value = '';
+    document.getElementById('codigo-proveedor').value = '';
     document.getElementById('numero-material').value = '';
     document.getElementById('purchasing-document').value = '';
     paginaActual = 1;
