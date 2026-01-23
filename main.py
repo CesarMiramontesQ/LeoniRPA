@@ -137,7 +137,7 @@ async def todas_compras(request: Request, current_user: User = Depends(get_curre
         "todas_compras.html",
         {
             "request": request,
-            "active_page": "compras",
+            "active_page": "todas_compras",
             "current_user": current_user,
             "total_compras": total_compras
         }
