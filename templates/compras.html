@@ -216,43 +216,43 @@
       </div>
       </div>
 
-      <!-- Panel derecho: Procesar Archivos -->
+      <!-- Panel derecho: Procesar Compras e Historial -->
       <div class="lg:col-span-1">
         <div class="rounded-lg bg-white p-6 shadow-sm">
           <h2 class="mb-4 text-lg font-medium text-gray-900">
-            Procesar Archivos
+            Procesar Compras e Historial
           </h2>
 
           <div class="space-y-4">
-            <!-- Archivo 1: Reporte de ventas -->
+            <!-- Archivo: Compras -->
             <div>
               <label class="block text-sm font-medium text-gray-900 mb-2">
-                1. Reporte de ventas
+                Compras
               </label>
               <div class="mt-1 flex gap-2">
                 <input
                   type="file"
-                  id="archivo-ventas"
+                  id="archivo-compras"
                   accept=".xlsx,.xls"
                   class="hidden"
                 />
                 <input
                   type="text"
-                  id="nombre-archivo-ventas-display"
+                  id="nombre-archivo-compras-display"
                   readonly
                   placeholder="Ningún archivo seleccionado"
                   class="block flex-1 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:border-transparent"
                 />
                 <button
                   type="button"
-                  id="btn-seleccionar-ventas"
+                  id="btn-seleccionar-compras"
                   class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
                 >
                   Seleccionar
                 </button>
                 <button
                   type="button"
-                  id="btn-borrar-ventas"
+                  id="btn-borrar-compras"
                   class="hidden rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
                 >
                   Borrar
@@ -260,38 +260,58 @@
               </div>
             </div>
 
-            <!-- Archivo 2: Purchase Order History -->
+            <!-- Archivo: Historial de Compras -->
             <div>
               <label class="block text-sm font-medium text-gray-900 mb-2">
-                2. Purchase Order History
+                Historial de Compras
               </label>
               <div class="mt-1 flex gap-2">
                 <input
                   type="file"
-                  id="archivo-po"
+                  id="archivo-historial"
                   accept=".xlsx,.xls"
                   class="hidden"
                 />
                 <input
                   type="text"
-                  id="nombre-archivo-po-display"
+                  id="nombre-archivo-historial-display"
                   readonly
                   placeholder="Ningún archivo seleccionado"
                   class="block flex-1 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:border-transparent"
                 />
                 <button
                   type="button"
-                  id="btn-seleccionar-po"
+                  id="btn-seleccionar-historial"
                   class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
                 >
                   Seleccionar
                 </button>
                 <button
                   type="button"
-                  id="btn-borrar-po"
+                  id="btn-borrar-historial"
                   class="hidden rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
                 >
                   Borrar
+                </button>
+              </div>
+            </div>
+
+            <!-- Carpeta de salida -->
+            <div>
+              <label for="carpeta-salida-proceso" class="block text-sm/6 font-medium text-gray-900">Carpeta de salida</label>
+              <div class="mt-2 flex gap-2">
+                <input
+                  type="text"
+                  id="carpeta-salida-proceso"
+                  value="C:\Reportes\Compras\"
+                  class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6"
+                />
+                <button
+                  id="btn-cambiar-carpeta-proceso"
+                  type="button"
+                  class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                >
+                  Cambiar
                 </button>
               </div>
             </div>
@@ -299,15 +319,15 @@
             <!-- Botón de procesar -->
             <div class="pt-4 border-t border-gray-200">
               <button
-                id="btn-procesar-archivos"
+                id="btn-procesar"
                 type="button"
                 class="w-full rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white hover:bg-[#003070] disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Procesar archivos
+                Procesar
               </button>
             </div>
 
-            <!-- Mensaje de estado (opcional) -->
+            <!-- Mensaje de estado -->
             <div id="mensaje-procesamiento" class="hidden mt-2 p-3 rounded-md bg-blue-50 border border-blue-200">
               <p class="text-sm text-blue-800 whitespace-pre-line"></p>
             </div>
@@ -444,10 +464,10 @@
   document.getElementById('fecha-inicio').addEventListener('change', actualizarFilenames);
   document.getElementById('fecha-fin').addEventListener('change', actualizarFilenames);
   
-  // Funcionalidad para cambiar carpeta de salida
-  document.getElementById('btn-cambiar-carpeta').addEventListener('click', async function() {
-    const carpetaInput = document.getElementById('carpeta-salida');
-    const btn = document.getElementById('btn-cambiar-carpeta');
+  // Función auxiliar para cambiar carpeta de salida
+  async function cambiarCarpeta(carpetaInputId, btnId) {
+    const carpetaInput = document.getElementById(carpetaInputId);
+    const btn = document.getElementById(btnId);
     
     // Deshabilitar el botón mientras se procesa
     btn.disabled = true;
@@ -478,6 +498,16 @@
       btn.disabled = false;
       btn.textContent = 'Cambiar';
     }
+  }
+
+  // Funcionalidad para cambiar carpeta de salida (descarga)
+  document.getElementById('btn-cambiar-carpeta').addEventListener('click', async function() {
+    await cambiarCarpeta('carpeta-salida', 'btn-cambiar-carpeta');
+  });
+
+  // Funcionalidad para cambiar carpeta de salida (procesar compras e historial)
+  document.getElementById('btn-cambiar-carpeta-proceso').addEventListener('click', async function() {
+    await cambiarCarpeta('carpeta-salida-proceso', 'btn-cambiar-carpeta-proceso');
   });
   
   // Funcionalidad para limpiar el formulario
@@ -554,183 +584,127 @@
     }
   });
   
-  // Funcionalidad para seleccionar archivos con botones personalizados
-  // Archivo 1: Reporte de ventas
-  const archivoVentasInput = document.getElementById('archivo-ventas');
-  const btnSeleccionarVentas = document.getElementById('btn-seleccionar-ventas');
-  const btnBorrarVentas = document.getElementById('btn-borrar-ventas');
-  const nombreArchivoVentasDisplay = document.getElementById('nombre-archivo-ventas-display');
+  // Funcionalidad para seleccionar archivos: Compras e Historial
+  const archivoComprasInput = document.getElementById('archivo-compras');
+  const btnSeleccionarCompras = document.getElementById('btn-seleccionar-compras');
+  const btnBorrarCompras = document.getElementById('btn-borrar-compras');
+  const nombreArchivoComprasDisplay = document.getElementById('nombre-archivo-compras-display');
   
-  function actualizarEstadoVentas(archivoSeleccionado) {
-    if (archivoSeleccionado) {
-      nombreArchivoVentasDisplay.value = archivoSeleccionado.name;
-      btnSeleccionarVentas.textContent = 'Cambiar';
-      btnSeleccionarVentas.classList.remove('hidden');
-      btnBorrarVentas.classList.remove('hidden');
+  function actualizarEstadoCompras(archivo) {
+    if (archivo) {
+      nombreArchivoComprasDisplay.value = archivo.name;
+      btnSeleccionarCompras.textContent = 'Cambiar';
+      btnSeleccionarCompras.classList.remove('hidden');
+      btnBorrarCompras.classList.remove('hidden');
     } else {
-      nombreArchivoVentasDisplay.value = '';
-      btnSeleccionarVentas.textContent = 'Seleccionar';
-      btnSeleccionarVentas.classList.remove('hidden');
-      btnBorrarVentas.classList.add('hidden');
-      archivoVentasInput.value = ''; // Limpiar el input file
+      nombreArchivoComprasDisplay.value = '';
+      btnSeleccionarCompras.textContent = 'Seleccionar';
+      btnBorrarCompras.classList.add('hidden');
+      archivoComprasInput.value = '';
     }
   }
   
-  btnSeleccionarVentas.addEventListener('click', function() {
-    archivoVentasInput.click();
+  btnSeleccionarCompras.addEventListener('click', () => archivoComprasInput.click());
+  btnBorrarCompras.addEventListener('click', () => actualizarEstadoCompras(null));
+  archivoComprasInput.addEventListener('change', function(e) {
+    actualizarEstadoCompras(e.target.files?.[0] || null);
   });
   
-  btnBorrarVentas.addEventListener('click', function() {
-    actualizarEstadoVentas(null);
-  });
+  const archivoHistorialInput = document.getElementById('archivo-historial');
+  const btnSeleccionarHistorial = document.getElementById('btn-seleccionar-historial');
+  const btnBorrarHistorial = document.getElementById('btn-borrar-historial');
+  const nombreArchivoHistorialDisplay = document.getElementById('nombre-archivo-historial-display');
   
-  archivoVentasInput.addEventListener('change', function(e) {
-    if (e.target.files && e.target.files.length > 0) {
-      actualizarEstadoVentas(e.target.files[0]);
+  function actualizarEstadoHistorial(archivo) {
+    if (archivo) {
+      nombreArchivoHistorialDisplay.value = archivo.name;
+      btnSeleccionarHistorial.textContent = 'Cambiar';
+      btnSeleccionarHistorial.classList.remove('hidden');
+      btnBorrarHistorial.classList.remove('hidden');
     } else {
-      actualizarEstadoVentas(null);
-    }
-  });
-  
-  // Archivo 2: Purchase Order History
-  const archivoPoInput = document.getElementById('archivo-po');
-  const btnSeleccionarPo = document.getElementById('btn-seleccionar-po');
-  const btnBorrarPo = document.getElementById('btn-borrar-po');
-  const nombreArchivoPoDisplay = document.getElementById('nombre-archivo-po-display');
-  
-  function actualizarEstadoPo(archivoSeleccionado) {
-    if (archivoSeleccionado) {
-      nombreArchivoPoDisplay.value = archivoSeleccionado.name;
-      btnSeleccionarPo.textContent = 'Cambiar';
-      btnSeleccionarPo.classList.remove('hidden');
-      btnBorrarPo.classList.remove('hidden');
-    } else {
-      nombreArchivoPoDisplay.value = '';
-      btnSeleccionarPo.textContent = 'Seleccionar';
-      btnSeleccionarPo.classList.remove('hidden');
-      btnBorrarPo.classList.add('hidden');
-      archivoPoInput.value = ''; // Limpiar el input file
+      nombreArchivoHistorialDisplay.value = '';
+      btnSeleccionarHistorial.textContent = 'Seleccionar';
+      btnBorrarHistorial.classList.add('hidden');
+      archivoHistorialInput.value = '';
     }
   }
   
-  btnSeleccionarPo.addEventListener('click', function() {
-    archivoPoInput.click();
+  btnSeleccionarHistorial.addEventListener('click', () => archivoHistorialInput.click());
+  btnBorrarHistorial.addEventListener('click', () => actualizarEstadoHistorial(null));
+  archivoHistorialInput.addEventListener('change', function(e) {
+    actualizarEstadoHistorial(e.target.files?.[0] || null);
   });
   
-  btnBorrarPo.addEventListener('click', function() {
-    actualizarEstadoPo(null);
-  });
-  
-  archivoPoInput.addEventListener('change', function(e) {
-    if (e.target.files && e.target.files.length > 0) {
-      actualizarEstadoPo(e.target.files[0]);
-    } else {
-      actualizarEstadoPo(null);
-    }
-  });
-  
-  // Funcionalidad para procesar archivos
-  document.getElementById('btn-procesar-archivos').addEventListener('click', async function() {
-    const btn = document.getElementById('btn-procesar-archivos');
-    const archivoVentas = document.getElementById('archivo-ventas').files[0];
-    const archivoPo = document.getElementById('archivo-po').files[0];
+  // Procesar Compras e Historial
+  document.getElementById('btn-procesar').addEventListener('click', async function() {
+    const btn = document.getElementById('btn-procesar');
+    const archivoCompras = document.getElementById('archivo-compras').files[0];
+    const archivoHistorial = document.getElementById('archivo-historial').files[0];
+    const carpetaSalida = document.getElementById('carpeta-salida-proceso').value;
     const mensajeProcesamiento = document.getElementById('mensaje-procesamiento');
     const mensajeTexto = mensajeProcesamiento.querySelector('p');
     
-    // Validaciones
-    if (!archivoVentas) {
-      alert('Por favor, selecciona el archivo de Reporte de ventas');
+    if (!archivoCompras) {
+      alert('Por favor, selecciona el archivo Compras');
+      return;
+    }
+    if (!archivoHistorial) {
+      alert('Por favor, selecciona el archivo Historial de Compras');
+      return;
+    }
+    if (!carpetaSalida || !carpetaSalida.trim()) {
+      alert('Por favor, especifica la carpeta de salida');
       return;
     }
     
-    if (!archivoPo) {
-      alert('Por favor, selecciona el archivo de Purchase Order History');
+    const ext = ['.xlsx', '.xls'];
+    const e1 = (archivoCompras.name || '').substring((archivoCompras.name || '').lastIndexOf('.')).toLowerCase();
+    const e2 = (archivoHistorial.name || '').substring((archivoHistorial.name || '').lastIndexOf('.')).toLowerCase();
+    if (!ext.includes(e1) || !ext.includes(e2)) {
+      alert('Ambos archivos deben ser Excel (.xlsx o .xls)');
       return;
     }
     
-    // Validar que sean archivos Excel
-    const extensionesPermitidas = ['.xlsx', '.xls'];
-    const extensionVentas = archivoVentas.name.substring(archivoVentas.name.lastIndexOf('.')).toLowerCase();
-    const extensionPo = archivoPo.name.substring(archivoPo.name.lastIndexOf('.')).toLowerCase();
-    
-    if (!extensionesPermitidas.includes(extensionVentas)) {
-      alert('El archivo de Reporte de ventas debe ser un archivo Excel (.xlsx o .xls)');
-      return;
-    }
-    
-    if (!extensionesPermitidas.includes(extensionPo)) {
-      alert('El archivo de Purchase Order History debe ser un archivo Excel (.xlsx o .xls)');
-      return;
-    }
-    
-    // Deshabilitar el botón mientras se procesa
     btn.disabled = true;
     const textoOriginal = btn.textContent;
     btn.textContent = 'Procesando...';
-    
-    // Mostrar mensaje de procesamiento
     mensajeProcesamiento.classList.remove('hidden');
-    mensajeTexto.textContent = 'Procesando archivos...';
-    // Limpiar todas las clases de color y agregar las del estado de procesamiento
+    mensajeTexto.textContent = 'Procesando...';
     mensajeProcesamiento.classList.remove('bg-red-50', 'border-red-200', 'bg-green-50', 'border-green-200');
     mensajeProcesamiento.classList.add('bg-blue-50', 'border-blue-200');
     mensajeTexto.classList.remove('text-red-800', 'text-green-800');
     mensajeTexto.classList.add('text-blue-800');
     
     try {
-      // Crear FormData para enviar los archivos
       const formData = new FormData();
-      formData.append('archivo_ventas', archivoVentas);
-      formData.append('archivo_po', archivoPo);
+      formData.append('archivo_compras', archivoCompras);
+      formData.append('archivo_historial', archivoHistorial);
+      formData.append('carpeta_salida', carpetaSalida);
       
-      // Enviar petición al backend
-      const response = await fetch('/api/compras/procesar-archivos', {
-        method: 'POST',
-        body: formData
-      });
-      
+      const response = await fetch('/api/compras/procesar-compras-historial', { method: 'POST', body: formData });
       const data = await response.json();
       
       if (response.ok && data.success) {
-        // Mostrar mensaje de éxito con información de registros insertados y actualizados
-        let mensajeExito = '✓ Archivos procesados exitosamente.';
-        if (data.message) {
-          mensajeExito = data.message;
-        } else {
-          if (data.registros_insertados !== undefined && data.registros_insertados > 0) {
-            mensajeExito += `\n\nSe insertaron ${data.registros_insertados} registros nuevos.`;
-          }
-          if (data.registros_actualizados !== undefined && data.registros_actualizados > 0) {
-            mensajeExito += `\nSe actualizaron ${data.registros_actualizados} registros existentes.`;
-          }
-        }
-        mensajeTexto.textContent = mensajeExito;
+        mensajeTexto.textContent = 'Archivo procesado correctamente';
         mensajeProcesamiento.classList.remove('bg-blue-50', 'border-blue-200', 'bg-red-50', 'border-red-200');
         mensajeProcesamiento.classList.add('bg-green-50', 'border-green-200');
         mensajeTexto.classList.remove('text-blue-800', 'text-red-800');
         mensajeTexto.classList.add('text-green-800');
-        
-        // Recargar la página para actualizar las tablas de compras y ejecuciones
-        setTimeout(() => {
-          window.location.reload();
-        }, 2000);
       } else {
-        // Mostrar error
-        mensajeTexto.textContent = 'Error: ' + (data.error || 'Error desconocido al procesar los archivos');
+        mensajeTexto.textContent = data.error || 'Error al procesar';
         mensajeProcesamiento.classList.remove('bg-blue-50', 'border-blue-200', 'bg-green-50', 'border-green-200');
         mensajeProcesamiento.classList.add('bg-red-50', 'border-red-200');
         mensajeTexto.classList.remove('text-blue-800', 'text-green-800');
         mensajeTexto.classList.add('text-red-800');
       }
     } catch (error) {
-      console.error('Error al procesar archivos:', error);
-      mensajeTexto.textContent = 'Error al conectar con el servidor. Por favor, intenta nuevamente.';
+      console.error('Error al procesar:', error);
+      mensajeTexto.textContent = error.message || 'Error al conectar con el servidor';
       mensajeProcesamiento.classList.remove('bg-blue-50', 'border-blue-200', 'bg-green-50', 'border-green-200');
       mensajeProcesamiento.classList.add('bg-red-50', 'border-red-200');
       mensajeTexto.classList.remove('text-blue-800', 'text-green-800');
       mensajeTexto.classList.add('text-red-800');
     } finally {
-      // Rehabilitar el botón
       btn.disabled = false;
       btn.textContent = textoOriginal;
     }

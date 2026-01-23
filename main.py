@@ -1162,6 +1162,372 @@ async def iniciar_descarga_ventas(
         )
 
 
+def _procesar_df_historial(df: "pd.DataFrame") -> "pd.DataFrame":
+    """Aplica transformaciones al historial: eliminar columnas, filtros, precio unitario."""
+    import pandas as pd
+
+    columnas_a_eliminar = [
+        'GR Blck.Stock in OUn', 'GR blocked stck.OPUn', 'Delivery Completed',
+        'Fisc. Year Ref. Doc.', 'Reference Document', 'Reference Doc. Item'
+    ]
+    columnas_encontradas = []
+    for col in df.columns:
+        col_str = str(col).strip()
+        for col_eliminar in columnas_a_eliminar:
+            if col_str == col_eliminar or col_str.lower() == col_eliminar.lower():
+                columnas_encontradas.append(col)
+                break
+    if columnas_encontradas:
+        df = df.drop(columns=columnas_encontradas)
+
+    if 'nombre proveedor' not in df.columns:
+        df['nombre proveedor'] = ''
+    if 'codigo proveedor' not in df.columns:
+        df['codigo proveedor'] = ''
+
+    col_plant = next((c for c in df.columns if str(c).strip().lower() == 'plant'), None)
+    if col_plant is not None:
+        df[col_plant] = df[col_plant].astype(str).str.strip()
+        df = df[(~df[col_plant].isin(['MX10', 'MX11'])) & (df[col_plant] != '') & (df[col_plant] != 'nan') & (df[col_plant].notna())]
+
+    col_material = next((c for c in df.columns if str(c).strip().lower() == 'material'), None)
+    if col_material is not None:
+        df[col_material] = df[col_material].astype(str).str.strip()
+        df = df[(df[col_material] != '') & (df[col_material] != 'nan') & (df[col_material].notna())]
+
+    col_inv = next((c for c in df.columns if str(c).strip().lower() == 'invoice value'), None)
+    if col_inv is not None:
+        vals = df[col_inv].astype(str).str.strip()
+        df = df[~vals.isin(['0', '0.0', '0.00'])]
+
+    col_inv = next((c for c in df.columns if str(c).strip().lower() == 'invoice value'), None)
+    col_qty = next((c for c in df.columns if str(c).strip().lower() == 'quantity in opun'), None)
+    if col_inv is not None and col_qty is not None:
+        inv_n = pd.to_numeric(df[col_inv], errors='coerce')
+        qty_n = pd.to_numeric(df[col_qty], errors='coerce')
+        df['precio unitario'] = inv_n / qty_n
+        df.loc[(qty_n <= 0) | qty_n.isna(), 'precio unitario'] = pd.NA
+        df['precio unitario'] = df['precio unitario'].replace([float('inf'), float('-inf')], pd.NA)
+    else:
+        df['precio unitario'] = pd.NA
+
+    return df
+
+
+@app.post("/api/compras/procesar-compras-historial")
+async def procesar_compras_historial(
+    request: Request,
+    archivo_compras: UploadFile = File(...),
+    archivo_historial: UploadFile = File(...),
+    carpeta_salida: str = Form(...),
+    current_user: User = Depends(get_current_user),
+):
+    """Procesa historial de compras, enriquece con Compras (Supplier->codigo proveedor, Name 1->nombre proveedor) y guarda archivo final."""
+    import tempfile
+    import shutil
+    from pathlib import Path
+    import pandas as pd
+
+    ext_ok = ['.xlsx', '.xls']
+    n_compras = archivo_compras.filename or ''
+    n_hist = archivo_historial.filename or ''
+    e_compras = Path(n_compras).suffix.lower()
+    e_hist = Path(n_hist).suffix.lower()
+
+    if e_compras not in ext_ok or e_hist not in ext_ok:
+        return JSONResponse(status_code=400, content={"error": "Ambos archivos deben ser Excel (.xlsx o .xls)"})
+
+    carpeta = Path(carpeta_salida.strip().rstrip('/').rstrip('\\'))
+    if not carpeta.exists() or not carpeta.is_dir():
+        return JSONResponse(status_code=400, content={"error": f"La carpeta de salida no existe o no es válida: {carpeta_salida}"})
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            path_compras = tmp / f"compras_{n_compras}"
+            path_hist = tmp / f"hist_{n_hist}"
+
+            with open(path_compras, "wb") as f:
+                shutil.copyfileobj(archivo_compras.file, f)
+            with open(path_hist, "wb") as f:
+                shutil.copyfileobj(archivo_historial.file, f)
+
+            df_compras = pd.read_excel(path_compras, engine='openpyxl' if e_compras == '.xlsx' else 'xlrd')
+            df = pd.read_excel(path_hist, engine='openpyxl' if e_hist == '.xlsx' else 'xlrd')
+
+            def col(df, name):
+                name = name.strip().lower()
+                for c in df.columns:
+                    if str(c).strip().lower() == name:
+                        return c
+                return None
+
+            pc = col(df_compras, 'Purchasing Document')
+            sc = col(df_compras, 'Supplier')
+            n1 = col(df_compras, 'Name 1')
+            if not all([pc, sc, n1]):
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "El archivo Compras debe tener columnas: Purchasing Document, Supplier, Name 1"}
+                )
+
+            def to_int_codigo(v):
+                if pd.isna(v) or v == '' or v is None:
+                    return pd.NA
+                try:
+                    return int(pd.to_numeric(v, errors='raise'))
+                except (ValueError, TypeError):
+                    return pd.NA
+
+            mapa = {}
+            for _, row in df_compras.iterrows():
+                k = str(row[pc]).strip() if pd.notna(row[pc]) else None
+                if not k or k in mapa:
+                    continue
+                mapa[k] = (
+                    to_int_codigo(row[sc]),
+                    str(row[n1]).strip() if pd.notna(row[n1]) else ''
+                )
+
+            df = _procesar_df_historial(df)
+
+            col_pd = col(df, 'Purchasing Document')
+            if col_pd is None:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "El archivo Historial debe tener la columna Purchasing Document"}
+                )
+
+            def lookup(key):
+                k = str(key).strip() if pd.notna(key) else None
+                return mapa.get(k, (pd.NA, ''))
+
+            codigos = df[col_pd].map(lambda x: lookup(x)[0])
+            df['codigo proveedor'] = codigos.astype('Int64')
+            df['nombre proveedor'] = df[col_pd].map(lambda x: lookup(x)[1])
+
+            out = carpeta / "historial_compras_procesado.xlsx"
+            df.to_excel(out, index=False, engine='openpyxl')
+
+        return JSONResponse(
+            status_code=200,
+            content={"success": True, "message": "Archivo procesado correctamente", "archivo_guardado": str(out)}
+        )
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+@app.post("/api/compras/procesar-historial")
+async def procesar_historial_compras(
+    request: Request,
+    archivo_po: UploadFile = File(...),
+    carpeta_salida: str = Form(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Procesa el archivo de historial de compras: elimina columnas específicas y guarda el archivo procesado."""
+    import tempfile
+    import shutil
+    import os
+    from pathlib import Path
+    import pandas as pd
+    import traceback
+    
+    try:
+        # Validar que sea un archivo Excel
+        extensiones_permitidas = ['.xlsx', '.xls']
+        nombre_archivo_po = archivo_po.filename or ''
+        extension_po = Path(nombre_archivo_po).suffix.lower()
+        
+        if extension_po not in extensiones_permitidas:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "El archivo debe ser un archivo Excel (.xlsx o .xls)"}
+            )
+        
+        # Validar carpeta de salida
+        carpeta_salida_path = Path(carpeta_salida)
+        if not carpeta_salida_path.exists():
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"La carpeta de salida no existe: {carpeta_salida}"}
+            )
+        
+        if not carpeta_salida_path.is_dir():
+            return JSONResponse(
+                status_code=400,
+                content={"error": f"La ruta especificada no es una carpeta: {carpeta_salida}"}
+            )
+        
+        # Crear directorio temporal para el archivo
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            
+            # Guardar archivo temporalmente
+            archivo_po_path = temp_path / f"po_{nombre_archivo_po}"
+            
+            with open(archivo_po_path, "wb") as f:
+                shutil.copyfileobj(archivo_po.file, f)
+            
+            # Leer archivo Excel
+            try:
+                if extension_po == '.xlsx':
+                    df = pd.read_excel(archivo_po_path, engine='openpyxl')
+                else:
+                    df = pd.read_excel(archivo_po_path, engine='xlrd')
+            except Exception as e:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": f"Error al leer el archivo Excel: {str(e)}"}
+                )
+            
+            # Columnas a eliminar (con posibles variaciones)
+            columnas_a_eliminar = [
+                'GR Blck.Stock in OUn',
+                'GR blocked stck.OPUn',
+                'Delivery Completed',
+                'Fisc. Year Ref. Doc.',
+                'Reference Document',
+                'Reference Doc. Item'
+            ]
+            
+            # Buscar y eliminar columnas (comparación exacta y case-insensitive)
+            columnas_encontradas = []
+            for col in df.columns:
+                col_str = str(col).strip()
+                for col_eliminar in columnas_a_eliminar:
+                    # Comparación exacta
+                    if col_str == col_eliminar:
+                        columnas_encontradas.append(col)
+                        break
+                    # Comparación case-insensitive
+                    elif col_str.lower() == col_eliminar.lower():
+                        columnas_encontradas.append(col)
+                        break
+            
+            # Eliminar las columnas encontradas
+            if columnas_encontradas:
+                df = df.drop(columns=columnas_encontradas)
+            
+            # Agregar nuevas columnas: nombre proveedor y codigo proveedor
+            # Verificar si las columnas ya existen para no duplicarlas
+            if 'nombre proveedor' not in df.columns:
+                df['nombre proveedor'] = ''
+            if 'codigo proveedor' not in df.columns:
+                df['codigo proveedor'] = ''
+            
+            # Eliminar filas donde la columna "Plant" tenga "MX10", "MX11" o esté vacía
+            # Buscar la columna "Plant" (case-insensitive)
+            columna_plant = None
+            for col in df.columns:
+                if str(col).strip().lower() == 'plant':
+                    columna_plant = col
+                    break
+            
+            if columna_plant is not None:
+                # Contar filas antes de eliminar
+                filas_antes = len(df)
+                # Convertir a string y limpiar espacios
+                df[columna_plant] = df[columna_plant].astype(str).str.strip()
+                # Eliminar filas donde Plant sea "MX10", "MX11" o esté vacía (nan, None, o string vacío)
+                df = df[
+                    (~df[columna_plant].isin(['MX10', 'MX11'])) & 
+                    (df[columna_plant] != '') & 
+                    (df[columna_plant] != 'nan') & 
+                    (df[columna_plant].notna())
+                ]
+                filas_eliminadas = filas_antes - len(df)
+            else:
+                filas_eliminadas = 0
+            
+            # Eliminar filas donde la columna "Material" esté vacía
+            # Buscar la columna "Material" (case-insensitive)
+            columna_material = None
+            for col in df.columns:
+                if str(col).strip().lower() == 'material':
+                    columna_material = col
+                    break
+            
+            if columna_material is not None:
+                # Contar filas antes de eliminar
+                filas_antes_material = len(df)
+                # Convertir a string y limpiar espacios
+                df[columna_material] = df[columna_material].astype(str).str.strip()
+                # Eliminar filas donde Material esté vacía (nan, None, o string vacío)
+                df = df[
+                    (df[columna_material] != '') & 
+                    (df[columna_material] != 'nan') & 
+                    (df[columna_material].notna())
+                ]
+                filas_eliminadas_material = filas_antes_material - len(df)
+            else:
+                filas_eliminadas_material = 0
+            
+            # Eliminar filas donde la columna "Invoice Value" sea "0", "0.0" o "0.00"
+            # Buscar la columna "Invoice Value" (case-insensitive)
+            columna_invoice = None
+            for col in df.columns:
+                if str(col).strip().lower() == 'invoice value':
+                    columna_invoice = col
+                    break
+            
+            if columna_invoice is not None:
+                # Convertir a string y limpiar espacios para comparación
+                valores_invoice = df[columna_invoice].astype(str).str.strip()
+                # Eliminar filas donde Invoice Value sea "0", "0.0" o "0.00"
+                df = df[~valores_invoice.isin(['0', '0.0', '0.00'])]
+            
+            # Crear columna "precio unitario" = Invoice Value / Quantity in OPUn
+            col_invoice = None
+            col_quantity = None
+            for col in df.columns:
+                c = str(col).strip().lower()
+                if c == 'invoice value':
+                    col_invoice = col
+                elif c == 'quantity in opun':
+                    col_quantity = col
+            
+            if col_invoice is not None and col_quantity is not None:
+                invoice_num = pd.to_numeric(df[col_invoice], errors='coerce')
+                quantity_num = pd.to_numeric(df[col_quantity], errors='coerce')
+                df['precio unitario'] = invoice_num / quantity_num
+                # Evitar división por cero: donde quantity sea 0 o NaN, precio unitario = NaN
+                df.loc[(quantity_num <= 0) | quantity_num.isna(), 'precio unitario'] = pd.NA
+                df['precio unitario'] = df['precio unitario'].replace([float('inf'), float('-inf')], pd.NA)
+            else:
+                df['precio unitario'] = pd.NA
+            
+            # Guardar el archivo procesado
+            nombre_archivo_salida = "historial_compras_procesado.xlsx"
+            ruta_archivo_salida = carpeta_salida_path / nombre_archivo_salida
+            
+            # Guardar como Excel
+            try:
+                df.to_excel(ruta_archivo_salida, index=False, engine='openpyxl')
+            except Exception as e:
+                return JSONResponse(
+                    status_code=500,
+                    content={"error": f"Error al guardar el archivo procesado: {str(e)}"}
+                )
+            
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": True,
+                    "message": f"Archivo procesado exitosamente. Se eliminaron {len(columnas_encontradas)} columnas.",
+                    "archivo_guardado": str(ruta_archivo_salida),
+                    "columnas_eliminadas": columnas_encontradas,
+                    "total_columnas_eliminadas": len(columnas_encontradas)
+                }
+            )
+        
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Error al procesar el historial: {str(e)}"}
+        )
+
+
 @app.post("/api/ventas/procesar-archivos")
 async def procesar_archivos_ventas(
     request: Request,
