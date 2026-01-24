@@ -232,6 +232,9 @@ async def precios_compra(request: Request, current_user: User = Depends(get_curr
     # Calcular estadísticas
     total_precios = await crud.count_precios_materiales(db)
     
+    # Obtener los últimos 5 movimientos del historial
+    historial_reciente = await crud.list_precio_material_historial(db, limit=5, offset=0)
+    
     return templates.TemplateResponse(
         "precios_compra.html",
         {
@@ -239,9 +242,114 @@ async def precios_compra(request: Request, current_user: User = Depends(get_curr
             "active_page": "precios_compra",
             "current_user": current_user,
             "precios": precios_data,
-            "total_precios": total_precios
+            "total_precios": total_precios,
+            "historial_reciente": historial_reciente
         }
     )
+
+
+@app.post("/api/precios-compra/actualizar")
+async def actualizar_precios_compra_desde_compras(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Sincroniza precios de materiales desde la tabla compras.
+    
+    Busca todas las compras con numero_material, codigo_proveedor y price válidos
+    y crea o actualiza los precios en precios_materiales.
+    """
+    try:
+        resultado = await crud.sincronizar_precios_materiales_desde_compras(
+            db=db,
+            user_id=current_user.id
+        )
+        
+        # Determinar el mensaje según el resultado
+        if resultado["nuevos_creados"] > 0 or resultado["actualizados"] > 0:
+            mensaje = (
+                f"✓ Sincronización completada. Se crearon {resultado['nuevos_creados']} "
+                f"precio(s) nuevo(s) y se actualizaron {resultado['actualizados']} precio(s) "
+                f"de {resultado['total_encontrados']} encontrados en compras."
+            )
+        elif resultado["total_encontrados"] > 0:
+            mensaje = (
+                f"✓ Sincronización completada. Todos los precios "
+                f"({resultado['total_encontrados']}) ya están actualizados."
+            )
+        else:
+            mensaje = "✓ Sincronización completada. No se encontraron datos válidos en compras."
+        
+        if resultado["errores"]:
+            mensaje += f" Se encontraron {len(resultado['errores'])} error(es)."
+        
+        # Considerar exitoso si no hay errores críticos
+        success = len(resultado["errores"]) == 0 or resultado["nuevos_creados"] > 0 or resultado["actualizados"] > 0
+        
+        return JSONResponse({
+            "success": success,
+            "total_encontrados": resultado["total_encontrados"],
+            "nuevos_creados": resultado["nuevos_creados"],
+            "actualizados": resultado["actualizados"],
+            "errores": resultado["errores"],
+            "mensaje": mensaje
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "mensaje": f"Error al sincronizar precios desde compras: {str(e)}"
+            }
+        )
+
+
+@app.get("/api/precios-compra/{precio_id}/ultimas-compras")
+async def api_precio_ultimas_compras(
+    precio_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Devuelve las últimas compras para el material+proveedor de ese precio."""
+    from sqlalchemy import select, desc
+    from app.db.models import Compra, PrecioMaterial
+
+    precio = await crud.get_precio_material_by_id(db, precio_id)
+    if not precio:
+        return JSONResponse({"compras": [], "error": "Precio no encontrado"}, status_code=404)
+
+    q = (
+        select(
+            Compra.posting_date,
+            Compra.purchasing_document,
+            Compra.numero_material,
+            Compra.nombre_proveedor,
+            Compra.price,
+        )
+        .where(
+            Compra.codigo_proveedor == precio.codigo_proveedor,
+            Compra.numero_material == precio.numero_material,
+        )
+        .order_by(desc(Compra.posting_date), desc(Compra.id))
+        .limit(100)
+    )
+    result = await db.execute(q)
+    rows = result.all()
+
+    items = []
+    for r in rows:
+        items.append({
+            "fecha": r.posting_date.isoformat() if r.posting_date else None,
+            "orden_compra": r.purchasing_document,
+            "material": r.numero_material,
+            "proveedor": r.nombre_proveedor,
+            "precio": float(r.price) if r.price is not None else None,
+        })
+    return JSONResponse({"compras": items})
 
 
 @app.get("/paises-origen")

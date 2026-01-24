@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from decimal import Decimal
-from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion
+from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion
 from app.core.security import hash_password
 
 
@@ -1627,6 +1627,21 @@ async def sincronizar_paises_origen_desde_compras(
 
 # ==================== CRUD para Precios Materiales ====================
 
+def _precio_material_to_dict(precio_material: PrecioMaterial) -> Dict[str, Any]:
+    """Convierte un objeto PrecioMaterial a diccionario para el historial."""
+    return {
+        "id": precio_material.id,
+        "codigo_proveedor": precio_material.codigo_proveedor,
+        "numero_material": precio_material.numero_material,
+        "precio": float(precio_material.precio) if precio_material.precio else None,
+        "currency_uom": precio_material.currency_uom,
+        "country_origin": precio_material.country_origin,
+        "Porcentaje_Compra": float(precio_material.Porcentaje_Compra) if precio_material.Porcentaje_Compra else None,
+        "Comentario": precio_material.Comentario,
+        "updated_at": precio_material.updated_at.isoformat() if precio_material.updated_at else None
+    }
+
+
 async def get_precio_material_by_id(db: AsyncSession, precio_id: int) -> Optional[PrecioMaterial]:
     """Obtiene un precio de material por ID."""
     result = await db.execute(select(PrecioMaterial).where(PrecioMaterial.id == precio_id))
@@ -1656,7 +1671,8 @@ async def create_precio_material(
     currency_uom: Optional[str] = None,
     country_origin: Optional[str] = None,
     Porcentaje_Compra: Optional[Decimal] = None,
-    Comentario: Optional[str] = None
+    Comentario: Optional[str] = None,
+    user_id: Optional[int] = None
 ) -> PrecioMaterial:
     """Crea un nuevo precio de material."""
     precio_material = PrecioMaterial(
@@ -1669,8 +1685,24 @@ async def create_precio_material(
         Comentario=Comentario
     )
     db.add(precio_material)
-    await db.commit()
+    await db.flush()  # Flush para obtener el ID sin hacer commit
     await db.refresh(precio_material)
+    
+    # Registrar en historial
+    if user_id is not None:
+        historial = PrecioMaterialHistorial(
+            precio_material_id=precio_material.id,
+            codigo_proveedor=codigo_proveedor,
+            numero_material=numero_material,
+            operacion=PrecioMaterialOperacion.CREATE,
+            user_id=user_id,
+            datos_antes=None,
+            datos_despues=_precio_material_to_dict(precio_material),
+            campos_modificados=None
+        )
+        db.add(historial)
+    
+    await db.commit()
     return precio_material
 
 
@@ -1681,23 +1713,51 @@ async def update_precio_material(
     currency_uom: Optional[str] = None,
     country_origin: Optional[str] = None,
     Porcentaje_Compra: Optional[Decimal] = None,
-    Comentario: Optional[str] = None
+    Comentario: Optional[str] = None,
+    user_id: Optional[int] = None
 ) -> Optional[PrecioMaterial]:
     """Actualiza un precio de material."""
     precio_material = await get_precio_material_by_id(db, precio_id)
     if not precio_material:
         return None
     
-    if precio is not None:
+    # Guardar datos antes del cambio
+    datos_antes = _precio_material_to_dict(precio_material)
+    campos_modificados = []
+    
+    if precio is not None and precio_material.precio != precio:
         precio_material.precio = precio
-    if currency_uom is not None:
+        campos_modificados.append("precio")
+    if currency_uom is not None and precio_material.currency_uom != currency_uom:
         precio_material.currency_uom = currency_uom
-    if country_origin is not None:
+        campos_modificados.append("currency_uom")
+    if country_origin is not None and precio_material.country_origin != country_origin:
         precio_material.country_origin = country_origin
-    if Porcentaje_Compra is not None:
+        campos_modificados.append("country_origin")
+    if Porcentaje_Compra is not None and precio_material.Porcentaje_Compra != Porcentaje_Compra:
         precio_material.Porcentaje_Compra = Porcentaje_Compra
-    if Comentario is not None:
+        campos_modificados.append("Porcentaje_Compra")
+    if Comentario is not None and precio_material.Comentario != Comentario:
         precio_material.Comentario = Comentario
+        campos_modificados.append("Comentario")
+    
+    # Solo registrar en historial si hubo cambios
+    if campos_modificados and user_id is not None:
+        await db.flush()  # Para obtener los datos actualizados
+        await db.refresh(precio_material)
+        datos_despues = _precio_material_to_dict(precio_material)
+        
+        historial = PrecioMaterialHistorial(
+            precio_material_id=precio_material.id,
+            codigo_proveedor=precio_material.codigo_proveedor,
+            numero_material=precio_material.numero_material,
+            operacion=PrecioMaterialOperacion.UPDATE,
+            user_id=user_id,
+            datos_antes=datos_antes,
+            datos_despues=datos_despues,
+            campos_modificados=campos_modificados
+        )
+        db.add(historial)
     
     await db.commit()
     await db.refresh(precio_material)
@@ -1712,27 +1772,24 @@ async def upsert_precio_material(
     currency_uom: Optional[str] = None,
     country_origin: Optional[str] = None,
     Porcentaje_Compra: Optional[Decimal] = None,
-    Comentario: Optional[str] = None
+    Comentario: Optional[str] = None,
+    user_id: Optional[int] = None
 ) -> PrecioMaterial:
     """Crea o actualiza un precio de material (upsert)."""
     existing = await get_precio_material_by_proveedor_material(db, codigo_proveedor, numero_material)
     
     if existing:
         # Actualizar existente
-        if precio is not None:
-            existing.precio = precio
-        if currency_uom is not None:
-            existing.currency_uom = currency_uom
-        if country_origin is not None:
-            existing.country_origin = country_origin
-        if Porcentaje_Compra is not None:
-            existing.Porcentaje_Compra = Porcentaje_Compra
-        if Comentario is not None:
-            existing.Comentario = Comentario
-        
-        await db.commit()
-        await db.refresh(existing)
-        return existing
+        return await update_precio_material(
+            db,
+            precio_id=existing.id,
+            precio=precio,
+            currency_uom=currency_uom,
+            country_origin=country_origin,
+            Porcentaje_Compra=Porcentaje_Compra,
+            Comentario=Comentario,
+            user_id=user_id
+        )
     else:
         # Crear nuevo
         return await create_precio_material(
@@ -1743,7 +1800,8 @@ async def upsert_precio_material(
             currency_uom=currency_uom,
             country_origin=country_origin,
             Porcentaje_Compra=Porcentaje_Compra,
-            Comentario=Comentario
+            Comentario=Comentario,
+            user_id=user_id
         )
 
 
@@ -1812,6 +1870,268 @@ async def count_precios_materiales(
     
     result = await db.execute(query)
     return result.scalar_one()
+
+
+async def sincronizar_precios_materiales_desde_compras(
+    db: AsyncSession,
+    user_id: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Sincroniza precios de materiales desde la tabla compras.
+    Para cada combinación única de numero_material + codigo_proveedor,
+    obtiene el precio de la última compra registrada (más reciente por posting_date)
+    y lo guarda o actualiza en precios_materiales.
+    
+    Returns:
+        Dict con estadísticas de la sincronización:
+        - total_encontrados: Total de combinaciones únicas en compras
+        - nuevos_creados: Cantidad de precios nuevos creados
+        - actualizados: Cantidad de precios actualizados
+        - errores: Lista de errores encontrados
+    """
+    errores = []
+    nuevos_creados = 0
+    actualizados = 0
+    
+    try:
+        # 1. Obtener todas las combinaciones únicas de proveedor/material con precio válido
+        query_pares = select(
+            Compra.codigo_proveedor,
+            Compra.numero_material
+        ).where(
+            Compra.codigo_proveedor.isnot(None),
+            Compra.codigo_proveedor != '',
+            Compra.numero_material.isnot(None),
+            Compra.numero_material != '',
+            Compra.price.isnot(None),
+            Compra.price > 0
+        ).group_by(Compra.codigo_proveedor, Compra.numero_material)
+        
+        result = await db.execute(query_pares)
+        pares_en_compras = result.all()
+        
+        total_encontrados = len(pares_en_compras)
+        
+        # 2. Para cada par, obtener el precio de la última compra (más reciente)
+        for codigo_proveedor, numero_material in pares_en_compras:
+            if not codigo_proveedor or not numero_material:
+                continue
+            
+            codigo_proveedor = str(codigo_proveedor).strip()
+            numero_material = str(numero_material).strip()
+            
+            if not codigo_proveedor or not numero_material:
+                continue
+            
+            try:
+                # Obtener la última compra registrada para esta combinación
+                # Ordenamos por posting_date descendente y luego por id para obtener la más reciente
+                query_ultima_compra = select(
+                    Compra.price,
+                    Compra.currency,
+                    Compra.order_unit
+                ).where(
+                    Compra.codigo_proveedor == codigo_proveedor,
+                    Compra.numero_material == numero_material,
+                    Compra.price.isnot(None),
+                    Compra.price > 0
+                ).order_by(desc(Compra.posting_date), desc(Compra.id)).limit(1)
+                
+                result_compra = await db.execute(query_ultima_compra)
+                compra_row = result_compra.first()
+                
+                if not compra_row or not compra_row[0]:
+                    continue
+                
+                # Precio de la última compra registrada para esta combinación
+                precio_valor = Decimal(str(compra_row[0]))
+                currency = compra_row[1] if compra_row[1] else None
+                order_unit = compra_row[2] if compra_row[2] else None
+                
+                # Construir currency_uom si tenemos ambos
+                currency_uom = None
+                if currency and order_unit:
+                    currency_uom = f"{currency}/{order_unit}"
+                elif currency:
+                    currency_uom = currency
+                elif order_unit:
+                    currency_uom = order_unit
+                
+                # Verificar si ya existe un precio para esta combinación
+                precio_existente = await get_precio_material_by_proveedor_material(
+                    db,
+                    codigo_proveedor,
+                    numero_material
+                )
+                
+                if precio_existente:
+                    # Actualizar solo si el precio es diferente (precio de la última compra)
+                    if precio_existente.precio != precio_valor:
+                        await update_precio_material(
+                            db,
+                            precio_id=precio_existente.id,
+                            precio=precio_valor,
+                            currency_uom=currency_uom,
+                            user_id=user_id
+                        )
+                        actualizados += 1
+                else:
+                    # Crear nuevo precio usando el precio de la última compra registrada
+                    await create_precio_material(
+                        db,
+                        codigo_proveedor=codigo_proveedor,
+                        numero_material=numero_material,
+                        precio=precio_valor,
+                        currency_uom=currency_uom,
+                        user_id=user_id
+                    )
+                    nuevos_creados += 1
+                    
+            except Exception as e:
+                error_str = str(e)
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+                
+                error_msg = f"Error al procesar precio {codigo_proveedor}/{numero_material}: {error_str}"
+                errores.append(error_msg)
+                continue
+        
+        return {
+            "total_encontrados": total_encontrados,
+            "nuevos_creados": nuevos_creados,
+            "actualizados": actualizados,
+            "errores": errores,
+            "exitoso": len(errores) == 0
+        }
+        
+    except Exception as e:
+        await db.rollback()
+        error_msg = f"Error general en sincronización: {str(e)}"
+        errores.append(error_msg)
+        return {
+            "total_encontrados": 0,
+            "nuevos_creados": 0,
+            "actualizados": 0,
+            "errores": errores,
+            "exitoso": False
+        }
+
+
+async def delete_precio_material(
+    db: AsyncSession,
+    precio_id: int,
+    user_id: Optional[int] = None
+) -> bool:
+    """Elimina un precio de material."""
+    from sqlalchemy import delete
+    
+    precio_material = await get_precio_material_by_id(db, precio_id)
+    if not precio_material:
+        return False
+    
+    # Guardar datos antes de eliminar
+    datos_antes = _precio_material_to_dict(precio_material)
+    codigo_proveedor = precio_material.codigo_proveedor
+    numero_material = precio_material.numero_material
+    
+    stmt = delete(PrecioMaterial).where(PrecioMaterial.id == precio_id)
+    await db.execute(stmt)
+    
+    # Registrar en historial
+    if user_id is not None:
+        historial = PrecioMaterialHistorial(
+            precio_material_id=precio_id,
+            codigo_proveedor=codigo_proveedor,
+            numero_material=numero_material,
+            operacion=PrecioMaterialOperacion.DELETE,
+            user_id=user_id,
+            datos_antes=datos_antes,
+            datos_despues=None,
+            campos_modificados=None
+        )
+        db.add(historial)
+    
+    await db.commit()
+    return True
+
+
+# ==================== CRUD para Historial de Precios Materiales ====================
+
+async def list_precio_material_historial(
+    db: AsyncSession,
+    precio_material_id: Optional[int] = None,
+    codigo_proveedor: Optional[str] = None,
+    numero_material: Optional[str] = None,
+    operacion: Optional[PrecioMaterialOperacion] = None,
+    user_id: Optional[int] = None,
+    limit: int = 100,
+    offset: int = 0
+) -> List[PrecioMaterialHistorial]:
+    """Lista el historial de cambios en precios de materiales con filtros opcionales."""
+    query = select(PrecioMaterialHistorial).options(selectinload(PrecioMaterialHistorial.user))
+    
+    if precio_material_id:
+        query = query.where(PrecioMaterialHistorial.precio_material_id == precio_material_id)
+    
+    if codigo_proveedor:
+        query = query.where(PrecioMaterialHistorial.codigo_proveedor == codigo_proveedor)
+    
+    if numero_material:
+        query = query.where(PrecioMaterialHistorial.numero_material == numero_material)
+    
+    if operacion:
+        query = query.where(PrecioMaterialHistorial.operacion == operacion)
+    
+    if user_id:
+        query = query.where(PrecioMaterialHistorial.user_id == user_id)
+    
+    query = query.order_by(desc(PrecioMaterialHistorial.created_at)).limit(limit).offset(offset)
+    
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def get_precio_material_historial_by_id(
+    db: AsyncSession,
+    historial_id: int
+) -> Optional[PrecioMaterialHistorial]:
+    """Obtiene un registro del historial por ID."""
+    result = await db.execute(
+        select(PrecioMaterialHistorial).where(PrecioMaterialHistorial.id == historial_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def count_precio_material_historial(
+    db: AsyncSession,
+    precio_material_id: Optional[int] = None,
+    codigo_proveedor: Optional[str] = None,
+    numero_material: Optional[str] = None,
+    operacion: Optional[PrecioMaterialOperacion] = None,
+    user_id: Optional[int] = None
+) -> int:
+    """Cuenta el total de registros en el historial con filtros opcionales."""
+    query = select(func.count(PrecioMaterialHistorial.id))
+    
+    if precio_material_id:
+        query = query.where(PrecioMaterialHistorial.precio_material_id == precio_material_id)
+    
+    if codigo_proveedor:
+        query = query.where(PrecioMaterialHistorial.codigo_proveedor == codigo_proveedor)
+    
+    if numero_material:
+        query = query.where(PrecioMaterialHistorial.numero_material == numero_material)
+    
+    if operacion:
+        query = query.where(PrecioMaterialHistorial.operacion == operacion)
+    
+    if user_id:
+        query = query.where(PrecioMaterialHistorial.user_id == user_id)
+    
+    result = await db.execute(query)
+    return result.scalar() or 0
 
 
 # ==================== CRUD para Compra ====================

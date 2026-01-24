@@ -602,3 +602,55 @@ class PaisOrigenMaterialHistorial(Base):
     def __repr__(self):
         return f"<PaisOrigenMaterialHistorial(id={self.id}, pais_origen_id={self.pais_origen_id}, operacion={self.operacion.value}, created_at={self.created_at})>"
 
+
+class PrecioMaterialOperacion(PyEnum):
+    """Tipos de operaciones en el historial de precios de materiales."""
+    CREATE = "CREATE"
+    UPDATE = "UPDATE"
+    DELETE = "DELETE"
+
+
+class PrecioMaterialHistorial(Base):
+    """Modelo para el historial de cambios en precios de materiales."""
+    __tablename__ = "precios_materiales_historial"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # ID del precio de material (puede ser NULL si se elimina)
+    precio_material_id = Column(Integer, nullable=True, index=True)
+    
+    # Código del proveedor (puede ser NULL si se elimina)
+    codigo_proveedor = Column(String, nullable=True, index=True)
+    
+    # Número del material (puede ser NULL si se elimina)
+    numero_material = Column(String, nullable=True, index=True)
+    
+    # Tipo de operación
+    operacion = Column(
+        SQLEnum(PrecioMaterialOperacion, name="precio_material_operacion_enum"),
+        nullable=False,
+        index=True
+    )
+    
+    # Usuario que realizó la operación
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user = relationship("User", backref="precios_materiales_historial")
+    
+    # Datos antes del cambio (NULL para CREATE)
+    datos_antes = Column(JSONB, nullable=True)
+    
+    # Datos después del cambio (NULL para DELETE)
+    datos_despues = Column(JSONB, nullable=True)
+    
+    # Campos que cambiaron (solo para UPDATE)
+    campos_modificados = Column(JSONB, nullable=True)
+    
+    # Comentario opcional
+    comentario = Column(Text, nullable=True)
+    
+    # Timestamp
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    
+    def __repr__(self):
+        return f"<PrecioMaterialHistorial(id={self.id}, precio_material_id={self.precio_material_id}, operacion={self.operacion.value}, created_at={self.created_at})>"
+
