@@ -175,6 +175,30 @@ async def proveedores(request: Request, current_user: User = Depends(get_current
     # Cargar los proveedores desde la base de datos
     proveedores_data = await crud.list_proveedores(db, limit=1000)
     
+    # Obtener la fecha de la última compra para cada proveedor (optimizado con una sola consulta)
+    from sqlalchemy import select, func
+    from app.db.models import Compra
+    
+    # Obtener todas las fechas de última compra agrupadas por proveedor en una sola consulta
+    codigos_proveedores = [p.codigo_proveedor for p in proveedores_data]
+    if codigos_proveedores:
+        query_ultimas_compras = select(
+            Compra.codigo_proveedor,
+            func.max(Compra.posting_date).label('fecha_ultima_compra')
+        ).where(
+            Compra.codigo_proveedor.in_(codigos_proveedores),
+            Compra.posting_date.isnot(None)
+        ).group_by(Compra.codigo_proveedor)
+        
+        result = await db.execute(query_ultimas_compras)
+        fechas_por_proveedor = {row.codigo_proveedor: row.fecha_ultima_compra for row in result.all()}
+    else:
+        fechas_por_proveedor = {}
+    
+    # Agregar la fecha de la última compra a cada proveedor
+    for proveedor in proveedores_data:
+        proveedor.fecha_ultima_compra = fechas_por_proveedor.get(proveedor.codigo_proveedor)
+    
     # Calcular estadísticas
     total_proveedores = await crud.count_proveedores(db)
     proveedores_activos = await crud.count_proveedores(db, estatus=True)
