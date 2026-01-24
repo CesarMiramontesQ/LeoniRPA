@@ -1585,8 +1585,8 @@ def _procesar_df_historial(df: "pd.DataFrame") -> "pd.DataFrame":
         vals = df[col_inv].astype(str).str.strip()
         df = df[~vals.isin(['0', '0.0', '0.00'])]
 
-    col_inv = next((c for c in df.columns if str(c).strip().lower() == 'invoice value'), None)
-    col_qty = next((c for c in df.columns if str(c).strip().lower() == 'quantity in opun'), None)
+    col_inv = next((c for c in df.columns if str(c).strip().lower() == 'amount'), None)
+    col_qty = next((c for c in df.columns if str(c).strip().lower() == 'quantity'), None)
     if col_inv is not None and col_qty is not None:
         inv_n = pd.to_numeric(df[col_inv], errors='coerce')
         qty_n = pd.to_numeric(df[col_qty], errors='coerce')
