@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion
 from app.core.security import hash_password
@@ -1015,6 +1015,93 @@ async def sincronizar_proveedores_desde_compras(
         return {
             "total_encontrados": 0,
             "nuevos_creados": 0,
+            "errores": errores,
+            "exitoso": False
+        }
+
+
+async def actualizar_estatus_proveedores_por_compras(
+    db: AsyncSession,
+    user_id: Optional[int] = None
+) -> Dict[str, Any]:
+    """Actualiza el estatus de proveedores basándose en compras de los últimos 6 meses.
+    
+    Si un proveedor no tiene compras en los últimos 6 meses, su estatus se cambia a False (baja).
+    """
+    errores = []
+    proveedores_actualizados = 0
+    proveedores_marcados_baja = 0
+    
+    try:
+        # Calcular la fecha de hace 6 meses (con timezone)
+        fecha_limite = datetime.now(timezone.utc) - timedelta(days=180)  # 6 meses aproximadamente
+        
+        # Obtener todos los proveedores
+        query_proveedores = select(Proveedor)
+        result_proveedores = await db.execute(query_proveedores)
+        todos_proveedores = result_proveedores.scalars().all()
+        
+        # Para cada proveedor, buscar la fecha de compra más reciente
+        for proveedor in todos_proveedores:
+            try:
+                # Buscar la compra más reciente del proveedor
+                query_compra = select(func.max(Compra.posting_date)).where(
+                    Compra.codigo_proveedor == proveedor.codigo_proveedor,
+                    Compra.posting_date.isnot(None)
+                )
+                result_compra = await db.execute(query_compra)
+                fecha_ultima_compra = result_compra.scalar_one_or_none()
+                
+                # Si no tiene compras o la última compra es mayor a 6 meses, marcar como baja
+                debe_estar_baja = False
+                if fecha_ultima_compra is None:
+                    # No tiene compras registradas
+                    debe_estar_baja = True
+                elif fecha_ultima_compra < fecha_limite:
+                    # La última compra es mayor a 6 meses
+                    debe_estar_baja = True
+                
+                # Actualizar estatus si es necesario
+                if debe_estar_baja and proveedor.estatus:
+                    # Cambiar a baja
+                    await update_proveedor(
+                        db=db,
+                        codigo_proveedor=proveedor.codigo_proveedor,
+                        estatus=False,
+                        user_id=user_id
+                    )
+                    proveedores_marcados_baja += 1
+                    proveedores_actualizados += 1
+                elif not debe_estar_baja and not proveedor.estatus:
+                    # Si tiene compras recientes pero está marcado como baja, reactivarlo
+                    await update_proveedor(
+                        db=db,
+                        codigo_proveedor=proveedor.codigo_proveedor,
+                        estatus=True,
+                        user_id=user_id
+                    )
+                    proveedores_actualizados += 1
+                    
+            except Exception as e:
+                error_msg = f"Error al actualizar proveedor {proveedor.codigo_proveedor}: {str(e)}"
+                errores.append(error_msg)
+                continue
+        
+        return {
+            "total_proveedores": len(todos_proveedores),
+            "proveedores_actualizados": proveedores_actualizados,
+            "proveedores_marcados_baja": proveedores_marcados_baja,
+            "errores": errores,
+            "exitoso": len(errores) == 0
+        }
+        
+    except Exception as e:
+        error_msg = f"Error general al actualizar estatus: {str(e)}"
+        errores.append(error_msg)
+        return {
+            "total_proveedores": 0,
+            "proveedores_actualizados": 0,
+            "proveedores_marcados_baja": 0,
             "errores": errores,
             "exitoso": False
         }

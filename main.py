@@ -662,6 +662,57 @@ async def actualizar_proveedores_desde_compras(
         )
 
 
+@app.post("/api/proveedores/actualizar-estatus")
+async def actualizar_estatus_proveedores(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Actualiza el estatus de proveedores basándose en compras de los últimos 6 meses.
+    
+    Si un proveedor no tiene compras en los últimos 6 meses, su estatus se cambia a False (baja).
+    """
+    try:
+        resultado = await crud.actualizar_estatus_proveedores_por_compras(
+            db=db,
+            user_id=current_user.id
+        )
+        
+        # Determinar el mensaje según el resultado
+        if resultado["proveedores_marcados_baja"] > 0:
+            mensaje = f"✓ Actualización completada. Se marcaron {resultado['proveedores_marcados_baja']} proveedor(es) como baja de {resultado['total_proveedores']} totales."
+        elif resultado["proveedores_actualizados"] > 0:
+            mensaje = f"✓ Actualización completada. Se reactivaron {resultado['proveedores_actualizados']} proveedor(es)."
+        else:
+            mensaje = f"✓ Actualización completada. No se requirieron cambios en los {resultado['total_proveedores']} proveedores."
+        
+        if resultado["errores"]:
+            mensaje += f" Se encontraron {len(resultado['errores'])} error(es)."
+        
+        # Considerar exitoso si no hay errores críticos
+        success = len(resultado["errores"]) == 0
+        
+        return JSONResponse({
+            "success": success,
+            "total_proveedores": resultado["total_proveedores"],
+            "proveedores_actualizados": resultado["proveedores_actualizados"],
+            "proveedores_marcados_baja": resultado["proveedores_marcados_baja"],
+            "errores": resultado["errores"],
+            "mensaje": mensaje
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "mensaje": f"Error al actualizar estatus de proveedores: {str(e)}"
+            }
+        )
+
+
 @app.post("/api/paises-origen/actualizar")
 async def actualizar_paises_origen_desde_compras(
     request: Request,

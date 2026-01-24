@@ -482,6 +482,9 @@
     // Botón actualizar proveedores
     document.getElementById('btn-actualizar-proveedores').addEventListener('click', actualizarProveedoresDesdeCompras);
     
+    // Botón actualizar estatus
+    document.getElementById('btn-actualizar-estatus').addEventListener('click', actualizarEstatusProveedores);
+    
     // Registros por página
     document.getElementById('registros-por-pagina').addEventListener('change', function() {
       registrosPorPagina = parseInt(this.value);
@@ -659,7 +662,7 @@
         const fechaCreacion = prov.created_at ? new Date(prov.created_at).toLocaleDateString('es-MX') : 'N/A';
         const estatusBadge = prov.estatus 
           ? '<span class="inline-flex rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-800">Activo</span>'
-          : '<span class="inline-flex rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-800">Inactivo</span>';
+          : '<span class="inline-flex rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-800">Baja</span>';
         
         return `
           <tr class="hover:bg-gray-50">
@@ -768,6 +771,7 @@
   function mostrarModalResultados(data) {
     const modal = document.getElementById('modal-resultados');
     const modalOverlay = document.getElementById('modal-overlay');
+    const modalTitle = document.getElementById('modal-title');
     const modalIconContainer = document.getElementById('modal-icon-container');
     const modalMensaje = document.getElementById('modal-mensaje');
     const modalDetalles = document.getElementById('modal-detalles');
@@ -775,10 +779,46 @@
     const modalListaErrores = document.getElementById('modal-lista-errores');
     const btnCerrar = document.getElementById('modal-btn-cerrar');
     
+    // Determinar el tipo de operación y actualizar título
+    const esActualizacionEstatus = data.total_proveedores !== undefined;
+    if (esActualizacionEstatus) {
+      modalTitle.textContent = 'Resultado de la Actualización de Estatus';
+    } else {
+      modalTitle.textContent = 'Resultado de la Sincronización';
+    }
+    
     // Determinar el tipo de resultado
     let icono, colorClase, tipoResultado;
     
-    if (data.nuevos_creados > 0) {
+    // Verificar si es resultado de actualizar estatus
+    if (data.proveedores_marcados_baja !== undefined || data.proveedores_actualizados !== undefined) {
+      // Resultado de actualizar estatus
+      if (data.proveedores_marcados_baja > 0 || data.proveedores_actualizados > 0) {
+        tipoResultado = 'success';
+        colorClase = 'bg-green-100';
+        icono = `
+          <svg class="h-6 w-6 text-green-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        `;
+      } else if (data.errores && data.errores.length > 0) {
+        tipoResultado = 'error';
+        colorClase = 'bg-red-100';
+        icono = `
+          <svg class="h-6 w-6 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        `;
+      } else {
+        tipoResultado = 'info';
+        colorClase = 'bg-blue-100';
+        icono = `
+          <svg class="h-6 w-6 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        `;
+      }
+    } else if (data.nuevos_creados > 0) {
       // Éxito: se crearon nuevos proveedores
       tipoResultado = 'success';
       colorClase = 'bg-green-100';
@@ -816,7 +856,27 @@
     modalMensaje.className = `text-sm ${tipoResultado === 'error' ? 'text-red-600' : tipoResultado === 'success' ? 'text-green-600' : 'text-blue-600'}`;
     
     // Configurar detalles
-    if (data.total_encontrados !== undefined || data.nuevos_creados !== undefined) {
+    if (data.total_proveedores !== undefined) {
+      // Detalles para actualizar estatus
+      modalDetalles.classList.remove('hidden');
+      modalDetalles.innerHTML = `
+        <div class="grid grid-cols-3 gap-4 text-sm">
+          <div class="bg-gray-50 p-3 rounded-md">
+            <p class="text-gray-500 text-xs">Total proveedores</p>
+            <p class="text-lg font-semibold text-gray-900 mt-1">${data.total_proveedores || 0}</p>
+          </div>
+          <div class="bg-gray-50 p-3 rounded-md">
+            <p class="text-gray-500 text-xs">Marcados como baja</p>
+            <p class="text-lg font-semibold ${data.proveedores_marcados_baja > 0 ? 'text-red-600' : 'text-gray-900'} mt-1">${data.proveedores_marcados_baja || 0}</p>
+          </div>
+          <div class="bg-gray-50 p-3 rounded-md">
+            <p class="text-gray-500 text-xs">Total actualizados</p>
+            <p class="text-lg font-semibold ${data.proveedores_actualizados > 0 ? 'text-blue-600' : 'text-gray-900'} mt-1">${data.proveedores_actualizados || 0}</p>
+          </div>
+        </div>
+      `;
+    } else if (data.total_encontrados !== undefined || data.nuevos_creados !== undefined) {
+      // Detalles para sincronizar proveedores
       modalDetalles.classList.remove('hidden');
       modalDetalles.innerHTML = `
         <div class="grid grid-cols-2 gap-4 text-sm">
@@ -852,6 +912,11 @@
       btnCerrar.onclick = null;
       modalOverlay.onclick = null;
       document.removeEventListener('keydown', handleEscape);
+      
+      // Si es actualización de estatus y hubo cambios, recargar la página
+      if (esActualizacionEstatus && data.proveedores_actualizados > 0) {
+        window.location.reload();
+      }
     };
     
     // Event listeners para cerrar
@@ -869,6 +934,47 @@
     // Mostrar modal (después de configurar todo)
     modal.classList.remove('hidden');
     document.body.style.overflow = 'hidden';
+  }
+
+  async function actualizarEstatusProveedores() {
+    const btn = document.getElementById('btn-actualizar-estatus');
+    const textoOriginal = btn.textContent;
+    
+    // Deshabilitar botón y mostrar estado de carga
+    btn.disabled = true;
+    btn.textContent = 'Procesando...';
+    
+    try {
+      const response = await fetch('/api/proveedores/actualizar-estatus', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      // Verificar si la respuesta es exitosa
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ mensaje: `Error HTTP ${response.status}` }));
+        throw new Error(errorData.mensaje || `Error del servidor: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Log para debugging
+      console.log('Respuesta del servidor:', data);
+      
+      // Mostrar modal con los resultados
+      // El modal se abrirá automáticamente y se recargará la página cuando el usuario lo cierre
+      mostrarModalResultados(data);
+    } catch (error) {
+      console.error('Error al actualizar estatus:', error);
+      const mensajeError = error.message || 'Error de conexión al actualizar estatus';
+      mostrarMensaje('error', mensajeError);
+    } finally {
+      // Rehabilitar botón
+      btn.disabled = false;
+      btn.textContent = textoOriginal;
+    }
   }
 
   function mostrarMensaje(tipo, mensaje) {
