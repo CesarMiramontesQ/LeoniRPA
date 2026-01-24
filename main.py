@@ -352,6 +352,36 @@ async def api_precio_ultimas_compras(
     return JSONResponse({"compras": items})
 
 
+@app.get("/api/precios-compra/historial")
+async def api_precios_compra_historial(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Devuelve los últimos 15 movimientos del historial de precios de materiales."""
+    historial = await crud.list_precio_material_historial(
+        db,
+        limit=15,
+        offset=0
+    )
+    items = []
+    for h in historial:
+        items.append({
+            "id": h.id,
+            "precio_material_id": h.precio_material_id,
+            "codigo_proveedor": h.codigo_proveedor,
+            "numero_material": h.numero_material,
+            "operacion": h.operacion.value,
+            "user_email": h.user.email if h.user else None,
+            "user_nombre": h.user.nombre if h.user else None,
+            "datos_antes": h.datos_antes,
+            "datos_despues": h.datos_despues,
+            "campos_modificados": h.campos_modificados,
+            "created_at": h.created_at.isoformat() if h.created_at else None,
+        })
+    return JSONResponse({"movimientos": items})
+
+
 @app.get("/paises-origen")
 async def paises_origen(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Página de países de origen de materiales - requiere autenticación."""
