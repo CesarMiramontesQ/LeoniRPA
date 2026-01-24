@@ -340,6 +340,55 @@ class Material(Base):
         return f"<Material(id={self.id}, numero_material={self.numero_material}, descripcion_material={self.descripcion_material})>"
 
 
+class MaterialOperacion(PyEnum):
+    """Tipos de operaciones en el historial de materiales."""
+    CREATE = "CREATE"
+    UPDATE = "UPDATE"
+    DELETE = "DELETE"
+
+
+class MaterialHistorial(Base):
+    """Modelo para el historial de cambios en materiales."""
+    __tablename__ = "materiales_historial"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Número del material (puede ser NULL si se elimina)
+    numero_material = Column(String, nullable=True, index=True)
+    
+    # ID del material (referencia adicional)
+    material_id = Column(Integer, nullable=True, index=True)
+    
+    # Tipo de operación
+    operacion = Column(
+        SQLEnum(MaterialOperacion, name="material_operacion_enum"),
+        nullable=False,
+        index=True
+    )
+    
+    # Usuario que realizó la operación
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user = relationship("User", backref="materiales_historial")
+    
+    # Datos antes del cambio (NULL para CREATE)
+    datos_antes = Column(JSONB, nullable=True)
+    
+    # Datos después del cambio (NULL para DELETE)
+    datos_despues = Column(JSONB, nullable=True)
+    
+    # Campos que cambiaron (solo para UPDATE)
+    campos_modificados = Column(JSONB, nullable=True)
+    
+    # Comentario opcional
+    comentario = Column(Text, nullable=True)
+    
+    # Timestamp
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    
+    def __repr__(self):
+        return f"<MaterialHistorial(id={self.id}, numero_material={self.numero_material}, operacion={self.operacion.value}, created_at={self.created_at})>"
+
+
 class PrecioMaterial(Base):
     """Modelo para precios de materiales por proveedor."""
     __tablename__ = "precios_materiales"
@@ -500,4 +549,56 @@ class PaisOrigenMaterial(Base):
     
     def __repr__(self):
         return f"<PaisOrigenMaterial(id={self.id}, codigo_proveedor={self.codigo_proveedor}, numero_material={self.numero_material}, pais_origen={self.pais_origen})>"
+
+
+class PaisOrigenMaterialOperacion(PyEnum):
+    """Tipos de operaciones en el historial de países de origen."""
+    CREATE = "CREATE"
+    UPDATE = "UPDATE"
+    DELETE = "DELETE"
+
+
+class PaisOrigenMaterialHistorial(Base):
+    """Modelo para el historial de cambios en países de origen de materiales."""
+    __tablename__ = "pais_origen_material_historial"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # ID del país de origen (puede ser NULL si se elimina)
+    pais_origen_id = Column(Integer, nullable=True, index=True)
+    
+    # Código del proveedor (puede ser NULL si se elimina)
+    codigo_proveedor = Column(String, nullable=True, index=True)
+    
+    # Número del material (puede ser NULL si se elimina)
+    numero_material = Column(String, nullable=True, index=True)
+    
+    # Tipo de operación
+    operacion = Column(
+        SQLEnum(PaisOrigenMaterialOperacion, name="pais_origen_material_operacion_enum"),
+        nullable=False,
+        index=True
+    )
+    
+    # Usuario que realizó la operación
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user = relationship("User", backref="pais_origen_material_historial")
+    
+    # Datos antes del cambio (NULL para CREATE)
+    datos_antes = Column(JSONB, nullable=True)
+    
+    # Datos después del cambio (NULL para DELETE)
+    datos_despues = Column(JSONB, nullable=True)
+    
+    # Campos que cambiaron (solo para UPDATE)
+    campos_modificados = Column(JSONB, nullable=True)
+    
+    # Comentario opcional
+    comentario = Column(Text, nullable=True)
+    
+    # Timestamp
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    
+    def __repr__(self):
+        return f"<PaisOrigenMaterialHistorial(id={self.id}, pais_origen_id={self.pais_origen_id}, operacion={self.operacion.value}, created_at={self.created_at})>"
 

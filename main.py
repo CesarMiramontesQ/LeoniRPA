@@ -207,6 +207,9 @@ async def materiales(request: Request, current_user: User = Depends(get_current_
     # Calcular estadísticas
     total_materiales = await crud.count_materiales(db)
     
+    # Obtener los últimos 5 movimientos del historial
+    historial_reciente = await crud.list_material_historial(db, limit=5, offset=0)
+    
     return templates.TemplateResponse(
         "materiales.html",
         {
@@ -214,7 +217,8 @@ async def materiales(request: Request, current_user: User = Depends(get_current_
             "active_page": "materiales",
             "current_user": current_user,
             "materiales": materiales_data,
-            "total_materiales": total_materiales
+            "total_materiales": total_materiales,
+            "historial_reciente": historial_reciente
         }
     )
 
@@ -258,6 +262,17 @@ async def paises_origen(request: Request, current_user: User = Depends(get_curre
     )
     total_partes_unicos = result.scalar() or 0
     
+    # Calcular materiales con país de origen "Pendiente"
+    result_pendientes = await db.execute(
+        select(func.count(distinct(PaisOrigenMaterial.numero_material))).where(
+            PaisOrigenMaterial.pais_origen == "Pendiente"
+        )
+    )
+    materiales_pendientes = result_pendientes.scalar() or 0
+    
+    # Obtener los últimos 5 movimientos del historial
+    historial_reciente = await crud.list_pais_origen_material_historial(db, limit=5, offset=0)
+    
     return templates.TemplateResponse(
         "paises_origen.html",
         {
@@ -266,9 +281,65 @@ async def paises_origen(request: Request, current_user: User = Depends(get_curre
             "current_user": current_user,
             "paises": paises_data,
             "total_paises": total_paises,
-            "total_partes_unicos": total_partes_unicos
+            "total_partes_unicos": total_partes_unicos,
+            "materiales_pendientes": materiales_pendientes,
+            "historial_reciente": historial_reciente
         }
     )
+
+
+@app.put("/api/paises-origen/{pais_id}")
+async def actualizar_pais_origen(
+    pais_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Actualiza un país de origen de material."""
+    try:
+        data = await request.json()
+        pais_origen = data.get("pais_origen")
+        
+        if not pais_origen:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "El campo 'pais_origen' es requerido"}
+            )
+        
+        pais_actualizado = await crud.update_pais_origen_material(
+            db=db,
+            pais_id=pais_id,
+            pais_origen=pais_origen,
+            user_id=current_user.id
+        )
+        
+        if not pais_actualizado:
+            return JSONResponse(
+                status_code=404,
+                content={"error": "País de origen no encontrado"}
+            )
+        
+        return JSONResponse({
+            "success": True,
+            "message": "País de origen actualizado exitosamente",
+            "pais": {
+                "id": pais_actualizado.id,
+                "codigo_proveedor": pais_actualizado.codigo_proveedor,
+                "numero_material": pais_actualizado.numero_material,
+                "pais_origen": pais_actualizado.pais_origen
+            }
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "message": f"Error al actualizar país de origen: {str(e)}"
+            }
+        )
 
 
 @app.get("/api/proveedores")
@@ -321,6 +392,57 @@ async def api_proveedores(
     })
 
 
+@app.post("/api/materiales/actualizar")
+async def actualizar_materiales_desde_compras(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Sincroniza materiales desde la tabla compras.
+    
+    Busca todos los numero_material únicos en compras que no estén registrados
+    en materiales y los crea automáticamente usando la descripcion_material de compras.
+    """
+    try:
+        resultado = await crud.sincronizar_materiales_desde_compras(
+            db=db,
+            user_id=current_user.id
+        )
+        
+        # Determinar el mensaje según el resultado
+        if resultado["nuevos_creados"] > 0:
+            mensaje = f"✓ Sincronización completada. Se crearon {resultado['nuevos_creados']} nuevo(s) material(es) de {resultado['total_encontrados']} encontrados en compras."
+        elif resultado["total_encontrados"] > 0:
+            mensaje = f"✓ Sincronización completada. Todos los materiales ({resultado['total_encontrados']}) ya están registrados."
+        else:
+            mensaje = "✓ Sincronización completada. No se encontraron materiales en la tabla de compras."
+        
+        if resultado["errores"]:
+            mensaje += f" Se encontraron {len(resultado['errores'])} error(es)."
+        
+        # Considerar exitoso si no hay errores críticos
+        success = len(resultado["errores"]) == 0 or resultado["nuevos_creados"] > 0
+        
+        return JSONResponse({
+            "success": success,
+            "total_encontrados": resultado["total_encontrados"],
+            "nuevos_creados": resultado["nuevos_creados"],
+            "errores": resultado["errores"],
+            "mensaje": mensaje
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "mensaje": f"Error al sincronizar materiales desde compras: {str(e)}"
+            }
+        )
+
+
 @app.post("/api/proveedores/actualizar")
 async def actualizar_proveedores_desde_compras(
     request: Request,
@@ -368,6 +490,63 @@ async def actualizar_proveedores_desde_compras(
                 "success": False,
                 "error": str(e),
                 "mensaje": f"Error al sincronizar proveedores desde compras: {str(e)}"
+            }
+        )
+
+
+@app.post("/api/paises-origen/actualizar")
+async def actualizar_paises_origen_desde_compras(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Sincroniza países de origen desde la tabla compras.
+    
+    Busca combinaciones únicas de codigo_proveedor y numero_material en compras
+    que no estén registradas en pais_origen_material y las crea con "Pendiente".
+    """
+    try:
+        resultado = await crud.sincronizar_paises_origen_desde_compras(
+            db=db,
+            user_id=current_user.id
+        )
+        
+        # Determinar el mensaje según el resultado
+        if resultado["nuevos_creados"] > 0:
+            mensaje = (
+                f"✓ Sincronización completada. Se crearon {resultado['nuevos_creados']} "
+                f"registro(s) de {resultado['total_encontrados']} encontrados en compras."
+            )
+        elif resultado["total_encontrados"] > 0:
+            mensaje = (
+                f"✓ Sincronización completada. Todos los registros "
+                f"({resultado['total_encontrados']}) ya están registrados."
+            )
+        else:
+            mensaje = "✓ Sincronización completada. No se encontraron datos válidos en compras."
+        
+        if resultado["errores"]:
+            mensaje += f" Se encontraron {len(resultado['errores'])} error(es)."
+        
+        # Considerar exitoso si no hay errores críticos
+        success = len(resultado["errores"]) == 0 or resultado["nuevos_creados"] > 0
+        
+        return JSONResponse({
+            "success": success,
+            "total_encontrados": resultado["total_encontrados"],
+            "nuevos_creados": resultado["nuevos_creados"],
+            "errores": resultado["errores"],
+            "mensaje": mensaje
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "mensaje": f"Error al sincronizar países de origen desde compras: {str(e)}"
             }
         )
 

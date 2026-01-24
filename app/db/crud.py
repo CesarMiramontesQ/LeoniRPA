@@ -1,12 +1,12 @@
 """Operaciones CRUD para usuarios, ejecuciones y BOM."""
-from sqlalchemy import select, desc, func, or_, String
+from sqlalchemy import select, desc, func, or_, String, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from decimal import Decimal
-from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion
+from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion
 from app.core.security import hash_password
 
 
@@ -1022,6 +1022,17 @@ async def sincronizar_proveedores_desde_compras(
 
 # ==================== CRUD para Materiales ====================
 
+def _material_to_dict(material: Material) -> Dict[str, Any]:
+    """Convierte un objeto Material a diccionario para el historial."""
+    return {
+        "id": material.id,
+        "numero_material": material.numero_material,
+        "descripcion_material": material.descripcion_material,
+        "created_at": material.created_at.isoformat() if material.created_at else None,
+        "updated_at": material.updated_at.isoformat() if material.updated_at else None
+    }
+
+
 async def get_material_by_id(db: AsyncSession, material_id: int) -> Optional[Material]:
     """Obtiene un material por ID."""
     result = await db.execute(select(Material).where(Material.id == material_id))
@@ -1037,31 +1048,75 @@ async def get_material_by_numero(db: AsyncSession, numero_material: str) -> Opti
 async def create_material(
     db: AsyncSession,
     numero_material: str,
-    descripcion_material: Optional[str] = None
+    descripcion_material: Optional[str] = None,
+    user_id: Optional[int] = None
 ) -> Material:
     """Crea un nuevo material."""
+    # Verificar que no exista antes de crear
+    material_existente = await get_material_by_numero(db, numero_material)
+    if material_existente:
+        raise ValueError(f"El material {numero_material} ya existe")
+    
     material = Material(
         numero_material=numero_material,
         descripcion_material=descripcion_material
     )
     db.add(material)
-    await db.commit()
+    await db.flush()  # Flush para obtener el ID sin hacer commit
     await db.refresh(material)
+    
+    # Registrar en historial
+    if user_id is not None:
+        historial = MaterialHistorial(
+            numero_material=numero_material,
+            material_id=material.id,
+            operacion=MaterialOperacion.CREATE,
+            user_id=user_id,
+            datos_antes=None,
+            datos_despues=_material_to_dict(material),
+            campos_modificados=None
+        )
+        db.add(historial)
+    
+    await db.commit()
     return material
 
 
 async def update_material(
     db: AsyncSession,
     material_id: int,
-    descripcion_material: Optional[str] = None
+    descripcion_material: Optional[str] = None,
+    user_id: Optional[int] = None
 ) -> Optional[Material]:
     """Actualiza un material."""
     material = await get_material_by_id(db, material_id)
     if not material:
         return None
     
-    if descripcion_material is not None:
+    # Guardar datos antes del cambio
+    datos_antes = _material_to_dict(material)
+    campos_modificados = []
+    
+    if descripcion_material is not None and material.descripcion_material != descripcion_material:
         material.descripcion_material = descripcion_material
+        campos_modificados.append("descripcion_material")
+    
+    # Solo registrar en historial si hubo cambios
+    if campos_modificados and user_id is not None:
+        await db.flush()  # Para obtener los datos actualizados
+        await db.refresh(material)
+        datos_despues = _material_to_dict(material)
+        
+        historial = MaterialHistorial(
+            numero_material=material.numero_material,
+            material_id=material.id,
+            operacion=MaterialOperacion.UPDATE,
+            user_id=user_id,
+            datos_antes=datos_antes,
+            datos_despues=datos_despues,
+            campos_modificados=campos_modificados
+        )
+        db.add(historial)
     
     await db.commit()
     await db.refresh(material)
@@ -1092,6 +1147,42 @@ async def list_materiales(
     return list(result.scalars().all())
 
 
+async def delete_material(
+    db: AsyncSession,
+    material_id: int,
+    user_id: Optional[int] = None
+) -> bool:
+    """Elimina un material."""
+    from sqlalchemy import delete
+    
+    material = await get_material_by_id(db, material_id)
+    if not material:
+        return False
+    
+    # Guardar datos antes de eliminar
+    datos_antes = _material_to_dict(material)
+    numero_material = material.numero_material
+    
+    stmt = delete(Material).where(Material.id == material_id)
+    await db.execute(stmt)
+    
+    # Registrar en historial
+    if user_id is not None:
+        historial = MaterialHistorial(
+            numero_material=numero_material,
+            material_id=material_id,
+            operacion=MaterialOperacion.DELETE,
+            user_id=user_id,
+            datos_antes=datos_antes,
+            datos_despues=None,
+            campos_modificados=None
+        )
+        db.add(historial)
+    
+    await db.commit()
+    return True
+
+
 async def count_materiales(
     db: AsyncSession,
     search: Optional[str] = None
@@ -1109,7 +1200,429 @@ async def count_materiales(
         )
     
     result = await db.execute(query)
-    return result.scalar_one()
+    return result.scalar() or 0
+
+
+# ==================== CRUD para Historial de Materiales ====================
+
+async def list_material_historial(
+    db: AsyncSession,
+    numero_material: Optional[str] = None,
+    material_id: Optional[int] = None,
+    operacion: Optional[MaterialOperacion] = None,
+    user_id: Optional[int] = None,
+    limit: int = 100,
+    offset: int = 0
+) -> List[MaterialHistorial]:
+    """Lista el historial de cambios en materiales con filtros opcionales."""
+    query = select(MaterialHistorial).options(selectinload(MaterialHistorial.user))
+    
+    if numero_material:
+        query = query.where(MaterialHistorial.numero_material == numero_material)
+    
+    if material_id:
+        query = query.where(MaterialHistorial.material_id == material_id)
+    
+    if operacion:
+        query = query.where(MaterialHistorial.operacion == operacion)
+    
+    if user_id:
+        query = query.where(MaterialHistorial.user_id == user_id)
+    
+    query = query.order_by(desc(MaterialHistorial.created_at)).limit(limit).offset(offset)
+    
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def get_material_historial_by_id(
+    db: AsyncSession,
+    historial_id: int
+) -> Optional[MaterialHistorial]:
+    """Obtiene un registro del historial por ID."""
+    result = await db.execute(
+        select(MaterialHistorial).where(MaterialHistorial.id == historial_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def count_material_historial(
+    db: AsyncSession,
+    numero_material: Optional[str] = None,
+    material_id: Optional[int] = None,
+    operacion: Optional[MaterialOperacion] = None,
+    user_id: Optional[int] = None
+) -> int:
+    """Cuenta el total de registros en el historial con filtros opcionales."""
+    query = select(func.count(MaterialHistorial.id))
+    
+    if numero_material:
+        query = query.where(MaterialHistorial.numero_material == numero_material)
+    
+    if material_id:
+        query = query.where(MaterialHistorial.material_id == material_id)
+    
+    if operacion:
+        query = query.where(MaterialHistorial.operacion == operacion)
+    
+    if user_id:
+        query = query.where(MaterialHistorial.user_id == user_id)
+    
+    result = await db.execute(query)
+    return result.scalar() or 0
+
+
+async def sincronizar_materiales_desde_compras(
+    db: AsyncSession,
+    user_id: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Sincroniza materiales desde la tabla compras.
+    Busca todos los numero_material únicos en compras que no estén registrados
+    en materiales y los crea usando la descripcion_material de compras.
+    
+    Returns:
+        Dict con estadísticas de la sincronización:
+        - total_encontrados: Total de números únicos en compras
+        - nuevos_creados: Cantidad de materiales nuevos creados
+        - errores: Lista de errores encontrados
+    """
+    errores = []
+    nuevos_creados = 0
+    
+    try:
+        # 1. Obtener todos los numero_material únicos de compras que no sean NULL
+        # Usamos GROUP BY para obtener la descripcion_material más común
+        query_codigos = select(
+            Compra.numero_material,
+            func.max(Compra.descripcion_material).label('descripcion_material')
+        ).where(
+            Compra.numero_material.isnot(None),
+            Compra.numero_material != ''
+        ).group_by(Compra.numero_material)
+        
+        result = await db.execute(query_codigos)
+        materiales_en_compras = result.all()
+        
+        total_encontrados = len(materiales_en_compras)
+        
+        # 2. Obtener todos los números de materiales existentes para comparación rápida
+        query_existentes = select(Material.numero_material)
+        result_existentes = await db.execute(query_existentes)
+        numeros_existentes = {row[0] for row in result_existentes.all() if row[0]}
+        
+        # 3. Para cada numero_material, verificar si existe en materiales
+        for numero_material, descripcion_material in materiales_en_compras:
+            if not numero_material or numero_material.strip() == '':
+                continue
+            
+            # Verificar si el material ya existe (usando el set para mejor rendimiento)
+            if numero_material not in numeros_existentes:
+                # Verificar nuevamente en la BD antes de crear (por si acaso)
+                material_existente = await get_material_by_numero(db, numero_material)
+                if material_existente:
+                    numeros_existentes.add(numero_material)
+                    continue
+                
+                # Crear el material con la descripción de compras
+                try:
+                    # Intentar crear el material
+                    material = Material(
+                        numero_material=numero_material,
+                        descripcion_material=descripcion_material
+                    )
+                    db.add(material)
+                    await db.flush()  # Flush para obtener el ID sin hacer commit
+                    await db.refresh(material)
+                    
+                    # Registrar en historial si se proporciona user_id
+                    if user_id is not None:
+                        historial = MaterialHistorial(
+                            numero_material=numero_material,
+                            material_id=material.id,
+                            operacion=MaterialOperacion.CREATE,
+                            user_id=user_id,
+                            datos_antes=None,
+                            datos_despues=_material_to_dict(material),
+                            campos_modificados=None
+                        )
+                        db.add(historial)
+                    
+                    await db.commit()
+                    nuevos_creados += 1
+                    # Agregar a la lista de existentes para evitar duplicados en la misma ejecución
+                    numeros_existentes.add(numero_material)
+                except Exception as e:
+                    error_str = str(e)
+                    # Hacer rollback de la transacción para poder continuar
+                    try:
+                        await db.rollback()
+                    except:
+                        pass
+                    
+                    # Si es un error de secuencia, intentar corregirla
+                    if "duplicate key value violates unique constraint" in error_str and "materiales_pkey" in error_str:
+                        try:
+                            # Obtener el máximo ID actual
+                            result = await db.execute(
+                                select(func.max(Material.id))
+                            )
+                            max_id = result.scalar() or 0
+                            
+                            # Corregir la secuencia
+                            await db.execute(
+                                text(f"SELECT setval('materiales_id_seq', {max_id + 1}, false)")
+                            )
+                            await db.commit()
+                            
+                            # Intentar crear el material nuevamente
+                            try:
+                                material = Material(
+                                    numero_material=numero_material,
+                                    descripcion_material=descripcion_material
+                                )
+                                db.add(material)
+                                await db.flush()
+                                await db.refresh(material)
+                                
+                                if user_id is not None:
+                                    historial = MaterialHistorial(
+                                        numero_material=numero_material,
+                                        material_id=material.id,
+                                        operacion=MaterialOperacion.CREATE,
+                                        user_id=user_id,
+                                        datos_antes=None,
+                                        datos_despues=_material_to_dict(material),
+                                        campos_modificados=None
+                                    )
+                                    db.add(historial)
+                                
+                                await db.commit()
+                                nuevos_creados += 1
+                                numeros_existentes.add(numero_material)
+                                continue
+                            except Exception as e2:
+                                await db.rollback()
+                        except Exception as seq_error:
+                            await db.rollback()
+                    
+                    # Verificar si el material se creó de todas formas (race condition)
+                    material_existente = await get_material_by_numero(db, numero_material)
+                    if material_existente:
+                        # El material ya existe, no es un error real
+                        numeros_existentes.add(numero_material)
+                        continue
+                    
+                    # Solo reportar error si realmente no se pudo crear
+                    error_msg = f"Error al crear material {numero_material}: {error_str}"
+                    errores.append(error_msg)
+                    # Continuar con el siguiente material
+                    continue
+        
+        return {
+            "total_encontrados": total_encontrados,
+            "nuevos_creados": nuevos_creados,
+            "errores": errores,
+            "exitoso": len(errores) == 0
+        }
+        
+    except Exception as e:
+        await db.rollback()
+        error_msg = f"Error general en sincronización: {str(e)}"
+        errores.append(error_msg)
+        return {
+            "total_encontrados": 0,
+            "nuevos_creados": 0,
+            "errores": errores,
+            "exitoso": False
+        }
+
+
+async def sincronizar_paises_origen_desde_compras(
+    db: AsyncSession,
+    user_id: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Sincroniza países de origen desde la tabla compras.
+    Busca combinaciones únicas de codigo_proveedor y numero_material en compras
+    que no estén registradas en pais_origen_material y las crea con pais_origen = "Pendiente".
+    
+    Returns:
+        Dict con estadísticas de la sincronización:
+        - total_encontrados: Total de combinaciones únicas en compras
+        - nuevos_creados: Cantidad de registros nuevos creados
+        - errores: Lista de errores encontrados
+    """
+    errores = []
+    nuevos_creados = 0
+    
+    try:
+        # 1. Obtener todas las combinaciones únicas de proveedor/material en compras
+        query_pares = select(
+            Compra.codigo_proveedor,
+            Compra.numero_material
+        ).where(
+            Compra.codigo_proveedor.isnot(None),
+            Compra.codigo_proveedor != '',
+            Compra.numero_material.isnot(None),
+            Compra.numero_material != ''
+        ).group_by(Compra.codigo_proveedor, Compra.numero_material)
+        
+        result = await db.execute(query_pares)
+        pares_en_compras = result.all()
+        
+        total_encontrados = len(pares_en_compras)
+        
+        # 2. Obtener todas las combinaciones existentes para comparación rápida
+        query_existentes = select(
+            PaisOrigenMaterial.codigo_proveedor,
+            PaisOrigenMaterial.numero_material
+        )
+        result_existentes = await db.execute(query_existentes)
+        existentes = {
+            (str(row[0]).strip(), str(row[1]).strip())
+            for row in result_existentes.all()
+            if row[0] and row[1]
+        }
+        
+        # 3. Para cada par, verificar si existe y crear si no
+        for codigo_proveedor, numero_material in pares_en_compras:
+            if not codigo_proveedor or not numero_material:
+                continue
+            
+            codigo_proveedor = str(codigo_proveedor).strip()
+            numero_material = str(numero_material).strip()
+            
+            if not codigo_proveedor or not numero_material:
+                continue
+            
+            if (codigo_proveedor, numero_material) in existentes:
+                continue
+            
+            # Verificar nuevamente en la BD antes de crear (por si acaso)
+            existente = await get_pais_origen_material_by_proveedor_material(
+                db,
+                codigo_proveedor,
+                numero_material
+            )
+            if existente:
+                existentes.add((codigo_proveedor, numero_material))
+                continue
+            
+            try:
+                pais_origen_material = PaisOrigenMaterial(
+                    codigo_proveedor=codigo_proveedor,
+                    numero_material=numero_material,
+                    pais_origen="Pendiente"
+                )
+                db.add(pais_origen_material)
+                await db.flush()
+                await db.refresh(pais_origen_material)
+                
+                # Registrar en historial si se proporciona user_id
+                if user_id is not None:
+                    historial = PaisOrigenMaterialHistorial(
+                        pais_origen_id=pais_origen_material.id,
+                        codigo_proveedor=codigo_proveedor,
+                        numero_material=numero_material,
+                        operacion=PaisOrigenMaterialOperacion.CREATE,
+                        user_id=user_id,
+                        datos_antes=None,
+                        datos_despues=_pais_origen_material_to_dict(pais_origen_material),
+                        campos_modificados=None
+                    )
+                    db.add(historial)
+                
+                await db.commit()
+                nuevos_creados += 1
+                existentes.add((codigo_proveedor, numero_material))
+            except Exception as e:
+                error_str = str(e)
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+                
+                # Si es un error de secuencia, intentar corregirla
+                if "duplicate key value violates unique constraint" in error_str and "pais_origen_material_pkey" in error_str:
+                    try:
+                        # Obtener el máximo ID actual
+                        result = await db.execute(
+                            select(func.max(PaisOrigenMaterial.id))
+                        )
+                        max_id = result.scalar() or 0
+                        
+                        # Corregir la secuencia
+                        await db.execute(
+                            text(f"SELECT setval('pais_origen_material_id_seq', {max_id + 1}, false)")
+                        )
+                        await db.commit()
+                        
+                        # Intentar crear el registro nuevamente
+                        try:
+                            pais_origen_material = PaisOrigenMaterial(
+                                codigo_proveedor=codigo_proveedor,
+                                numero_material=numero_material,
+                                pais_origen="Pendiente"
+                            )
+                            db.add(pais_origen_material)
+                            await db.flush()
+                            await db.refresh(pais_origen_material)
+                            
+                            # Registrar en historial si se proporciona user_id
+                            if user_id is not None:
+                                historial = PaisOrigenMaterialHistorial(
+                                    pais_origen_id=pais_origen_material.id,
+                                    codigo_proveedor=codigo_proveedor,
+                                    numero_material=numero_material,
+                                    operacion=PaisOrigenMaterialOperacion.CREATE,
+                                    user_id=user_id,
+                                    datos_antes=None,
+                                    datos_despues=_pais_origen_material_to_dict(pais_origen_material),
+                                    campos_modificados=None
+                                )
+                                db.add(historial)
+                            
+                            await db.commit()
+                            nuevos_creados += 1
+                            existentes.add((codigo_proveedor, numero_material))
+                            continue
+                        except Exception as e2:
+                            await db.rollback()
+                    except Exception as seq_error:
+                        await db.rollback()
+                
+                # Verificar si el registro se creó de todas formas (race condition)
+                existente = await get_pais_origen_material_by_proveedor_material(
+                    db,
+                    codigo_proveedor,
+                    numero_material
+                )
+                if existente:
+                    existentes.add((codigo_proveedor, numero_material))
+                    continue
+                
+                error_msg = f"Error al crear país de origen {codigo_proveedor}/{numero_material}: {error_str}"
+                errores.append(error_msg)
+                continue
+        
+        return {
+            "total_encontrados": total_encontrados,
+            "nuevos_creados": nuevos_creados,
+            "errores": errores,
+            "exitoso": len(errores) == 0
+        }
+        
+    except Exception as e:
+        await db.rollback()
+        error_msg = f"Error general en sincronización: {str(e)}"
+        errores.append(error_msg)
+        return {
+            "total_encontrados": 0,
+            "nuevos_creados": 0,
+            "errores": errores,
+            "exitoso": False
+        }
 
 
 # ==================== CRUD para Precios Materiales ====================
@@ -1616,6 +2129,18 @@ async def count_compras(
 
 # ==================== CRUD para PaisOrigenMaterial ====================
 
+def _pais_origen_material_to_dict(pais_origen_material: PaisOrigenMaterial) -> Dict[str, Any]:
+    """Convierte un objeto PaisOrigenMaterial a diccionario para el historial."""
+    return {
+        "id": pais_origen_material.id,
+        "codigo_proveedor": pais_origen_material.codigo_proveedor,
+        "numero_material": pais_origen_material.numero_material,
+        "pais_origen": pais_origen_material.pais_origen,
+        "created_at": pais_origen_material.created_at.isoformat() if pais_origen_material.created_at else None,
+        "updated_at": pais_origen_material.updated_at.isoformat() if pais_origen_material.updated_at else None
+    }
+
+
 async def get_pais_origen_material_by_id(db: AsyncSession, pais_id: int) -> Optional[PaisOrigenMaterial]:
     """Obtiene un país de origen por ID."""
     result = await db.execute(select(PaisOrigenMaterial).where(PaisOrigenMaterial.id == pais_id))
@@ -1641,7 +2166,8 @@ async def create_pais_origen_material(
     db: AsyncSession,
     codigo_proveedor: str,
     numero_material: str,
-    pais_origen: str
+    pais_origen: str,
+    user_id: Optional[int] = None
 ) -> PaisOrigenMaterial:
     """Crea un nuevo país de origen de material."""
     pais_origen_material = PaisOrigenMaterial(
@@ -1650,23 +2176,63 @@ async def create_pais_origen_material(
         pais_origen=pais_origen
     )
     db.add(pais_origen_material)
-    await db.commit()
+    await db.flush()  # Flush para obtener el ID sin hacer commit
     await db.refresh(pais_origen_material)
+    
+    # Registrar en historial
+    if user_id is not None:
+        historial = PaisOrigenMaterialHistorial(
+            pais_origen_id=pais_origen_material.id,
+            codigo_proveedor=codigo_proveedor,
+            numero_material=numero_material,
+            operacion=PaisOrigenMaterialOperacion.CREATE,
+            user_id=user_id,
+            datos_antes=None,
+            datos_despues=_pais_origen_material_to_dict(pais_origen_material),
+            campos_modificados=None
+        )
+        db.add(historial)
+    
+    await db.commit()
     return pais_origen_material
 
 
 async def update_pais_origen_material(
     db: AsyncSession,
     pais_id: int,
-    pais_origen: Optional[str] = None
+    pais_origen: Optional[str] = None,
+    user_id: Optional[int] = None
 ) -> Optional[PaisOrigenMaterial]:
     """Actualiza un país de origen de material."""
     pais_origen_material = await get_pais_origen_material_by_id(db, pais_id)
     if not pais_origen_material:
         return None
     
-    if pais_origen is not None:
+    # Guardar datos antes del cambio
+    datos_antes = _pais_origen_material_to_dict(pais_origen_material)
+    campos_modificados = []
+    
+    if pais_origen is not None and pais_origen_material.pais_origen != pais_origen:
         pais_origen_material.pais_origen = pais_origen
+        campos_modificados.append("pais_origen")
+    
+    # Solo registrar en historial si hubo cambios
+    if campos_modificados and user_id is not None:
+        await db.flush()  # Para obtener los datos actualizados
+        await db.refresh(pais_origen_material)
+        datos_despues = _pais_origen_material_to_dict(pais_origen_material)
+        
+        historial = PaisOrigenMaterialHistorial(
+            pais_origen_id=pais_origen_material.id,
+            codigo_proveedor=pais_origen_material.codigo_proveedor,
+            numero_material=pais_origen_material.numero_material,
+            operacion=PaisOrigenMaterialOperacion.UPDATE,
+            user_id=user_id,
+            datos_antes=datos_antes,
+            datos_despues=datos_despues,
+            campos_modificados=campos_modificados
+        )
+        db.add(historial)
     
     await db.commit()
     await db.refresh(pais_origen_material)
@@ -1677,24 +2243,28 @@ async def upsert_pais_origen_material(
     db: AsyncSession,
     codigo_proveedor: str,
     numero_material: str,
-    pais_origen: str
+    pais_origen: str,
+    user_id: Optional[int] = None
 ) -> PaisOrigenMaterial:
     """Crea o actualiza un país de origen de material (upsert)."""
     existing = await get_pais_origen_material_by_proveedor_material(db, codigo_proveedor, numero_material)
     
     if existing:
         # Actualizar existente
-        existing.pais_origen = pais_origen
-        await db.commit()
-        await db.refresh(existing)
-        return existing
+        return await update_pais_origen_material(
+            db,
+            pais_id=existing.id,
+            pais_origen=pais_origen,
+            user_id=user_id
+        )
     else:
         # Crear nuevo
         return await create_pais_origen_material(
             db,
             codigo_proveedor=codigo_proveedor,
             numero_material=numero_material,
-            pais_origen=pais_origen
+            pais_origen=pais_origen,
+            user_id=user_id
         )
 
 
@@ -1761,3 +2331,118 @@ async def count_paises_origen_material(
     
     result = await db.execute(query)
     return result.scalar_one()
+
+
+async def delete_pais_origen_material(
+    db: AsyncSession,
+    pais_id: int,
+    user_id: Optional[int] = None
+) -> bool:
+    """Elimina un país de origen de material."""
+    from sqlalchemy import delete
+    
+    pais_origen_material = await get_pais_origen_material_by_id(db, pais_id)
+    if not pais_origen_material:
+        return False
+    
+    # Guardar datos antes de eliminar
+    datos_antes = _pais_origen_material_to_dict(pais_origen_material)
+    codigo_proveedor = pais_origen_material.codigo_proveedor
+    numero_material = pais_origen_material.numero_material
+    
+    stmt = delete(PaisOrigenMaterial).where(PaisOrigenMaterial.id == pais_id)
+    await db.execute(stmt)
+    
+    # Registrar en historial
+    if user_id is not None:
+        historial = PaisOrigenMaterialHistorial(
+            pais_origen_id=pais_id,
+            codigo_proveedor=codigo_proveedor,
+            numero_material=numero_material,
+            operacion=PaisOrigenMaterialOperacion.DELETE,
+            user_id=user_id,
+            datos_antes=datos_antes,
+            datos_despues=None,
+            campos_modificados=None
+        )
+        db.add(historial)
+    
+    await db.commit()
+    return True
+
+
+# ==================== CRUD para Historial de Paises de Origen ====================
+
+async def list_pais_origen_material_historial(
+    db: AsyncSession,
+    pais_origen_id: Optional[int] = None,
+    codigo_proveedor: Optional[str] = None,
+    numero_material: Optional[str] = None,
+    operacion: Optional[PaisOrigenMaterialOperacion] = None,
+    user_id: Optional[int] = None,
+    limit: int = 100,
+    offset: int = 0
+) -> List[PaisOrigenMaterialHistorial]:
+    """Lista el historial de cambios en países de origen con filtros opcionales."""
+    query = select(PaisOrigenMaterialHistorial).options(selectinload(PaisOrigenMaterialHistorial.user))
+    
+    if pais_origen_id:
+        query = query.where(PaisOrigenMaterialHistorial.pais_origen_id == pais_origen_id)
+    
+    if codigo_proveedor:
+        query = query.where(PaisOrigenMaterialHistorial.codigo_proveedor == codigo_proveedor)
+    
+    if numero_material:
+        query = query.where(PaisOrigenMaterialHistorial.numero_material == numero_material)
+    
+    if operacion:
+        query = query.where(PaisOrigenMaterialHistorial.operacion == operacion)
+    
+    if user_id:
+        query = query.where(PaisOrigenMaterialHistorial.user_id == user_id)
+    
+    query = query.order_by(desc(PaisOrigenMaterialHistorial.created_at)).limit(limit).offset(offset)
+    
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def get_pais_origen_material_historial_by_id(
+    db: AsyncSession,
+    historial_id: int
+) -> Optional[PaisOrigenMaterialHistorial]:
+    """Obtiene un registro del historial por ID."""
+    result = await db.execute(
+        select(PaisOrigenMaterialHistorial).where(PaisOrigenMaterialHistorial.id == historial_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def count_pais_origen_material_historial(
+    db: AsyncSession,
+    pais_origen_id: Optional[int] = None,
+    codigo_proveedor: Optional[str] = None,
+    numero_material: Optional[str] = None,
+    operacion: Optional[PaisOrigenMaterialOperacion] = None,
+    user_id: Optional[int] = None
+) -> int:
+    """Cuenta el total de registros en el historial con filtros opcionales."""
+    query = select(func.count(PaisOrigenMaterialHistorial.id))
+    
+    if pais_origen_id:
+        query = query.where(PaisOrigenMaterialHistorial.pais_origen_id == pais_origen_id)
+    
+    if codigo_proveedor:
+        query = query.where(PaisOrigenMaterialHistorial.codigo_proveedor == codigo_proveedor)
+    
+    if numero_material:
+        query = query.where(PaisOrigenMaterialHistorial.numero_material == numero_material)
+    
+    if operacion:
+        query = query.where(PaisOrigenMaterialHistorial.operacion == operacion)
+    
+    if user_id:
+        query = query.where(PaisOrigenMaterialHistorial.user_id == user_id)
+    
+    result = await db.execute(query)
+    return result.scalar() or 0

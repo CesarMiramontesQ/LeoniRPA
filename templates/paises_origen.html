@@ -1,4 +1,52 @@
 {% extends "base.html" %} {% block content %}
+<!-- Modal de Resultados -->
+<div id="modal-resultados" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+  <!-- Overlay -->
+  <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity z-40" aria-hidden="true" id="modal-overlay"></div>
+
+  <!-- Contenedor centrado -->
+  <div class="flex min-h-full items-center justify-center p-4 text-center sm:p-0 relative z-50">
+    <!-- Contenedor del modal -->
+    <div class="relative transform overflow-hidden rounded-lg bg-white text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg">
+      <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+        <div class="sm:flex sm:items-start">
+          <div class="mx-auto shrink-0 flex items-center justify-center h-12 w-12 rounded-full sm:mx-0" id="modal-icon-container">
+            <!-- Icono se llenará dinámicamente -->
+          </div>
+          <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
+            <h3 class="text-lg leading-6 font-medium text-gray-900" id="modal-title">
+              Resultado de la Sincronización
+            </h3>
+            <div class="mt-2">
+              <p class="text-sm text-gray-500" id="modal-mensaje">
+                <!-- Mensaje se llenará dinámicamente -->
+              </p>
+              <div id="modal-detalles" class="mt-4 space-y-2 hidden">
+                <!-- Detalles adicionales -->
+              </div>
+              <div id="modal-errores" class="mt-4 hidden">
+                <p class="text-xs font-medium text-red-600 mb-2">Errores encontrados:</p>
+                <ul class="text-xs text-red-500 list-disc list-inside space-y-1" id="modal-lista-errores">
+                  <!-- Lista de errores -->
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+        <button
+          type="button"
+          id="modal-btn-cerrar"
+          class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-[#003D89] text-base font-medium text-white hover:bg-[#003080] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#003D89] sm:ml-3 sm:w-auto sm:text-sm"
+        >
+          Cerrar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="space-y-6">
   <!-- Header -->
   <div class="flex items-center justify-between">
@@ -8,11 +56,27 @@
         Gestión y consulta de países de origen de materiales por proveedor
       </p>
     </div>
+    <div>
+      <button
+        id="btn-actualizar-paises"
+        type="button"
+        class="rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white hover:bg-[#003080] focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        <span id="btn-actualizar-texto">Actualizar</span>
+        <span id="btn-actualizar-spinner" class="hidden">
+          <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          Actualizando...
+        </span>
+      </button>
+    </div>
   </div>
 
   <!-- Tarjetas de Estadísticas -->
   <div>
-    <dl class="grid grid-cols-1 gap-5 sm:grid-cols-2">
+    <dl class="grid grid-cols-1 gap-5 sm:grid-cols-3">
       <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
         <dt class="truncate text-sm font-medium text-gray-500">Total de Registros</dt>
         <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900">{{ "{:,}".format(total_paises) }}</dd>
@@ -21,7 +85,106 @@
         <dt class="truncate text-sm font-medium text-gray-500">Números de Materiales Únicos</dt>
         <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900">{{ "{:,}".format(total_partes_unicos) }}</dd>
       </div>
+      <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
+        <dt class="truncate text-sm font-medium text-gray-500">Materiales con País Pendiente</dt>
+        <dd class="mt-1 text-3xl font-semibold tracking-tight text-orange-600">{{ "{:,}".format(materiales_pendientes) }}</dd>
+      </div>
     </dl>
+  </div>
+
+  <!-- Historial Reciente -->
+  <div class="rounded-lg bg-white shadow-sm">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <h2 class="text-lg font-medium text-gray-900">Últimos Movimientos</h2>
+      <p class="mt-1 text-sm text-gray-500">Historial reciente de cambios en países de origen</p>
+    </div>
+    <div class="px-6 py-4">
+      {% if historial_reciente %}
+        <div class="flow-root">
+          <ul class="-mb-8">
+            {% for movimiento in historial_reciente %}
+            <li>
+              <div class="relative pb-8">
+                {% if not loop.last %}
+                <span class="absolute top-4 left-4 -ml-px h-full w-0.5 bg-gray-200" aria-hidden="true"></span>
+                {% endif %}
+                <div class="relative flex space-x-3">
+                  <div>
+                    {% if movimiento.operacion.value == 'CREATE' %}
+                      <span class="h-8 w-8 rounded-full bg-green-100 flex items-center justify-center ring-8 ring-white">
+                        <svg class="h-5 w-5 text-green-600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                          <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                        </svg>
+                      </span>
+                    {% elif movimiento.operacion.value == 'UPDATE' %}
+                      <span class="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center ring-8 ring-white">
+                        <svg class="h-5 w-5 text-blue-600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/>
+                        </svg>
+                      </span>
+                    {% elif movimiento.operacion.value == 'DELETE' %}
+                      <span class="h-8 w-8 rounded-full bg-red-100 flex items-center justify-center ring-8 ring-white">
+                        <svg class="h-5 w-5 text-red-600" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                          <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/>
+                        </svg>
+                      </span>
+                    {% endif %}
+                  </div>
+                  <div class="min-w-0 flex-1 flex items-center justify-between">
+                    <div>
+                      <p class="text-sm text-gray-500">
+                        {% if movimiento.operacion.value == 'CREATE' %}
+                          <span class="font-medium text-green-700">Creado</span>
+                        {% elif movimiento.operacion.value == 'UPDATE' %}
+                          <span class="font-medium text-blue-700">Actualizado</span>
+                        {% elif movimiento.operacion.value == 'DELETE' %}
+                          <span class="font-medium text-red-700">Eliminado</span>
+                        {% endif %}
+                        país de origen
+                        {% if movimiento.codigo_proveedor and movimiento.numero_material %}
+                          <span class="font-semibold text-gray-900">{{ movimiento.codigo_proveedor }}</span> / 
+                          <span class="font-semibold text-gray-900">{{ movimiento.numero_material }}</span>
+                        {% else %}
+                          <span class="text-gray-400">(eliminado)</span>
+                        {% endif %}
+                        {% if movimiento.datos_despues and movimiento.datos_despues.get('pais_origen') %}
+                          - <span class="text-gray-700">{{ movimiento.datos_despues.get('pais_origen') }}</span>
+                        {% elif movimiento.datos_antes and movimiento.datos_antes.get('pais_origen') %}
+                          - <span class="text-gray-700">{{ movimiento.datos_antes.get('pais_origen') }}</span>
+                        {% endif %}
+                      </p>
+                      {% if movimiento.operacion.value == 'UPDATE' and movimiento.campos_modificados %}
+                      <p class="mt-1 text-xs text-gray-500">
+                        Campos modificados: 
+                        <span class="font-medium">{{ movimiento.campos_modificados | join(', ') }}</span>
+                      </p>
+                      {% endif %}
+                      <p class="mt-1 text-xs text-gray-400">
+                        Por: <span class="font-medium">{{ movimiento.user.email if movimiento.user else 'N/A' }}</span>
+                        {% if movimiento.user and movimiento.user.nombre %}
+                          ({{ movimiento.user.nombre }})
+                        {% endif %}
+                      </p>
+                    </div>
+                    <div class="text-right text-xs whitespace-nowrap text-gray-500">
+                      {{ movimiento.created_at.strftime('%d/%m/%Y %H:%M') if movimiento.created_at else 'N/A' }}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% else %}
+        <div class="text-center py-8">
+          <svg class="mx-auto h-12 w-12 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <p class="mt-2 text-sm text-gray-500">No hay movimientos recientes</p>
+        </div>
+      {% endif %}
+    </div>
   </div>
 
   <!-- Panel de Filtros -->
@@ -36,6 +199,17 @@
             placeholder="Buscar por proveedor, material, país de origen..."
             class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6"
           />
+        </div>
+      </div>
+      <div class="min-w-[200px]">
+        <label for="filtro-pais-origen" class="block text-sm/6 font-medium text-gray-900">País de Origen</label>
+        <div class="mt-2">
+          <select
+            id="filtro-pais-origen"
+            class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6"
+          >
+            <option value="">Todos los países</option>
+          </select>
         </div>
       </div>
       <div class="flex items-end">
@@ -119,12 +293,15 @@
                 </svg>
               </div>
             </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Acciones
+            </th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-200 bg-white" id="tabla-paises-body">
           <!-- Los datos se cargarán dinámicamente -->
           <tr id="fila-sin-datos">
-            <td colspan="6" class="px-6 py-12 text-center text-sm text-gray-500">
+            <td colspan="7" class="px-6 py-12 text-center text-sm text-gray-500">
               <div class="flex flex-col items-center">
                 <svg class="h-12 w-12 text-gray-400 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.944 11.944 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
@@ -201,6 +378,71 @@
   </div>
 </div>
 
+<!-- Modal de Edición -->
+<div id="modal-editar-pais" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+  <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+    <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true" onclick="cerrarModalEditar()"></div>
+    <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+    <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+      <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+        <div class="sm:flex sm:items-start">
+          <div class="mt-3 text-center sm:mt-0 sm:text-left w-full">
+            <h3 class="text-lg leading-6 font-medium text-gray-900" id="modal-title">
+              Editar País de Origen
+            </h3>
+            <div class="mt-4 space-y-4">
+              <div>
+                <label for="edit-codigo-proveedor" class="block text-sm font-medium text-gray-700">Código Proveedor</label>
+                <input
+                  type="text"
+                  id="edit-codigo-proveedor"
+                  readonly
+                  class="mt-1 block w-full rounded-md border-gray-300 bg-gray-100 px-3 py-2 text-sm text-gray-600"
+                />
+              </div>
+              <div>
+                <label for="edit-numero-material" class="block text-sm font-medium text-gray-700">Número Material</label>
+                <input
+                  type="text"
+                  id="edit-numero-material"
+                  readonly
+                  class="mt-1 block w-full rounded-md border-gray-300 bg-gray-100 px-3 py-2 text-sm text-gray-600"
+                />
+              </div>
+              <div>
+                <label for="edit-pais-origen" class="block text-sm font-medium text-gray-700">País de Origen *</label>
+                <input
+                  type="text"
+                  id="edit-pais-origen"
+                  required
+                  class="mt-1 block w-full rounded-md border-gray-300 px-3 py-2 text-sm focus:border-[#003D89] focus:ring-[#003D89]"
+                  placeholder="Ej: México, USA, China..."
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+        <button
+          type="button"
+          id="btn-guardar-pais"
+          class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-[#003D89] text-base font-medium text-white hover:bg-[#003080] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#003D89] sm:ml-3 sm:w-auto sm:text-sm"
+        >
+          Guardar
+        </button>
+        <button
+          type="button"
+          onclick="cerrarModalEditar()"
+          class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#003D89] sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm"
+        >
+          Cancelar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Datos ocultos del backend -->
 <div id="datos-paises" style="display: none;">
 {% if paises %}
@@ -228,13 +470,20 @@
   let columnaOrden = null;
   let ordenAscendente = true;
   let filtros = {
-    search: ''
+    search: '',
+    pais_origen: ''
   };
+
+  // Variable para almacenar el ID del país que se está editando
+  let paisEditandoId = null;
 
   // Inicialización
   document.addEventListener('DOMContentLoaded', function() {
     // Extraer datos del div oculto
     extraerDatos();
+    
+    // Poblar el select de países de origen
+    poblarSelectPaises();
     
     // Configurar eventos
     configurarEventos();
@@ -273,12 +522,26 @@
       });
     }
 
+    // Filtro por país de origen
+    const filtroPaisOrigen = document.getElementById('filtro-pais-origen');
+    if (filtroPaisOrigen) {
+      filtroPaisOrigen.addEventListener('change', function(e) {
+        filtros.pais_origen = e.target.value;
+        aplicarFiltros();
+        renderizarTabla();
+      });
+    }
+
     // Botón limpiar filtros
     const btnLimpiar = document.getElementById('btn-limpiar-filtros');
     if (btnLimpiar) {
       btnLimpiar.addEventListener('click', function() {
         filtros.search = '';
+        filtros.pais_origen = '';
         busquedaInput.value = '';
+        if (filtroPaisOrigen) {
+          filtroPaisOrigen.value = '';
+        }
         aplicarFiltros();
         renderizarTabla();
       });
@@ -324,24 +587,70 @@
         irAPagina(pagina);
       });
     }
+
+    // Botón actualizar países
+    const btnActualizar = document.getElementById('btn-actualizar-paises');
+    if (btnActualizar) {
+      btnActualizar.addEventListener('click', actualizarPaisesOrigenDesdeCompras);
+    }
+
+    // Botón guardar en modal de edición
+    const btnGuardar = document.getElementById('btn-guardar-pais');
+    if (btnGuardar) {
+      btnGuardar.addEventListener('click', guardarPais);
+    }
   }
 
   function aplicarFiltros() {
     paisesFiltrados = todosLosPaises.filter(pais => {
+      // Filtro por búsqueda general
       if (filtros.search) {
         const searchLower = filtros.search.toLowerCase();
-        return (
+        const matchSearch = (
           (pais.codigo_proveedor && pais.codigo_proveedor.toLowerCase().includes(searchLower)) ||
           (pais.numero_material && pais.numero_material.toLowerCase().includes(searchLower)) ||
           (pais.pais_origen && pais.pais_origen.toLowerCase().includes(searchLower)) ||
           (pais.proveedor_nombre && pais.proveedor_nombre.toLowerCase().includes(searchLower)) ||
           (pais.material_descripcion && pais.material_descripcion.toLowerCase().includes(searchLower))
         );
+        if (!matchSearch) return false;
       }
+      
+      // Filtro por país de origen
+      if (filtros.pais_origen) {
+        if (pais.pais_origen !== filtros.pais_origen) {
+          return false;
+        }
+      }
+      
       return true;
     });
 
     paginaActual = 1;
+  }
+
+  function poblarSelectPaises() {
+    const select = document.getElementById('filtro-pais-origen');
+    if (!select) return;
+    
+    // Obtener países únicos y ordenarlos
+    const paisesUnicos = [...new Set(todosLosPaises
+      .map(p => p.pais_origen)
+      .filter(p => p && p.trim() !== '')
+    )].sort();
+    
+    // Limpiar opciones existentes (excepto "Todos los países")
+    while (select.options.length > 1) {
+      select.remove(1);
+    }
+    
+    // Agregar opciones
+    paisesUnicos.forEach(pais => {
+      const option = document.createElement('option');
+      option.value = pais;
+      option.textContent = pais;
+      select.appendChild(option);
+    });
   }
 
   function ordenarDatos() {
@@ -403,7 +712,7 @@
     if (datosPagina.length === 0) {
       tbody.innerHTML = `
         <tr id="fila-sin-datos">
-          <td colspan="6" class="px-6 py-12 text-center text-sm text-gray-500">
+          <td colspan="7" class="px-6 py-12 text-center text-sm text-gray-500">
             <div class="flex flex-col items-center">
               <svg class="h-12 w-12 text-gray-400 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.944 11.944 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
@@ -426,6 +735,15 @@
             <td class="px-4 py-3 text-sm text-gray-500 max-w-xs truncate" title="${escapeHtml(pais.material_descripcion || '')}">${escapeHtml(pais.material_descripcion || 'N/A')}</td>
             <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">${escapeHtml(pais.pais_origen || 'N/A')}</td>
             <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">${fechaActualizacion}</td>
+            <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">
+              <button
+                type="button"
+                onclick="abrirModalEditar(${pais.id}, '${escapeHtml(pais.codigo_proveedor || '')}', '${escapeHtml(pais.numero_material || '')}', '${escapeHtml(pais.pais_origen || '')}')"
+                class="text-[#003D89] hover:text-[#003080] font-medium"
+              >
+                Editar
+              </button>
+            </td>
           </tr>
         `;
       }).join('');
@@ -471,6 +789,211 @@
       renderizarTabla();
     }
   }
+
+  // Funciones para el modal de edición
+  function abrirModalEditar(id, codigoProveedor, numeroMaterial, paisOrigen) {
+    paisEditandoId = id;
+    document.getElementById('edit-codigo-proveedor').value = codigoProveedor;
+    document.getElementById('edit-numero-material').value = numeroMaterial;
+    document.getElementById('edit-pais-origen').value = paisOrigen;
+    document.getElementById('modal-editar-pais').classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function cerrarModalEditar() {
+    document.getElementById('modal-editar-pais').classList.add('hidden');
+    document.body.style.overflow = 'auto';
+    paisEditandoId = null;
+  }
+
+  async function guardarPais() {
+    if (!paisEditandoId) return;
+
+    const paisOrigen = document.getElementById('edit-pais-origen').value.trim();
+    if (!paisOrigen) {
+      alert('El país de origen es requerido');
+      return;
+    }
+
+    const btnGuardar = document.getElementById('btn-guardar-pais');
+    btnGuardar.disabled = true;
+    btnGuardar.textContent = 'Guardando...';
+
+    try {
+      const response = await fetch(`/api/paises-origen/${paisEditandoId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          pais_origen: paisOrigen
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Error desconocido' }));
+        throw new Error(errorData.error || `Error HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      alert('País de origen actualizado exitosamente');
+      cerrarModalEditar();
+      window.location.reload();
+    } catch (error) {
+      console.error('Error al guardar:', error);
+      alert('Error al actualizar el país de origen: ' + error.message);
+    } finally {
+      btnGuardar.disabled = false;
+      btnGuardar.textContent = 'Guardar';
+    }
+  }
+
+  async function actualizarPaisesOrigenDesdeCompras() {
+    const btn = document.getElementById('btn-actualizar-paises');
+    const texto = document.getElementById('btn-actualizar-texto');
+    const spinner = document.getElementById('btn-actualizar-spinner');
+    
+    btn.disabled = true;
+    texto.classList.add('hidden');
+    spinner.classList.remove('hidden');
+    
+    try {
+      const response = await fetch('/api/paises-origen/actualizar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ mensaje: `Error HTTP ${response.status}` }));
+        throw new Error(errorData.mensaje || `Error del servidor: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      mostrarModalResultados(data);
+      
+      if (data.nuevos_creados > 0) {
+        setTimeout(() => {
+          window.location.reload();
+        }, 3000);
+      }
+    } catch (error) {
+      console.error('Error al actualizar países de origen:', error);
+      const mensajeError = error.message || 'Error de conexión al actualizar países de origen';
+      mostrarModalResultados({
+        success: false,
+        mensaje: mensajeError,
+        total_encontrados: 0,
+        nuevos_creados: 0,
+        errores: [mensajeError]
+      });
+    } finally {
+      btn.disabled = false;
+      texto.classList.remove('hidden');
+      spinner.classList.add('hidden');
+    }
+  }
+
+  function mostrarModalResultados(data) {
+    const modal = document.getElementById('modal-resultados');
+    const modalOverlay = document.getElementById('modal-overlay');
+    const modalIconContainer = document.getElementById('modal-icon-container');
+    const modalMensaje = document.getElementById('modal-mensaje');
+    const modalDetalles = document.getElementById('modal-detalles');
+    const modalErrores = document.getElementById('modal-errores');
+    const modalListaErrores = document.getElementById('modal-lista-errores');
+    const btnCerrar = document.getElementById('modal-btn-cerrar');
+    
+    let icono, colorClase, tipoResultado;
+    
+    if (data.nuevos_creados > 0) {
+      tipoResultado = 'success';
+      colorClase = 'bg-green-100';
+      icono = `
+        <svg class="h-6 w-6 text-green-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      `;
+    } else if (data.errores && data.errores.length > 0) {
+      tipoResultado = 'error';
+      colorClase = 'bg-red-100';
+      icono = `
+        <svg class="h-6 w-6 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      `;
+    } else {
+      tipoResultado = 'info';
+      colorClase = 'bg-blue-100';
+      icono = `
+        <svg class="h-6 w-6 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+      `;
+    }
+    
+    modalIconContainer.className = `mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full ${colorClase} sm:mx-0`;
+    modalIconContainer.innerHTML = icono;
+    
+    modalMensaje.textContent = data.mensaje || 'Sincronización completada';
+    modalMensaje.className = `text-sm ${tipoResultado === 'error' ? 'text-red-600' : tipoResultado === 'success' ? 'text-green-600' : 'text-blue-600'}`;
+    
+    if (data.total_encontrados !== undefined || data.nuevos_creados !== undefined) {
+      modalDetalles.classList.remove('hidden');
+      modalDetalles.innerHTML = `
+        <div class="grid grid-cols-2 gap-4 text-sm">
+          <div class="bg-gray-50 p-3 rounded-md">
+            <p class="text-gray-500 text-xs">Registros encontrados</p>
+            <p class="text-lg font-semibold text-gray-900 mt-1">${data.total_encontrados || 0}</p>
+          </div>
+          <div class="bg-gray-50 p-3 rounded-md">
+            <p class="text-gray-500 text-xs">Nuevos creados</p>
+            <p class="text-lg font-semibold ${data.nuevos_creados > 0 ? 'text-green-600' : 'text-gray-900'} mt-1">${data.nuevos_creados || 0}</p>
+          </div>
+        </div>
+      `;
+    } else {
+      modalDetalles.classList.add('hidden');
+    }
+    
+    if (data.errores && data.errores.length > 0) {
+      modalErrores.classList.remove('hidden');
+      modalListaErrores.innerHTML = data.errores.map(error =>
+        `<li>${escapeHtml(error)}</li>`
+      ).join('');
+    } else {
+      modalErrores.classList.add('hidden');
+    }
+    
+    const cerrarModal = () => {
+      modal.classList.add('hidden');
+      document.body.style.overflow = 'auto';
+      btnCerrar.onclick = null;
+      modalOverlay.onclick = null;
+      document.removeEventListener('keydown', handleEscape);
+    };
+    
+    btnCerrar.onclick = cerrarModal;
+    modalOverlay.onclick = cerrarModal;
+    
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') {
+        cerrarModal();
+      }
+    };
+    document.addEventListener('keydown', handleEscape);
+    
+    modal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+  }
+
+  // Cerrar modal con ESC
+  document.addEventListener('keydown', function(event) {
+    if (event.key === 'Escape') {
+      cerrarModalEditar();
+    }
+  });
 </script>
 {% endblock %}
 
