@@ -450,6 +450,36 @@ async def actualizar_pais_origen(
         )
 
 
+@app.get("/api/paises-origen/historial")
+async def api_paises_origen_historial(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Devuelve todos los movimientos del historial de países de origen."""
+    historial = await crud.list_pais_origen_material_historial(
+        db,
+        limit=1000,
+        offset=0
+    )
+    items = []
+    for h in historial:
+        items.append({
+            "id": h.id,
+            "pais_origen_id": h.pais_origen_id,
+            "codigo_proveedor": h.codigo_proveedor,
+            "numero_material": h.numero_material,
+            "operacion": h.operacion.value,
+            "user_email": h.user.email if h.user else None,
+            "user_nombre": h.user.nombre if h.user else None,
+            "datos_antes": h.datos_antes,
+            "datos_despues": h.datos_despues,
+            "campos_modificados": h.campos_modificados,
+            "created_at": h.created_at.isoformat() if h.created_at else None,
+        })
+    return JSONResponse({"movimientos": items})
+
+
 @app.get("/api/proveedores")
 async def api_proveedores(
     request: Request,
