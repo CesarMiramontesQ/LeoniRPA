@@ -456,10 +456,10 @@ async def api_paises_origen_historial(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Devuelve todos los movimientos del historial de países de origen."""
+    """Devuelve los últimos 15 movimientos del historial de países de origen."""
     historial = await crud.list_pais_origen_material_historial(
         db,
-        limit=1000,
+        limit=15,
         offset=0
     )
     items = []
