@@ -89,27 +89,63 @@
                       </li>
                       {% if current_user %}
                       <li>
-                        <a
-                          href="/ventas"
-                          class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page == 'ventas' %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
-                        >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke-width="1.5"
-                            stroke="currentColor"
-                            class="size-6 shrink-0 {% if active_page == 'ventas' %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
+                        <div>
+                          <button
+                            type="button"
+                            id="ventas-menu-toggle-mobile"
+                            class="group flex w-full items-center justify-between gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page in ['ventas', 'grupos_clientes'] %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
                           >
-                            <path
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              d="M14.25 7.756a4.5 4.5 0 1 0 0 8.488M7.5 10.5h5.25m-5.25 3h5.25M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
-                            />
-                          </svg>
-
-                          Ventas
-                        </a>
+                            <div class="flex items-center gap-x-3">
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke-width="1.5"
+                                stroke="currentColor"
+                                class="size-6 shrink-0 {% if active_page in ['ventas', 'grupos_clientes'] %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
+                              >
+                                <path
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  d="M14.25 7.756a4.5 4.5 0 1 0 0 8.488M7.5 10.5h5.25m-5.25 3h5.25M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
+                                />
+                              </svg>
+                              <span>Ventas</span>
+                            </div>
+                            <svg
+                              id="ventas-menu-arrow-mobile"
+                              class="size-5 shrink-0 transition-transform duration-200 {% if active_page in ['ventas', 'grupos_clientes'] %}rotate-90 text-[#003D89]{% else %}text-gray-400{% endif %}"
+                              xmlns="http://www.w3.org/2000/svg"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke-width="1.5"
+                              stroke="currentColor"
+                            >
+                              <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                            </svg>
+                          </button>
+                          <ul
+                            id="ventas-submenu-mobile"
+                            class="mt-1 space-y-1 pl-9 {% if active_page in ['ventas', 'grupos_clientes'] %}block{% else %}hidden{% endif %}"
+                          >
+                            <li>
+                              <a
+                                href="/ventas"
+                                class="block rounded-md px-2 py-1.5 text-sm/6 font-medium {% if active_page == 'ventas' %}bg-gray-100 text-[#003D89]{% else %}text-gray-600 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                              >
+                                General
+                              </a>
+                            </li>
+                            <li>
+                              <a
+                                href="/grupos-clientes"
+                                class="block rounded-md px-2 py-1.5 text-sm/6 font-medium {% if active_page == 'grupos_clientes' %}bg-gray-100 text-[#003D89]{% else %}text-gray-600 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                              >
+                                Grupos de Clientes
+                              </a>
+                            </li>
+                          </ul>
+                        </div>
                       </li>
                       <li>
                         <div>
@@ -309,26 +345,63 @@
                 </li>
                 {% if current_user %}
                 <li>
-                  <a
-                    href="/ventas"
-                    class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page == 'ventas' %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke-width="1.5"
-                      stroke="currentColor"
-                      class="size-6 shrink-0 {% if active_page == 'ventas' %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
+                  <div>
+                    <button
+                      type="button"
+                      id="ventas-menu-toggle-desktop"
+                      class="group flex w-full items-center justify-between gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page in ['ventas', 'grupos_clientes'] %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
                     >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        d="M14.25 7.756a4.5 4.5 0 1 0 0 8.488M7.5 10.5h5.25m-5.25 3h5.25M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
-                      />
-                    </svg>
-                    Ventas
-                  </a>
+                      <div class="flex items-center gap-x-3">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke-width="1.5"
+                          stroke="currentColor"
+                          class="size-6 shrink-0 {% if active_page == 'ventas' %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
+                        >
+                          <path
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            d="M14.25 7.756a4.5 4.5 0 1 0 0 8.488M7.5 10.5h5.25m-5.25 3h5.25M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
+                          />
+                        </svg>
+                        <span>Ventas</span>
+                      </div>
+                      <svg
+                        id="ventas-menu-arrow-desktop"
+                        class="size-5 shrink-0 transition-transform duration-200 {% if active_page in ['ventas', 'grupos_clientes'] %}rotate-90 text-[#003D89]{% else %}text-gray-400{% endif %}"
+                        xmlns="http://www.w3.org/2000/svg"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke-width="1.5"
+                        stroke="currentColor"
+                      >
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                      </svg>
+                    </button>
+                    <ul
+                      id="ventas-submenu-desktop"
+                      class="mt-1 space-y-1 pl-9 {% if active_page in ['ventas', 'grupos_clientes'] %}block{% else %}hidden{% endif %}"
+                    >
+                      <li>
+                        <a
+                          href="/ventas"
+                          class="block rounded-md px-2 py-1.5 text-sm/6 font-medium {% if active_page == 'ventas' %}bg-gray-100 text-[#003D89]{% else %}text-gray-600 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                        >
+                          General
+                        </a>
+                      </li>
+                      <li>
+                        <a
+                          href="/grupos-clientes"
+                          class="block rounded-md px-2 py-1.5 text-sm/6 font-medium {% if active_page == 'grupos_clientes' %}bg-gray-100 text-[#003D89]{% else %}text-gray-600 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                        >
+                          Grupos de Clientes
+                        </a>
+                      </li>
+                    </ul>
+                  </div>
                 </li>
                 <li>
                   <div>
@@ -571,8 +644,8 @@
     </main>
 
     <script>
-      // Función para toggle del menú de compras
-      function setupComprasMenu(toggleId, submenuId, arrowId) {
+      // Función para toggle del menú (compras o ventas)
+      function setupMenu(toggleId, submenuId, arrowId) {
         const toggle = document.getElementById(toggleId);
         const submenu = document.getElementById(submenuId);
         const arrow = document.getElementById(arrowId);
@@ -600,11 +673,17 @@
 
       // Inicializar cuando el DOM esté listo
       document.addEventListener('DOMContentLoaded', function() {
-        // Configurar menú móvil
-        setupComprasMenu('compras-menu-toggle-mobile', 'compras-submenu-mobile', 'compras-menu-arrow-mobile');
+        // Configurar menú de compras (móvil)
+        setupMenu('compras-menu-toggle-mobile', 'compras-submenu-mobile', 'compras-menu-arrow-mobile');
         
-        // Configurar menú desktop
-        setupComprasMenu('compras-menu-toggle-desktop', 'compras-submenu-desktop', 'compras-menu-arrow-desktop');
+        // Configurar menú de compras (desktop)
+        setupMenu('compras-menu-toggle-desktop', 'compras-submenu-desktop', 'compras-menu-arrow-desktop');
+        
+        // Configurar menú de ventas (móvil)
+        setupMenu('ventas-menu-toggle-mobile', 'ventas-submenu-mobile', 'ventas-menu-arrow-mobile');
+        
+        // Configurar menú de ventas (desktop)
+        setupMenu('ventas-menu-toggle-desktop', 'ventas-submenu-desktop', 'ventas-menu-arrow-desktop');
       });
     </script>
   </body>

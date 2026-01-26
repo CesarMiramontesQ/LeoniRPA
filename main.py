@@ -83,6 +83,33 @@ async def ventas(request: Request, current_user: User = Depends(get_current_user
     )
 
 
+@app.get("/grupos-clientes")
+async def grupos_clientes(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Página de grupos de clientes - requiere autenticación."""
+    # Cargar los grupos de clientes desde la base de datos
+    grupos_data = await crud.list_cliente_grupos(db, limit=10000)
+    
+    # Calcular estadísticas
+    total_grupos = await crud.count_cliente_grupos(db)
+    
+    # Obtener grupos únicos para filtros
+    grupos_unicos = sorted(set([g.grupo for g in grupos_data if g.grupo]), key=lambda x: x or "")
+    grupos_viejos_unicos = sorted(set([g.grupo_viejo for g in grupos_data if g.grupo_viejo]), key=lambda x: x or "")
+    
+    return templates.TemplateResponse(
+        "grupos_clientes.html",
+        {
+            "request": request,
+            "active_page": "grupos_clientes",
+            "current_user": current_user,
+            "grupos": grupos_data,
+            "total_grupos": total_grupos,
+            "grupos_unicos": grupos_unicos,
+            "grupos_viejos_unicos": grupos_viejos_unicos
+        }
+    )
+
+
 def convertir_a_cdmx(dt: Optional[datetime]) -> Optional[datetime]:
     """Convierte una fecha UTC a la zona horaria de Ciudad de México."""
     if dt is None:

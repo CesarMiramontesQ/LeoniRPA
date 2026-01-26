@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion
+from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo
 from app.core.security import hash_password
 
 
@@ -2853,3 +2853,139 @@ async def count_pais_origen_material_historial(
     
     result = await db.execute(query)
     return result.scalar() or 0
+
+
+# ============================================================================
+# Funciones CRUD para ClienteGrupo
+# ============================================================================
+
+async def get_cliente_grupo_by_id(db: AsyncSession, id: int) -> Optional[ClienteGrupo]:
+    """Obtiene un grupo de cliente por ID."""
+    result = await db.execute(select(ClienteGrupo).where(ClienteGrupo.id == id))
+    return result.scalar_one_or_none()
+
+
+async def get_cliente_grupo_by_codigo(db: AsyncSession, codigo_cliente: int) -> Optional[ClienteGrupo]:
+    """Obtiene un grupo de cliente por código de cliente."""
+    result = await db.execute(select(ClienteGrupo).where(ClienteGrupo.codigo_cliente == codigo_cliente))
+    return result.scalar_one_or_none()
+
+
+async def list_cliente_grupos(
+    db: AsyncSession,
+    search: Optional[str] = None,
+    grupo: Optional[str] = None,
+    grupo_viejo: Optional[str] = None,
+    limit: int = 1000,
+    offset: int = 0
+) -> List[ClienteGrupo]:
+    """Lista grupos de clientes con filtros opcionales."""
+    query = select(ClienteGrupo)
+    
+    if search:
+        # Buscar en código_cliente (convertir a string para búsqueda)
+        try:
+            codigo_search = int(search)
+            query = query.where(ClienteGrupo.codigo_cliente == codigo_search)
+        except ValueError:
+            # Si no es un número, buscar en grupo y grupo_viejo
+            search_pattern = f"%{search}%"
+            query = query.where(
+                or_(
+                    ClienteGrupo.grupo.ilike(search_pattern),
+                    ClienteGrupo.grupo_viejo.ilike(search_pattern)
+                )
+            )
+    
+    if grupo:
+        query = query.where(ClienteGrupo.grupo == grupo)
+    
+    if grupo_viejo:
+        query = query.where(ClienteGrupo.grupo_viejo == grupo_viejo)
+    
+    query = query.order_by(desc(ClienteGrupo.created_at)).limit(limit).offset(offset)
+    
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def count_cliente_grupos(
+    db: AsyncSession,
+    search: Optional[str] = None,
+    grupo: Optional[str] = None,
+    grupo_viejo: Optional[str] = None
+) -> int:
+    """Cuenta el total de grupos de clientes con filtros opcionales."""
+    query = select(func.count(ClienteGrupo.id))
+    
+    if search:
+        try:
+            codigo_search = int(search)
+            query = query.where(ClienteGrupo.codigo_cliente == codigo_search)
+        except ValueError:
+            search_pattern = f"%{search}%"
+            query = query.where(
+                or_(
+                    ClienteGrupo.grupo.ilike(search_pattern),
+                    ClienteGrupo.grupo_viejo.ilike(search_pattern)
+                )
+            )
+    
+    if grupo:
+        query = query.where(ClienteGrupo.grupo == grupo)
+    
+    if grupo_viejo:
+        query = query.where(ClienteGrupo.grupo_viejo == grupo_viejo)
+    
+    result = await db.execute(query)
+    return result.scalar() or 0
+
+
+async def create_cliente_grupo(
+    db: AsyncSession,
+    codigo_cliente: int,
+    grupo: Optional[str] = None,
+    grupo_viejo: Optional[str] = None
+) -> ClienteGrupo:
+    """Crea un nuevo grupo de cliente."""
+    cliente_grupo = ClienteGrupo(
+        codigo_cliente=codigo_cliente,
+        grupo=grupo,
+        grupo_viejo=grupo_viejo
+    )
+    db.add(cliente_grupo)
+    await db.commit()
+    await db.refresh(cliente_grupo)
+    return cliente_grupo
+
+
+async def update_cliente_grupo(
+    db: AsyncSession,
+    id: int,
+    grupo: Optional[str] = None,
+    grupo_viejo: Optional[str] = None
+) -> Optional[ClienteGrupo]:
+    """Actualiza un grupo de cliente."""
+    cliente_grupo = await get_cliente_grupo_by_id(db, id)
+    if not cliente_grupo:
+        return None
+    
+    if grupo is not None:
+        cliente_grupo.grupo = grupo
+    if grupo_viejo is not None:
+        cliente_grupo.grupo_viejo = grupo_viejo
+    
+    await db.commit()
+    await db.refresh(cliente_grupo)
+    return cliente_grupo
+
+
+async def delete_cliente_grupo(db: AsyncSession, id: int) -> bool:
+    """Elimina un grupo de cliente."""
+    cliente_grupo = await get_cliente_grupo_by_id(db, id)
+    if not cliente_grupo:
+        return False
+    
+    await db.delete(cliente_grupo)
+    await db.commit()
+    return True

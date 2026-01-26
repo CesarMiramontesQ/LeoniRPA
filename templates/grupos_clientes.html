@@ -1,0 +1,514 @@
+{% extends "base.html" %} {% block content %}
+<div class="space-y-6">
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold text-gray-900">Grupos de Clientes</h1>
+      <p class="mt-1 text-sm text-gray-600">
+        Consulta y gestión de grupos de clientes
+      </p>
+    </div>
+  </div>
+
+  <!-- Tarjetas de Estadísticas -->
+  <div>
+    <dl class="grid grid-cols-1 gap-5 sm:grid-cols-1">
+      <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
+        <dt class="truncate text-sm font-medium text-gray-500">Total de Clientes con Grupo</dt>
+        <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900">{{ "{:,}".format(total_grupos) }}</dd>
+      </div>
+    </dl>
+  </div>
+
+  <!-- Panel de Filtros -->
+  <div class="rounded-lg bg-white p-6 shadow-sm">
+    <div class="flex flex-wrap items-end gap-4">
+      <div class="flex-1 min-w-[200px]">
+        <label for="busqueda-general" class="block text-sm/6 font-medium text-gray-900">Buscar</label>
+        <div class="mt-2">
+          <input
+            type="text"
+            id="busqueda-general"
+            placeholder="Buscar por código de cliente, grupo o grupo viejo..."
+            class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6"
+          />
+        </div>
+      </div>
+      <div class="min-w-[150px]">
+        <label for="filtro-grupo" class="block text-sm/6 font-medium text-gray-900">Grupo</label>
+        <div class="mt-2">
+          <select
+            id="filtro-grupo"
+            class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6"
+          >
+            <option value="">Todos</option>
+            {% for grupo in grupos_unicos %}
+            <option value="{{ grupo }}">{{ grupo }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="min-w-[150px]">
+        <label for="filtro-grupo-viejo" class="block text-sm/6 font-medium text-gray-900">Grupo Viejo</label>
+        <div class="mt-2">
+          <select
+            id="filtro-grupo-viejo"
+            class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6"
+          >
+            <option value="">Todos</option>
+            {% for grupo_viejo in grupos_viejos_unicos %}
+            <option value="{{ grupo_viejo }}">{{ grupo_viejo }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="flex items-end">
+        <button
+          id="btn-limpiar-filtros"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+        >
+          Limpiar
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabla de Grupos de Clientes -->
+  <div class="rounded-lg bg-white shadow-sm">
+    <!-- Encabezado de la tabla con información y controles -->
+    <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+      <div class="flex items-center gap-4">
+        <span class="text-sm text-gray-600">
+          Mostrando <span id="registros-mostrados" class="font-medium">0</span> de <span id="total-registros" class="font-medium">0</span> registros
+        </span>
+      </div>
+      <div class="flex items-center gap-4">
+        <!-- Selector de registros por página -->
+        <div class="flex items-center gap-2">
+          <label for="registros-por-pagina" class="text-sm text-gray-600">Mostrar:</label>
+          <select
+            id="registros-por-pagina"
+            class="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+          >
+            <option value="10">10</option>
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabla -->
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200" id="tabla-grupos">
+        <thead class="bg-gray-50">
+          <tr>
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="codigo_cliente">
+              <div class="flex items-center gap-1">
+                Código Cliente
+                <svg class="h-4 w-4 text-gray-400 sort-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
+                </svg>
+              </div>
+            </th>
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="grupo_viejo">
+              <div class="flex items-center gap-1">
+                Grupo Viejo
+                <svg class="h-4 w-4 text-gray-400 sort-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
+                </svg>
+              </div>
+            </th>
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="grupo">
+              <div class="flex items-center gap-1">
+                Grupo
+                <svg class="h-4 w-4 text-gray-400 sort-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
+                </svg>
+              </div>
+            </th>
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="created_at">
+              <div class="flex items-center gap-1">
+                Fecha de Creación
+                <svg class="h-4 w-4 text-gray-400 sort-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
+                </svg>
+              </div>
+            </th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200 bg-white" id="tabla-grupos-body">
+          <!-- Los datos se cargarán dinámicamente -->
+          <tr id="fila-sin-datos">
+            <td colspan="4" class="px-6 py-12 text-center text-sm text-gray-500">
+              <div class="flex flex-col items-center">
+                <svg class="h-12 w-12 text-gray-400 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+                </svg>
+                <p class="text-gray-500 font-medium">No hay grupos de clientes registrados</p>
+                <p class="text-gray-400 mt-1">Los datos se mostrarán aquí cuando estén disponibles</p>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Paginación -->
+    <div class="flex items-center justify-between border-t border-gray-200 px-6 py-4">
+      <div class="flex items-center gap-2">
+        <button
+          id="btn-primera-pagina"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled
+        >
+          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m18.75 4.5-7.5 7.5 7.5 7.5m-6-15L5.25 12l7.5 7.5" />
+          </svg>
+        </button>
+        <button
+          id="btn-pagina-anterior"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled
+        >
+          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+          </svg>
+        </button>
+        <span class="text-sm text-gray-700">
+          Página <span id="pagina-actual">1</span> de <span id="total-paginas">1</span>
+        </span>
+        <button
+          id="btn-pagina-siguiente"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled
+        >
+          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+          </svg>
+        </button>
+        <button
+          id="btn-ultima-pagina"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled
+        >
+          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m5.25 4.5 7.5 7.5-7.5 7.5m6-15L18.75 12l-7.5 7.5" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Datos ocultos del backend -->
+<div id="datos-grupos" style="display: none;">
+{% for grupo in grupos %}
+<div data-grupo-item
+     data-id="{{ grupo.id }}"
+     data-codigo-cliente="{{ grupo.codigo_cliente }}"
+     data-grupo-viejo="{% if grupo.grupo_viejo %}{{ grupo.grupo_viejo }}{% endif %}"
+     data-grupo-actual="{% if grupo.grupo %}{{ grupo.grupo }}{% endif %}"
+     data-created-at="{% if grupo.created_at %}{{ grupo.created_at.isoformat() }}{% endif %}">
+</div>
+{% endfor %}
+</div>
+
+<script>
+  // Variables de estado
+  let todosLosGrupos = [];
+  let gruposFiltrados = [];
+  let paginaActual = 1;
+  let registrosPorPagina = 25;
+  let columnaOrden = null;
+  let ordenAscendente = true;
+
+  // Inicialización
+  document.addEventListener('DOMContentLoaded', function() {
+    // Extraer datos del div oculto
+    extraerDatos();
+    
+    // Configurar eventos
+    configurarEventos();
+    
+    // Renderizar la primera página
+    if (todosLosGrupos.length > 0) {
+      aplicarFiltros();
+      renderizarTabla();
+    }
+  });
+
+  function extraerDatos() {
+    const elementos = document.querySelectorAll('#datos-grupos [data-grupo-item]');
+    todosLosGrupos = Array.from(elementos).map(el => {
+      const grupoViejo = el.getAttribute('data-grupo-viejo');
+      const grupo = el.getAttribute('data-grupo-actual'); // Cambiado a data-grupo-actual
+      const codigoCliente = el.getAttribute('data-codigo-cliente');
+      
+      // Debug para un elemento
+      if (todosLosGrupos.length === 0 && codigoCliente) {
+        console.log('Ejemplo de extracción:', {
+          codigo_cliente: codigoCliente,
+          grupo_viejo_attr: grupoViejo,
+          grupo_attr: grupo,
+          grupo_viejo_type: typeof grupoViejo,
+          grupo_type: typeof grupo,
+          todos_atributos: Array.from(el.attributes).map(attr => ({name: attr.name, value: attr.value}))
+        });
+      }
+      
+      return {
+        id: parseInt(el.getAttribute('data-id')),
+        codigo_cliente: parseInt(codigoCliente),
+        grupo_viejo: grupoViejo !== null && grupoViejo !== undefined ? grupoViejo : '',
+        grupo: grupo !== null && grupo !== undefined ? grupo : '',
+        created_at: el.getAttribute('data-created-at') || ''
+      };
+    });
+    gruposFiltrados = [...todosLosGrupos];
+    
+    // Debug: mostrar en consola los primeros registros
+    if (todosLosGrupos.length > 0) {
+      console.log('Total grupos extraídos:', todosLosGrupos.length);
+      console.log('Primeros 3 grupos:', todosLosGrupos.slice(0, 3));
+    }
+  }
+
+  function configurarEventos() {
+    // Búsqueda general
+    const busquedaGeneral = document.getElementById('busqueda-general');
+    busquedaGeneral.addEventListener('input', aplicarFiltros);
+    
+    // Filtros
+    document.getElementById('filtro-grupo').addEventListener('change', aplicarFiltros);
+    document.getElementById('filtro-grupo-viejo').addEventListener('change', aplicarFiltros);
+    
+    // Limpiar filtros
+    document.getElementById('btn-limpiar-filtros').addEventListener('click', limpiarFiltros);
+    
+    // Registros por página
+    document.getElementById('registros-por-pagina').addEventListener('change', function(e) {
+      registrosPorPagina = parseInt(e.target.value);
+      paginaActual = 1;
+      renderizarTabla();
+    });
+    
+    // Ordenamiento
+    document.querySelectorAll('[data-sort]').forEach(th => {
+      th.addEventListener('click', function() {
+        const columna = this.getAttribute('data-sort');
+        if (columnaOrden === columna) {
+          ordenAscendente = !ordenAscendente;
+        } else {
+          columnaOrden = columna;
+          ordenAscendente = true;
+        }
+        ordenarDatos();
+        renderizarTabla();
+        actualizarIconosOrdenamiento();
+      });
+    });
+    
+    // Paginación
+    document.getElementById('btn-primera-pagina').addEventListener('click', () => irAPagina(1));
+    document.getElementById('btn-pagina-anterior').addEventListener('click', () => irAPagina(paginaActual - 1));
+    document.getElementById('btn-pagina-siguiente').addEventListener('click', () => irAPagina(paginaActual + 1));
+    document.getElementById('btn-ultima-pagina').addEventListener('click', () => irAPagina(Math.ceil(gruposFiltrados.length / registrosPorPagina)));
+  }
+
+  function aplicarFiltros() {
+    const busqueda = document.getElementById('busqueda-general').value.toLowerCase().trim();
+    const filtroGrupo = document.getElementById('filtro-grupo').value;
+    const filtroGrupoViejo = document.getElementById('filtro-grupo-viejo').value;
+    
+    gruposFiltrados = todosLosGrupos.filter(grupo => {
+      // Búsqueda general
+      if (busqueda) {
+        const matchBusqueda = 
+          grupo.codigo_cliente.toString().includes(busqueda) ||
+          grupo.grupo.toLowerCase().includes(busqueda) ||
+          grupo.grupo_viejo.toLowerCase().includes(busqueda);
+        if (!matchBusqueda) return false;
+      }
+      
+      // Filtro por grupo
+      if (filtroGrupo && grupo.grupo !== filtroGrupo) {
+        return false;
+      }
+      
+      // Filtro por grupo viejo
+      if (filtroGrupoViejo && grupo.grupo_viejo !== filtroGrupoViejo) {
+        return false;
+      }
+      
+      return true;
+    });
+    
+    paginaActual = 1;
+    ordenarDatos();
+    renderizarTabla();
+  }
+
+  function limpiarFiltros() {
+    document.getElementById('busqueda-general').value = '';
+    document.getElementById('filtro-grupo').value = '';
+    document.getElementById('filtro-grupo-viejo').value = '';
+    aplicarFiltros();
+  }
+
+  function ordenarDatos() {
+    if (!columnaOrden) {
+      return;
+    }
+    
+    gruposFiltrados.sort((a, b) => {
+      let valorA, valorB;
+      
+      switch(columnaOrden) {
+        case 'codigo_cliente':
+          valorA = a.codigo_cliente;
+          valorB = b.codigo_cliente;
+          break;
+        case 'grupo_viejo':
+          valorA = a.grupo_viejo || '';
+          valorB = b.grupo_viejo || '';
+          break;
+        case 'grupo':
+          valorA = a.grupo || '';
+          valorB = b.grupo || '';
+          break;
+        case 'created_at':
+          valorA = a.created_at || '';
+          valorB = b.created_at || '';
+          break;
+        default:
+          return 0;
+      }
+      
+      if (typeof valorA === 'string') {
+        return ordenAscendente 
+          ? valorA.localeCompare(valorB)
+          : valorB.localeCompare(valorA);
+      } else {
+        return ordenAscendente ? valorA - valorB : valorB - valorA;
+      }
+    });
+  }
+
+  function renderizarTabla() {
+    const tbody = document.getElementById('tabla-grupos-body');
+    const inicio = (paginaActual - 1) * registrosPorPagina;
+    const fin = inicio + registrosPorPagina;
+    const datosPagina = gruposFiltrados.slice(inicio, fin);
+    
+    const totalPaginas = Math.ceil(gruposFiltrados.length / registrosPorPagina) || 1;
+    
+    // Actualizar información
+    document.getElementById('registros-mostrados').textContent = datosPagina.length;
+    document.getElementById('total-registros').textContent = gruposFiltrados.length;
+    document.getElementById('pagina-actual').textContent = paginaActual;
+    document.getElementById('total-paginas').textContent = totalPaginas;
+    
+    // Actualizar botones de paginación
+    document.getElementById('btn-primera-pagina').disabled = paginaActual === 1;
+    document.getElementById('btn-pagina-anterior').disabled = paginaActual === 1;
+    document.getElementById('btn-pagina-siguiente').disabled = paginaActual === totalPaginas;
+    document.getElementById('btn-ultima-pagina').disabled = paginaActual === totalPaginas;
+    
+    if (datosPagina.length === 0) {
+      tbody.innerHTML = `
+        <tr id="fila-sin-datos">
+          <td colspan="4" class="px-6 py-12 text-center text-sm text-gray-500">
+            <div class="flex flex-col items-center">
+              <svg class="h-12 w-12 text-gray-400 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+              </svg>
+              <p class="text-gray-500 font-medium">No se encontraron resultados</p>
+              <p class="text-gray-400 mt-1">Intenta ajustar los filtros de búsqueda</p>
+            </div>
+          </td>
+        </tr>
+      `;
+    } else {
+      tbody.innerHTML = datosPagina.map(grupo => {
+        const fecha = grupo.created_at ? new Date(grupo.created_at).toLocaleDateString('es-MX', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit'
+        }) : 'N/A';
+        
+        // Manejar grupo_viejo
+        let grupoViejoHtml;
+        if (grupo.grupo_viejo && grupo.grupo_viejo.trim() !== '') {
+          grupoViejoHtml = grupo.grupo_viejo;
+        } else {
+          grupoViejoHtml = '<span class="text-gray-400">-</span>';
+        }
+        
+        // Manejar grupo
+        let grupoHtml;
+        if (grupo.grupo && grupo.grupo.trim() !== '') {
+          grupoHtml = grupo.grupo;
+        } else {
+          grupoHtml = '<span class="text-gray-400">-</span>';
+        }
+        
+        return `
+          <tr class="hover:bg-gray-50">
+            <td class="whitespace-nowrap px-4 py-4 text-sm font-medium text-gray-900">
+              ${grupo.codigo_cliente}
+            </td>
+            <td class="whitespace-nowrap px-4 py-4 text-sm text-gray-600">
+              ${grupoViejoHtml}
+            </td>
+            <td class="whitespace-nowrap px-4 py-4 text-sm text-gray-600">
+              ${grupoHtml}
+            </td>
+            <td class="whitespace-nowrap px-4 py-4 text-sm text-gray-500">
+              ${fecha}
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+  }
+
+  function irAPagina(pagina) {
+    const totalPaginas = Math.ceil(gruposFiltrados.length / registrosPorPagina) || 1;
+    if (pagina >= 1 && pagina <= totalPaginas) {
+      paginaActual = pagina;
+      renderizarTabla();
+    }
+  }
+
+  function actualizarIconosOrdenamiento() {
+    document.querySelectorAll('[data-sort]').forEach(th => {
+      const iconos = th.querySelectorAll('.sort-icon');
+      iconos.forEach(icono => {
+        if (th.getAttribute('data-sort') === columnaOrden) {
+          icono.classList.remove('text-gray-400');
+          icono.classList.add('text-[#003D89]');
+          // Cambiar dirección del icono según orden
+          if (ordenAscendente) {
+            icono.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />';
+          } else {
+            icono.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M15.75 15 12 11.25 8.25 15m7.5-6L12 5.25 8.25 9" />';
+          }
+        } else {
+          icono.classList.remove('text-[#003D89]');
+          icono.classList.add('text-gray-400');
+          icono.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />';
+        }
+      });
+    });
+  }
+</script>
+{% endblock %}
