@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from app.db.base import Base
 from app.core.config import settings
 # Importar modelos para que SQLAlchemy los registre
-from app.db.models import User, ExecutionHistory, SalesExecutionHistory, Material, PrecioMaterial, Compra, PaisOrigenMaterial
+from app.db.models import User, ExecutionHistory, SalesExecutionHistory, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ClienteGrupo
 
 
 async def init_db():

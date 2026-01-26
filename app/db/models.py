@@ -654,3 +654,26 @@ class PrecioMaterialHistorial(Base):
     def __repr__(self):
         return f"<PrecioMaterialHistorial(id={self.id}, precio_material_id={self.precio_material_id}, operacion={self.operacion.value}, created_at={self.created_at})>"
 
+
+class ClienteGrupo(Base):
+    """Modelo para grupos de clientes."""
+    __tablename__ = "cliente_grupo"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Código del cliente
+    codigo_cliente = Column(String, nullable=False, index=True)
+    
+    # Grupo viejo
+    grupo_viejo = Column(String, nullable=True)
+    
+    # Grupo
+    grupo = Column(String, nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    def __repr__(self):
+        return f"<ClienteGrupo(id={self.id}, codigo_cliente={self.codigo_cliente}, grupo={self.grupo})>"
+
