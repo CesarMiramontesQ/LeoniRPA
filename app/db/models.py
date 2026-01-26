@@ -662,7 +662,7 @@ class ClienteGrupo(Base):
     id = Column(Integer, primary_key=True, index=True)
     
     # Código del cliente
-    codigo_cliente = Column(String, nullable=False, index=True)
+    codigo_cliente = Column(Integer, nullable=False, index=True)
     
     # Grupo viejo
     grupo_viejo = Column(String, nullable=True)
