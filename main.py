@@ -2132,37 +2132,28 @@ async def procesar_historial_compras(
 async def procesar_archivos_ventas(
     request: Request,
     archivo_ventas: UploadFile = File(...),
-    archivo_po: UploadFile = File(...),
     carpeta_salida: str = Form(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Procesa dos archivos Excel (Reporte de ventas y Purchase Order History) y genera un archivo final."""
+    """Procesa un archivo Excel (Reporte de ventas) y genera un archivo final."""
     import tempfile
     import shutil
     import os
     from pathlib import Path
     
     try:
-        # Validar que sean archivos Excel
+        # Validar que sea un archivo Excel
         extensiones_permitidas = ['.xlsx', '.xls']
         
         nombre_archivo_ventas = archivo_ventas.filename or ''
-        nombre_archivo_po = archivo_po.filename or ''
         
         extension_ventas = Path(nombre_archivo_ventas).suffix.lower()
-        extension_po = Path(nombre_archivo_po).suffix.lower()
         
         if extension_ventas not in extensiones_permitidas:
             return JSONResponse(
                 status_code=400,
                 content={"error": "El archivo de Reporte de ventas debe ser un archivo Excel (.xlsx o .xls)"}
-            )
-        
-        if extension_po not in extensiones_permitidas:
-            return JSONResponse(
-                status_code=400,
-                content={"error": "El archivo de Purchase Order History debe ser un archivo Excel (.xlsx o .xls)"}
             )
         
         # Validar carpeta de salida
@@ -2186,29 +2177,25 @@ async def procesar_archivos_ventas(
                 content={"error": f"La ruta especificada no es una carpeta: {carpeta_salida}"}
             )
         
-        # Crear directorio temporal para los archivos
+        # Crear directorio temporal para el archivo
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
             
-            # Guardar archivos temporalmente
+            # Guardar archivo temporalmente
             archivo_ventas_path = temp_path / f"ventas_{nombre_archivo_ventas}"
-            archivo_po_path = temp_path / f"po_{nombre_archivo_po}"
             
             with open(archivo_ventas_path, "wb") as f:
                 shutil.copyfileobj(archivo_ventas.file, f)
             
-            with open(archivo_po_path, "wb") as f:
-                shutil.copyfileobj(archivo_po.file, f)
-            
-            # Aquí se procesarían los archivos Excel y se generaría el archivo final
+            # Aquí se procesaría el archivo Excel y se generaría el archivo final
             # Por ahora, vamos a crear una estructura básica
             # TODO: Implementar la lógica de procesamiento específica
             
             # Crear un archivo de resultado (por ahora solo como ejemplo)
-            # En producción, aquí se procesarían los Excel y se generaría el archivo final
+            # En producción, aquí se procesaría el Excel y se generaría el archivo final
             archivo_resultado_path = temp_path / "archivo_procesado.xlsx"
             
-            # Procesar los archivos (implementar lógica específica aquí)
+            # Procesar el archivo (implementar lógica específica aquí)
             # Por ahora, solo devolvemos un mensaje de éxito
             # Cuando se implemente el procesamiento real, aquí se generaría el archivo final
             # y se guardaría en carpeta_salida_path
@@ -2217,11 +2204,8 @@ async def procesar_archivos_ventas(
                 status_code=200,
                 content={
                     "success": True,
-                    "message": f"Los archivos se recibieron correctamente. El procesamiento se implementará próximamente. Carpeta de salida: {carpeta_salida}",
-                    "archivos_recibidos": {
-                        "ventas": nombre_archivo_ventas,
-                        "purchase_order_history": nombre_archivo_po
-                    },
+                    "message": f"El archivo se recibió correctamente. El procesamiento se implementará próximamente. Carpeta de salida: {carpeta_salida}",
+                    "archivo_recibido": nombre_archivo_ventas,
                     "carpeta_salida": str(carpeta_salida_path)
                 }
             )

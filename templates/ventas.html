@@ -213,10 +213,10 @@
           </h2>
 
           <div class="space-y-4">
-            <!-- Archivo 1: Reporte de ventas -->
+            <!-- Archivo: Reporte de ventas -->
             <div>
               <label class="block text-sm font-medium text-gray-900 mb-2">
-                1. Reporte de ventas
+                Reporte de ventas
               </label>
               <div class="mt-1 flex gap-2">
                 <input
@@ -242,42 +242,6 @@
                 <button
                   type="button"
                   id="btn-borrar-ventas"
-                  class="hidden rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
-                >
-                  Borrar
-                </button>
-              </div>
-            </div>
-
-            <!-- Archivo 2: Grupo clientes -->
-            <div>
-              <label class="block text-sm font-medium text-gray-900 mb-2">
-                2. Grupo clientes
-              </label>
-              <div class="mt-1 flex gap-2">
-                <input
-                  type="file"
-                  id="archivo-po"
-                  accept=".xlsx,.xls"
-                  class="hidden"
-                />
-                <input
-                  type="text"
-                  id="nombre-archivo-po-display"
-                  readonly
-                  placeholder="Ningún archivo seleccionado"
-                  class="block flex-1 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:border-transparent"
-                />
-                <button
-                  type="button"
-                  id="btn-seleccionar-po"
-                  class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
-                >
-                  Seleccionar
-                </button>
-                <button
-                  type="button"
-                  id="btn-borrar-po"
                   class="hidden rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
                 >
                   Borrar
@@ -599,43 +563,6 @@
     }
   });
   
-  // Archivo 2: Grupo clientes
-  const archivoPoInput = document.getElementById('archivo-po');
-  const btnSeleccionarPo = document.getElementById('btn-seleccionar-po');
-  const btnBorrarPo = document.getElementById('btn-borrar-po');
-  const nombreArchivoPoDisplay = document.getElementById('nombre-archivo-po-display');
-  
-  function actualizarEstadoPo(archivoSeleccionado) {
-    if (archivoSeleccionado) {
-      nombreArchivoPoDisplay.value = archivoSeleccionado.name;
-      btnSeleccionarPo.textContent = 'Cambiar';
-      btnSeleccionarPo.classList.remove('hidden');
-      btnBorrarPo.classList.remove('hidden');
-    } else {
-      nombreArchivoPoDisplay.value = '';
-      btnSeleccionarPo.textContent = 'Seleccionar';
-      btnSeleccionarPo.classList.remove('hidden');
-      btnBorrarPo.classList.add('hidden');
-      archivoPoInput.value = ''; // Limpiar el input file
-    }
-  }
-  
-  btnSeleccionarPo.addEventListener('click', function() {
-    archivoPoInput.click();
-  });
-  
-  btnBorrarPo.addEventListener('click', function() {
-    actualizarEstadoPo(null);
-  });
-  
-  archivoPoInput.addEventListener('change', function(e) {
-    if (e.target.files && e.target.files.length > 0) {
-      actualizarEstadoPo(e.target.files[0]);
-    } else {
-      actualizarEstadoPo(null);
-    }
-  });
-  
   // Funcionalidad para cambiar carpeta de salida en la sección de procesar archivos
   document.getElementById('btn-cambiar-carpeta-procesar').addEventListener('click', async function() {
     const carpetaInput = document.getElementById('carpeta-salida-procesar');
@@ -676,7 +603,6 @@
   document.getElementById('btn-procesar-archivos').addEventListener('click', async function() {
     const btn = document.getElementById('btn-procesar-archivos');
     const archivoVentas = document.getElementById('archivo-ventas').files[0];
-    const archivoPo = document.getElementById('archivo-po').files[0];
     const carpetaSalida = document.getElementById('carpeta-salida-procesar').value;
     const mensajeProcesamiento = document.getElementById('mensaje-procesamiento');
     const mensajeTexto = mensajeProcesamiento.querySelector('p');
@@ -687,28 +613,17 @@
       return;
     }
     
-    if (!archivoPo) {
-      alert('Por favor, selecciona el archivo de Grupo clientes');
-      return;
-    }
-    
     if (!carpetaSalida || carpetaSalida.trim() === '') {
       alert('Por favor, especifica la carpeta de salida');
       return;
     }
     
-    // Validar que sean archivos Excel
+    // Validar que sea un archivo Excel
     const extensionesPermitidas = ['.xlsx', '.xls'];
     const extensionVentas = archivoVentas.name.substring(archivoVentas.name.lastIndexOf('.')).toLowerCase();
-    const extensionPo = archivoPo.name.substring(archivoPo.name.lastIndexOf('.')).toLowerCase();
     
     if (!extensionesPermitidas.includes(extensionVentas)) {
       alert('El archivo de Reporte de ventas debe ser un archivo Excel (.xlsx o .xls)');
-      return;
-    }
-    
-    if (!extensionesPermitidas.includes(extensionPo)) {
-      alert('El archivo de Grupo clientes debe ser un archivo Excel (.xlsx o .xls)');
       return;
     }
     
@@ -719,7 +634,7 @@
     
     // Mostrar mensaje de procesamiento
     mensajeProcesamiento.classList.remove('hidden');
-    mensajeTexto.textContent = 'Procesando archivos...';
+    mensajeTexto.textContent = 'Procesando archivo...';
     // Limpiar todas las clases de color y agregar las del estado de procesamiento
     mensajeProcesamiento.classList.remove('bg-red-50', 'border-red-200', 'bg-green-50', 'border-green-200');
     mensajeProcesamiento.classList.add('bg-blue-50', 'border-blue-200');
@@ -727,10 +642,9 @@
     mensajeTexto.classList.add('text-blue-800');
     
     try {
-      // Crear FormData para enviar los archivos
+      // Crear FormData para enviar el archivo
       const formData = new FormData();
       formData.append('archivo_ventas', archivoVentas);
-      formData.append('archivo_po', archivoPo);
       formData.append('carpeta_salida', carpetaSalida);
       
       // Enviar petición al backend
