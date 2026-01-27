@@ -2136,11 +2136,13 @@ async def procesar_archivos_ventas(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Procesa un archivo Excel (Reporte de ventas) y genera un archivo final."""
+    """Procesa un archivo Excel (Reporte de ventas): elimina columnas específicas según el segundo renglón y genera un archivo final."""
     import tempfile
     import shutil
     import os
     from pathlib import Path
+    import pandas as pd
+    import traceback
     
     try:
         # Validar que sea un archivo Excel
@@ -2187,30 +2189,81 @@ async def procesar_archivos_ventas(
             with open(archivo_ventas_path, "wb") as f:
                 shutil.copyfileobj(archivo_ventas.file, f)
             
-            # Aquí se procesaría el archivo Excel y se generaría el archivo final
-            # Por ahora, vamos a crear una estructura básica
-            # TODO: Implementar la lógica de procesamiento específica
+            # Leer archivo Excel
+            try:
+                if extension_ventas == '.xlsx':
+                    df = pd.read_excel(archivo_ventas_path, engine='openpyxl', header=None)
+                else:
+                    df = pd.read_excel(archivo_ventas_path, engine='xlrd', header=None)
+            except Exception as e:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": f"Error al leer el archivo Excel: {str(e)}"}
+                )
             
-            # Crear un archivo de resultado (por ahora solo como ejemplo)
-            # En producción, aquí se procesaría el Excel y se generaría el archivo final
-            archivo_resultado_path = temp_path / "archivo_procesado.xlsx"
+            # Validar que el archivo tenga al menos 2 filas
+            if len(df) < 2:
+                return JSONResponse(
+                    status_code=400,
+                    content={"error": "El archivo debe tener al menos 2 renglones"}
+                )
             
-            # Procesar el archivo (implementar lógica específica aquí)
-            # Por ahora, solo devolvemos un mensaje de éxito
-            # Cuando se implemente el procesamiento real, aquí se generaría el archivo final
-            # y se guardaría en carpeta_salida_path
+            # Valores a buscar en el segundo renglón (índice 1)
+            valores_a_buscar = ['OE', 'Budget', 'Act-Budget', 'incl. srap', '2005246']
+            
+            # Obtener el segundo renglón (índice 1)
+            segundo_renglon = df.iloc[1]
+            
+            # Identificar columnas a eliminar
+            columnas_a_eliminar = []
+            for idx, valor in enumerate(segundo_renglon):
+                # Convertir a string y limpiar espacios
+                valor_str = str(valor).strip() if pd.notna(valor) else ''
+                # Comparar con los valores a buscar (case-insensitive)
+                for valor_buscar in valores_a_buscar:
+                    if valor_str.lower() == valor_buscar.lower():
+                        # Usar el índice de la columna
+                        columnas_a_eliminar.append(idx)
+                        break
+            
+            # Eliminar las columnas encontradas
+            if columnas_a_eliminar:
+                # Eliminar columnas por índice
+                df = df.drop(df.columns[columnas_a_eliminar], axis=1)
+            
+            # Guardar el archivo procesado
+            # Generar nombre de archivo basado en el original
+            nombre_base = Path(nombre_archivo_ventas).stem
+            extension = Path(nombre_archivo_ventas).suffix
+            nombre_archivo_salida = f"{nombre_base}_procesado{extension}"
+            ruta_archivo_salida = carpeta_salida_path / nombre_archivo_salida
+            
+            # Guardar como Excel
+            try:
+                # Si el archivo original tenía header, mantenerlo; si no, usar la primera fila como header
+                if extension_ventas == '.xlsx':
+                    df.to_excel(ruta_archivo_salida, index=False, header=False, engine='openpyxl')
+                else:
+                    df.to_excel(ruta_archivo_salida, index=False, header=False, engine='openpyxl')
+            except Exception as e:
+                return JSONResponse(
+                    status_code=500,
+                    content={"error": f"Error al guardar el archivo procesado: {str(e)}"}
+                )
             
             return JSONResponse(
                 status_code=200,
                 content={
                     "success": True,
-                    "message": f"El archivo se recibió correctamente. El procesamiento se implementará próximamente. Carpeta de salida: {carpeta_salida}",
-                    "archivo_recibido": nombre_archivo_ventas,
-                    "carpeta_salida": str(carpeta_salida_path)
+                    "message": f"Archivo procesado exitosamente. Se eliminaron {len(columnas_a_eliminar)} columnas.",
+                    "archivo_guardado": str(ruta_archivo_salida),
+                    "columnas_eliminadas": len(columnas_a_eliminar),
+                    "total_columnas_eliminadas": len(columnas_a_eliminar)
                 }
             )
         
     except Exception as e:
+        import traceback
         return JSONResponse(
             status_code=500,
             content={"error": f"Error al procesar los archivos: {str(e)}"}
