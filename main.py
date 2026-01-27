@@ -2296,6 +2296,8 @@ async def procesar_archivos_ventas(
             columna_quantity_m = None
             # Buscar "Turnover w/o metal"
             columna_turnover_wo_metal_original = None
+            # Buscar "OE/Turnover like FI"
+            columna_turnover_like_fi_original = None
             
             for idx, encabezado in enumerate(valores_renglon_1):
                 encabezado_str = str(encabezado).strip() if pd.notna(encabezado) else ''
@@ -2314,6 +2316,9 @@ async def procesar_archivos_ventas(
                 # Buscar "Turnover w/o metal"
                 if columna_turnover_wo_metal_original is None and ('turnover' in encabezado_lower and 'metal' in encabezado_lower and 'w/o' in encabezado_lower):
                     columna_turnover_wo_metal_original = idx
+                # Buscar "OE/Turnover like FI"
+                if columna_turnover_like_fi_original is None and ('turnover' in encabezado_lower and 'like' in encabezado_lower and 'fi' in encabezado_lower):
+                    columna_turnover_like_fi_original = idx
             
             # Calcular el índice actual de "Turnover w/o metal" después de eliminar columnas
             columna_turnover_wo_metal = None
@@ -2327,6 +2332,19 @@ async def procesar_archivos_ventas(
                 # Verificar que el índice esté dentro del rango del DataFrame
                 if columna_turnover_wo_metal < 0 or columna_turnover_wo_metal >= len(df.columns):
                     columna_turnover_wo_metal = None
+            
+            # Calcular el índice actual de "OE/Turnover like FI" después de eliminar columnas
+            columna_turnover_like_fi = None
+            if columna_turnover_like_fi_original is not None:
+                # Crear un mapeo de índices originales a índices actuales
+                # Las columnas eliminadas están en columnas_a_eliminar
+                # Necesitamos contar cuántas columnas antes de la columna objetivo fueron eliminadas
+                columnas_eliminadas_antes = sum(1 for col_idx in columnas_a_eliminar if col_idx < columna_turnover_like_fi_original)
+                # El índice actual es el índice original menos las columnas eliminadas antes
+                columna_turnover_like_fi = columna_turnover_like_fi_original - columnas_eliminadas_antes
+                # Verificar que el índice esté dentro del rango del DataFrame
+                if columna_turnover_like_fi < 0 or columna_turnover_like_fi >= len(df.columns):
+                    columna_turnover_like_fi = None
             
             # Obtener todos los grupos de clientes de la base de datos
             grupos_clientes = await crud.list_cliente_grupos(db, limit=100000)
@@ -2353,6 +2371,8 @@ async def procesar_archivos_ventas(
                     columna_quantity_m += 1
                 if columna_turnover_wo_metal is not None and columna_turnover_wo_metal > columna_customer:
                     columna_turnover_wo_metal += 1
+                if columna_turnover_like_fi is not None and columna_turnover_like_fi > columna_customer:
+                    columna_turnover_like_fi += 1
                 # Actualizar valores_renglon_1 para incluir el nuevo encabezado
                 valores_renglon_1.insert(columna_customer + 1, 'Customer number')
                 
@@ -2388,6 +2408,8 @@ async def procesar_archivos_ventas(
                     columna_quantity_m += 1
                 if columna_turnover_wo_metal is not None and columna_turnover_wo_metal > columna_customer:
                     columna_turnover_wo_metal += 1
+                if columna_turnover_like_fi is not None and columna_turnover_like_fi > columna_customer:
+                    columna_turnover_like_fi += 1
                 # Actualizar valores_renglon_1 para incluir el nuevo encabezado
                 valores_renglon_1.insert(columna_customer + 2, 'grupo')
             
@@ -2427,10 +2449,49 @@ async def procesar_archivos_ventas(
             sales_km = valores_sales_total / 1000
             df['Sales KM'] = sales_km
             
+            # Buscar las columnas "Turnover w/o metal" y "OE/Turnover like FI" directamente en el DataFrame
+            # después de todas las modificaciones, usando valores_renglon_1 que ya tiene las columnas insertadas
+            columna_turnover_wo_metal_final = None
+            columna_turnover_like_fi_final = None
+            
+            # Verificar que valores_renglon_1 tenga la misma longitud que las columnas del DataFrame
+            num_columnas_df = len(df.columns)
+            num_valores_renglon = len(valores_renglon_1)
+            
+            # Usar el mínimo para evitar errores de índice
+            num_columnas_a_buscar = min(num_columnas_df, num_valores_renglon)
+            
+            for idx in range(num_columnas_a_buscar):
+                encabezado = valores_renglon_1[idx] if idx < len(valores_renglon_1) else ''
+                encabezado_str = str(encabezado).strip() if pd.notna(encabezado) else ''
+                encabezado_lower = encabezado_str.lower()
+                
+                # Buscar "Turnover w/o metal" - debe tener "turnover", "metal" y "w/o" o "without", pero NO "like" ni "fi"
+                # Patrón más específico: buscar "w/o" o "without" junto con "metal" pero sin "like" ni "fi"
+                if columna_turnover_wo_metal_final is None:
+                    has_turnover = 'turnover' in encabezado_lower
+                    has_metal = 'metal' in encabezado_lower
+                    has_wo = 'w/o' in encabezado_lower or 'without' in encabezado_lower
+                    has_like = 'like' in encabezado_lower
+                    has_fi = 'fi' in encabezado_lower
+                    
+                    if has_turnover and has_metal and has_wo and not has_like and not has_fi:
+                        columna_turnover_wo_metal_final = idx
+                
+                # Buscar "OE/Turnover like FI" - debe tener "turnover", "like" y "fi"
+                # Patrón más específico: buscar "like" y "fi" juntos, con "turnover"
+                if columna_turnover_like_fi_final is None:
+                    has_turnover = 'turnover' in encabezado_lower
+                    has_like = 'like' in encabezado_lower
+                    has_fi = 'fi' in encabezado_lower
+                    
+                    if has_turnover and has_like and has_fi:
+                        columna_turnover_like_fi_final = idx
+            
             # Calcular "Precio Exmetal" = Turnover w/o metal / Sales KM
-            if columna_turnover_wo_metal is not None:
+            if columna_turnover_wo_metal_final is not None and 0 <= columna_turnover_wo_metal_final < len(df.columns):
                 # Obtener los valores de la columna Turnover w/o metal
-                valores_turnover = df.iloc[:, columna_turnover_wo_metal]
+                valores_turnover = df.iloc[:, columna_turnover_wo_metal_final]
                 # Convertir a numérico
                 valores_numericos_turnover = pd.to_numeric(valores_turnover, errors='coerce')
                 # Obtener los valores de Sales KM (ya calculados)
@@ -2443,17 +2504,39 @@ async def procesar_archivos_ventas(
                 # Si no se encuentra la columna, dejar vacío
                 df['Precio Exmetal'] = [None] * num_filas
             
+            # Calcular "Precio Full Metal" = OE/Turnover like FI / Sales KM
+            if columna_turnover_like_fi_final is not None and 0 <= columna_turnover_like_fi_final < len(df.columns):
+                # Verificar que no sea la misma columna que Turnover w/o metal
+                if columna_turnover_like_fi_final != columna_turnover_wo_metal_final:
+                    # Obtener los valores de la columna OE/Turnover like FI
+                    valores_turnover_fi = df.iloc[:, columna_turnover_like_fi_final]
+                    # Convertir a numérico
+                    valores_numericos_turnover_fi = pd.to_numeric(valores_turnover_fi, errors='coerce')
+                    # Obtener los valores de Sales KM (ya calculados)
+                    valores_sales_km = pd.to_numeric(df['Sales KM'], errors='coerce')
+                    # Dividir: Precio Full Metal = OE/Turnover like FI / Sales KM
+                    # Evitar división por cero
+                    precio_full_metal = valores_numericos_turnover_fi / valores_sales_km.replace(0, pd.NA)
+                    df['Precio Full Metal'] = precio_full_metal
+                else:
+                    # Si es la misma columna, dejar vacío
+                    df['Precio Full Metal'] = [None] * num_filas
+            else:
+                # Si no se encuentra la columna, dejar vacío
+                df['Precio Full Metal'] = [None] * num_filas
+            
             # Reemplazar NaN con string vacío en las columnas calculadas
             df['Conversion de FT a M'] = df['Conversion de FT a M'].fillna('')
             df['Sales total MTS'] = df['Sales total MTS'].fillna('')
             df['Sales KM'] = df['Sales KM'].fillna('')
             df['Precio Exmetal'] = df['Precio Exmetal'].fillna('')
+            df['Precio Full Metal'] = df['Precio Full Metal'].fillna('')
             
             # Crear una fila de encabezados usando:
             # - Los valores del renglón 1 original para las columnas originales
             # - Los nombres de las nuevas columnas para las nuevas columnas
             nombres_encabezados = valores_renglon_1.copy()
-            nombres_encabezados.extend(['Conversion de FT a M', 'Sales total MTS', 'Sales KM', 'Precio Exmetal'])
+            nombres_encabezados.extend(['Conversion de FT a M', 'Sales total MTS', 'Sales KM', 'Precio Exmetal', 'Precio Full Metal'])
             
             # Convertir los valores a strings para evitar problemas
             nombres_encabezados = [str(val) if pd.notna(val) else '' for val in nombres_encabezados]
@@ -2487,6 +2570,8 @@ async def procesar_archivos_ventas(
             columna_sales_km_actualizado = None
             columna_turnover_wo_metal_actualizado = None
             columna_precio_exmetal_actualizado = None
+            columna_turnover_like_fi_actualizado = None
+            columna_precio_full_metal_actualizado = None
             
             # Buscar en la primera fila (encabezados) del DataFrame final
             primera_fila = df.iloc[0]
@@ -2517,6 +2602,10 @@ async def procesar_archivos_ventas(
                     columna_turnover_wo_metal_actualizado = idx
                 if columna_precio_exmetal_actualizado is None and 'precio exmetal' in encabezado_lower:
                     columna_precio_exmetal_actualizado = idx
+                if columna_turnover_like_fi_actualizado is None and ('turnover' in encabezado_lower and 'like' in encabezado_lower and 'fi' in encabezado_lower):
+                    columna_turnover_like_fi_actualizado = idx
+                if columna_precio_full_metal_actualizado is None and 'precio full metal' in encabezado_lower:
+                    columna_precio_full_metal_actualizado = idx
             
             # Crear diccionario con los índices actualizados de las columnas principales
             indices_columnas_principales = {
@@ -2529,7 +2618,9 @@ async def procesar_archivos_ventas(
                 'sales_total_mts': columna_sales_total_mts_actualizado,
                 'sales_km': columna_sales_km_actualizado,
                 'turnover_wo_metal': columna_turnover_wo_metal_actualizado,
-                'precio_exmetal': columna_precio_exmetal_actualizado
+                'precio_exmetal': columna_precio_exmetal_actualizado,
+                'turnover_like_fi': columna_turnover_like_fi_actualizado,
+                'precio_full_metal': columna_precio_full_metal_actualizado
             }
             
             # Guardar el archivo procesado
