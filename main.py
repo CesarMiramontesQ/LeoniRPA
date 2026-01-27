@@ -2525,18 +2525,30 @@ async def procesar_archivos_ventas(
                 # Si no se encuentra la columna, dejar vacío
                 df['Precio Full Metal KM'] = [None] * num_filas
             
+            # Calcular "Precio Exmetal M" = Precio Exmetal KM / 1000
+            valores_precio_exmetal_km = pd.to_numeric(df['Precio Exmetal KM'], errors='coerce')
+            precio_exmetal_m = valores_precio_exmetal_km / 1000
+            df['Precio Exmetal M'] = precio_exmetal_m
+            
+            # Calcular "Precio Full Metal M" = Precio Full Metal KM / 1000
+            valores_precio_full_metal_km = pd.to_numeric(df['Precio Full Metal KM'], errors='coerce')
+            precio_full_metal_m = valores_precio_full_metal_km / 1000
+            df['Precio Full Metal M'] = precio_full_metal_m
+            
             # Reemplazar NaN con string vacío en las columnas calculadas
             df['Conversion de FT a M'] = df['Conversion de FT a M'].fillna('')
             df['Sales total MTS'] = df['Sales total MTS'].fillna('')
             df['Sales KM'] = df['Sales KM'].fillna('')
             df['Precio Exmetal KM'] = df['Precio Exmetal KM'].fillna('')
             df['Precio Full Metal KM'] = df['Precio Full Metal KM'].fillna('')
+            df['Precio Exmetal M'] = df['Precio Exmetal M'].fillna('')
+            df['Precio Full Metal M'] = df['Precio Full Metal M'].fillna('')
             
             # Crear una fila de encabezados usando:
             # - Los valores del renglón 1 original para las columnas originales
             # - Los nombres de las nuevas columnas para las nuevas columnas
             nombres_encabezados = valores_renglon_1.copy()
-            nombres_encabezados.extend(['Conversion de FT a M', 'Sales total MTS', 'Sales KM', 'Precio Exmetal KM', 'Precio Full Metal KM'])
+            nombres_encabezados.extend(['Conversion de FT a M', 'Sales total MTS', 'Sales KM', 'Precio Exmetal KM', 'Precio Full Metal KM', 'Precio Exmetal M', 'Precio Full Metal M'])
             
             # Convertir los valores a strings para evitar problemas
             nombres_encabezados = [str(val) if pd.notna(val) else '' for val in nombres_encabezados]
@@ -2572,6 +2584,8 @@ async def procesar_archivos_ventas(
             columna_precio_exmetal_actualizado = None
             columna_turnover_like_fi_actualizado = None
             columna_precio_full_metal_actualizado = None
+            columna_precio_exmetal_m_actualizado = None
+            columna_precio_full_metal_m_actualizado = None
             
             # Buscar en la primera fila (encabezados) del DataFrame final
             primera_fila = df.iloc[0]
@@ -2606,6 +2620,10 @@ async def procesar_archivos_ventas(
                     columna_turnover_like_fi_actualizado = idx
                 if columna_precio_full_metal_actualizado is None and 'precio full metal km' in encabezado_lower:
                     columna_precio_full_metal_actualizado = idx
+                if columna_precio_exmetal_m_actualizado is None and 'precio exmetal m' in encabezado_lower:
+                    columna_precio_exmetal_m_actualizado = idx
+                if columna_precio_full_metal_m_actualizado is None and 'precio full metal m' in encabezado_lower:
+                    columna_precio_full_metal_m_actualizado = idx
             
             # Crear diccionario con los índices actualizados de las columnas principales
             indices_columnas_principales = {
@@ -2620,7 +2638,9 @@ async def procesar_archivos_ventas(
                 'turnover_wo_metal': columna_turnover_wo_metal_actualizado,
                 'precio_exmetal': columna_precio_exmetal_actualizado,
                 'turnover_like_fi': columna_turnover_like_fi_actualizado,
-                'precio_full_metal': columna_precio_full_metal_actualizado
+                'precio_full_metal': columna_precio_full_metal_actualizado,
+                'precio_exmetal_m': columna_precio_exmetal_m_actualizado,
+                'precio_full_metal_m': columna_precio_full_metal_m_actualizado
             }
             
             # Guardar el archivo procesado
