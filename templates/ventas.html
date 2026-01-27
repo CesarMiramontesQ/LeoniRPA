@@ -264,6 +264,18 @@
             <!-- Mensaje de estado (opcional) -->
             <div id="mensaje-procesamiento" class="hidden mt-2 p-3 rounded-md bg-blue-50 border border-blue-200">
               <p class="text-sm text-blue-800"></p>
+              <!-- Área para mostrar errores detallados -->
+              <div id="errores-detallados" class="hidden mt-3">
+                <button id="btn-ver-errores" class="text-sm font-medium text-yellow-800 hover:text-yellow-900 underline">
+                  Ver errores detallados
+                </button>
+                <div id="lista-errores" class="hidden mt-2 max-h-96 overflow-y-auto rounded border border-yellow-300 bg-yellow-50 p-3">
+                  <div class="mb-2 text-xs font-semibold text-yellow-900">
+                    Errores encontrados (mostrando primeros 100):
+                  </div>
+                  <div id="contenido-errores" class="space-y-1 text-xs text-yellow-900"></div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -481,9 +493,21 @@
         body: formData
       });
       
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonError) {
+        // Si la respuesta no es JSON válido, mostrar error
+        console.error('Error al parsear respuesta JSON:', jsonError);
+        mensajeTexto.textContent = 'Error: La respuesta del servidor no es válida. Por favor, intenta nuevamente.';
+        mensajeProcesamiento.classList.remove('bg-blue-50', 'border-blue-200', 'bg-green-50', 'border-green-200');
+        mensajeProcesamiento.classList.add('bg-red-50', 'border-red-200');
+        mensajeTexto.classList.remove('text-blue-800', 'text-green-800');
+        mensajeTexto.classList.add('text-red-800');
+        return;
+      }
       
-      if (response.ok && data.success) {
+      if (response.ok && (data.success || data.registros_insertados > 0)) {
         // Mostrar mensaje de éxito
         alert(`Proceso iniciado exitosamente.\nArchivo esperado: ${data.archivo_esperado}`);
         
@@ -573,10 +597,20 @@
     mensajeProcesamiento.classList.remove('hidden');
     mensajeTexto.textContent = 'Procesando archivo y subiendo a la base de datos...';
     // Limpiar todas las clases de color y agregar las del estado de procesamiento
-    mensajeProcesamiento.classList.remove('bg-red-50', 'border-red-200', 'bg-green-50', 'border-green-200');
+    mensajeProcesamiento.classList.remove('bg-red-50', 'border-red-200', 'bg-green-50', 'border-green-200', 'bg-yellow-50', 'border-yellow-200');
     mensajeProcesamiento.classList.add('bg-blue-50', 'border-blue-200');
-    mensajeTexto.classList.remove('text-red-800', 'text-green-800');
+    mensajeTexto.classList.remove('text-red-800', 'text-green-800', 'text-yellow-800');
     mensajeTexto.classList.add('text-blue-800');
+    
+    // Ocultar área de errores al iniciar nuevo procesamiento
+    const erroresDetallados = document.getElementById('errores-detallados');
+    if (erroresDetallados) {
+      erroresDetallados.classList.add('hidden');
+    }
+    const listaErrores = document.getElementById('lista-errores');
+    if (listaErrores) {
+      listaErrores.classList.add('hidden');
+    }
     
     try {
       // Crear FormData para enviar el archivo
@@ -589,18 +623,146 @@
         body: formData
       });
       
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (jsonError) {
+        // Si la respuesta no es JSON válido, mostrar error
+        console.error('Error al parsear respuesta JSON:', jsonError);
+        mensajeTexto.textContent = 'Error: La respuesta del servidor no es válida. Por favor, intenta nuevamente.';
+        mensajeProcesamiento.classList.remove('bg-blue-50', 'border-blue-200', 'bg-green-50', 'border-green-200', 'bg-yellow-50', 'border-yellow-200');
+        mensajeProcesamiento.classList.add('bg-red-50', 'border-red-200');
+        mensajeTexto.classList.remove('text-blue-800', 'text-green-800', 'text-yellow-800');
+        mensajeTexto.classList.add('text-red-800');
+        return;
+      }
       
-      if (response.ok && data.success) {
-        // Mostrar mensaje de éxito
-        mensajeTexto.textContent = `Archivo procesado exitosamente. ${data.registros_insertados || 0} registros subidos a la base de datos.`;
-        mensajeProcesamiento.classList.remove('bg-blue-50', 'border-blue-200', 'bg-red-50', 'border-red-200');
-        mensajeProcesamiento.classList.add('bg-green-50', 'border-green-200');
-        mensajeTexto.classList.remove('text-blue-800', 'text-red-800');
-        mensajeTexto.classList.add('text-green-800');
+      // Manejar respuesta exitosa o con errores parciales (código 207 Multi-Status)
+      if (response.ok || response.status === 207 || (data && (data.registros_insertados !== undefined || data.errores !== undefined))) {
+        // Mostrar mensaje de éxito (puede tener advertencias)
+        let mensaje = `Archivo procesado. ${data.registros_insertados || 0} registros insertados.`;
+        if (data.registros_duplicados && data.registros_duplicados > 0) {
+          mensaje += ` ${data.registros_duplicados} registros duplicados fueron omitidos (ya existían con la misma combinación de código cliente, producto y período).`;
+        }
+        if (data.errores && data.errores.length > 0) {
+          mensaje += ` Se encontraron ${data.errores.length} error(es) al procesar algunos registros.`;
+          
+          // Mostrar errores en consola de manera más detallada
+          console.group('🔴 Errores al procesar registros de ventas');
+          console.log(`Total de errores: ${data.errores.length}`);
+          console.log('Primeros 50 errores:');
+          data.errores.slice(0, 50).forEach((error, idx) => {
+            console.log(`\n${idx + 1}. Fila ${error.fila || 'N/A'}:`, {
+              error: error.error,
+              error_tecnico: error.error_tecnico,
+              codigo_cliente: error.codigo_cliente,
+              producto: error.producto,
+              periodo: error.periodo
+            });
+          });
+          if (data.errores.length > 50) {
+            console.log(`\n... y ${data.errores.length - 50} errores más.`);
+          }
+          console.groupEnd();
+          
+          // Mostrar área de errores en la interfaz
+          const erroresDetallados = document.getElementById('errores-detallados');
+          const listaErrores = document.getElementById('lista-errores');
+          const contenidoErrores = document.getElementById('contenido-errores');
+          
+          if (erroresDetallados && listaErrores && contenidoErrores) {
+            erroresDetallados.classList.remove('hidden');
+            
+            // Limpiar contenido anterior
+            contenidoErrores.innerHTML = '';
+            
+            // Mostrar primeros 100 errores
+            const erroresAMostrar = data.errores.slice(0, 100);
+            erroresAMostrar.forEach((error, idx) => {
+              const errorDiv = document.createElement('div');
+              errorDiv.className = 'rounded bg-white p-2 border border-yellow-200';
+              errorDiv.innerHTML = `
+                <div class="font-semibold">Error ${idx + 1} - Fila ${error.fila || 'N/A'}:</div>
+                <div class="mt-1">${error.error || 'Error desconocido'}</div>
+                ${error.codigo_cliente ? `<div class="mt-1 text-xs text-gray-600">Código Cliente: ${error.codigo_cliente}</div>` : ''}
+                ${error.producto ? `<div class="text-xs text-gray-600">Producto: ${error.producto}</div>` : ''}
+                ${error.periodo ? `<div class="text-xs text-gray-600">Período: ${error.periodo}</div>` : ''}
+                ${error.error_tecnico && error.error_tecnico !== error.error ? `<div class="mt-1 text-xs text-gray-500 italic">Detalle técnico: ${error.error_tecnico}</div>` : ''}
+              `;
+              contenidoErrores.appendChild(errorDiv);
+            });
+            
+            if (data.errores.length > 100) {
+              const masErrores = document.createElement('div');
+              masErrores.className = 'mt-2 text-xs font-semibold text-yellow-900';
+              masErrores.textContent = `... y ${data.errores.length - 100} errores más (revisa la consola para ver todos)`;
+              contenidoErrores.appendChild(masErrores);
+            }
+            
+            // Agregar evento al botón para mostrar/ocultar errores
+            const btnVerErrores = document.getElementById('btn-ver-errores');
+            if (btnVerErrores) {
+              btnVerErrores.onclick = function() {
+                if (listaErrores.classList.contains('hidden')) {
+                  listaErrores.classList.remove('hidden');
+                  btnVerErrores.textContent = 'Ocultar errores detallados';
+                } else {
+                  listaErrores.classList.add('hidden');
+                  btnVerErrores.textContent = 'Ver errores detallados';
+                }
+              };
+            }
+          }
+        } else {
+          // Ocultar área de errores si no hay errores
+          const erroresDetallados = document.getElementById('errores-detallados');
+          if (erroresDetallados) {
+            erroresDetallados.classList.add('hidden');
+          }
+        }
+        mensajeTexto.textContent = mensaje;
+        // Si hay errores pero también éxitos, mostrar en amarillo (advertencia)
+        if (data.errores && data.errores.length > 0) {
+          mensajeProcesamiento.classList.remove('bg-blue-50', 'border-blue-200', 'bg-red-50', 'border-red-200', 'bg-green-50', 'border-green-200');
+          mensajeProcesamiento.classList.add('bg-yellow-50', 'border-yellow-200');
+          mensajeTexto.classList.remove('text-blue-800', 'text-red-800', 'text-green-800');
+          mensajeTexto.classList.add('text-yellow-800');
+        } else {
+          mensajeProcesamiento.classList.remove('bg-blue-50', 'border-blue-200', 'bg-red-50', 'border-red-200');
+          mensajeProcesamiento.classList.add('bg-green-50', 'border-green-200');
+          mensajeTexto.classList.remove('text-blue-800', 'text-red-800');
+          mensajeTexto.classList.add('text-green-800');
+        }
       } else {
-        // Mostrar error
-        mensajeTexto.textContent = 'Error: ' + (data.error || 'Error desconocido al procesar los archivos');
+        // Mostrar error detallado en español
+        let mensajeError = 'Error desconocido al procesar los archivos';
+        
+        // Intentar obtener el mensaje de error de diferentes campos
+        if (data.error) {
+          mensajeError = data.error;
+        } else if (data.message) {
+          mensajeError = data.message;
+        } else if (data.detalle_tecnico) {
+          mensajeError = `Error técnico: ${data.detalle_tecnico}`;
+        } else if (data.tipo_error) {
+          mensajeError = `Error de tipo: ${data.tipo_error}`;
+        }
+        
+        // Si hay detalles técnicos, agregarlos al mensaje para debugging
+        if (data.detalle_tecnico && data.detalle_tecnico !== mensajeError) {
+          console.error('Detalle técnico del error:', data.detalle_tecnico);
+          console.error('Tipo de error:', data.tipo_error || 'Desconocido');
+          if (data.traceback) {
+            console.error('Traceback completo:', data.traceback);
+          }
+        }
+        
+        // Si el mensaje sigue siendo genérico, agregar más información
+        if (mensajeError === 'Error desconocido al procesar los archivos') {
+          mensajeError += `. Código de respuesta: ${response.status}. Por favor, revisa la consola del navegador para más detalles.`;
+        }
+        
+        mensajeTexto.textContent = mensajeError;
         mensajeProcesamiento.classList.remove('bg-blue-50', 'border-blue-200', 'bg-green-50', 'border-green-200');
         mensajeProcesamiento.classList.add('bg-red-50', 'border-red-200');
         mensajeTexto.classList.remove('text-blue-800', 'text-green-800');
@@ -608,7 +770,11 @@
       }
     } catch (error) {
       console.error('Error al procesar archivos:', error);
-      mensajeTexto.textContent = 'Error al conectar con el servidor. Por favor, intenta nuevamente.';
+      let mensajeError = 'Error al conectar con el servidor. Por favor, intenta nuevamente.';
+      if (error.message) {
+        mensajeError = `Error de conexión: ${error.message}`;
+      }
+      mensajeTexto.textContent = mensajeError;
       mensajeProcesamiento.classList.remove('bg-blue-50', 'border-blue-200', 'bg-green-50', 'border-green-200');
       mensajeProcesamiento.classList.add('bg-red-50', 'border-red-200');
       mensajeTexto.classList.remove('text-blue-800', 'text-green-800');

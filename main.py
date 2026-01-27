@@ -2270,7 +2270,10 @@ async def procesar_archivos_ventas(
         if extension_ventas not in extensiones_permitidas:
             return JSONResponse(
                 status_code=400,
-                content={"error": "El archivo de Reporte de ventas debe ser un archivo Excel (.xlsx o .xls)"}
+                content={
+                    "success": False,
+                    "error": f"El archivo de Reporte de ventas debe ser un archivo Excel (.xlsx o .xls). El archivo proporcionado tiene la extensión: {extension_ventas}"
+                }
             )
         
         
@@ -2291,16 +2294,39 @@ async def procesar_archivos_ventas(
                 else:
                     df = pd.read_excel(archivo_ventas_path, engine='xlrd', header=None)
             except Exception as e:
+                import traceback
+                error_msg = str(e)
+                error_traceback = traceback.format_exc()
+                mensaje = f"Error al leer el archivo Excel: {error_msg}"
+                
+                if "No such file" in error_msg or "not found" in error_msg.lower():
+                    mensaje = "Error: No se pudo encontrar o acceder al archivo Excel. Verifica que el archivo exista y no esté corrupto."
+                elif "password" in error_msg.lower() or "encrypted" in error_msg.lower():
+                    mensaje = "Error: El archivo Excel está protegido con contraseña. Por favor, elimina la protección y vuelve a intentar."
+                elif "format" in error_msg.lower() or "invalid" in error_msg.lower():
+                    mensaje = "Error: El formato del archivo Excel no es válido. Asegúrate de que sea un archivo .xlsx o .xls válido."
+                elif "openpyxl" in error_msg.lower() or "xlrd" in error_msg.lower():
+                    mensaje = "Error: No se pudo leer el archivo Excel. Verifica que el archivo no esté corrupto y que tenga el formato correcto."
+                
                 return JSONResponse(
                     status_code=400,
-                    content={"error": f"Error al leer el archivo Excel: {str(e)}"}
+                    content={
+                        "success": False,
+                        "error": mensaje,
+                        "detalle_tecnico": error_msg,
+                        "tipo_error": type(e).__name__,
+                        "traceback": error_traceback
+                    }
                 )
             
             # Validar que el archivo tenga al menos 3 filas (para poder copiar del renglón 1 al 3)
             if len(df) < 3:
                 return JSONResponse(
                     status_code=400,
-                    content={"error": "El archivo debe tener al menos 3 renglones"}
+                    content={
+                        "success": False,
+                        "error": f"El archivo Excel debe tener al menos 3 filas para poder procesarse correctamente. El archivo actual tiene {len(df)} fila(s)."
+                    }
                 )
             
             # Valores a buscar en el segundo renglón (índice 1)
@@ -3167,26 +3193,72 @@ async def procesar_archivos_ventas(
                 
                 ventas_data.append(venta_dict)
             
-            # Insertar los datos en la base de datos
-            registros_insertados = await crud.bulk_create_ventas(db, ventas_data)
+            # Insertar los datos en la base de datos (verificando duplicados)
+            resultado = await crud.bulk_create_ventas(db, ventas_data)
+            registros_insertados = resultado.get("insertados", 0)
+            registros_duplicados = resultado.get("duplicados", 0)
+            errores = resultado.get("errores", [])
             
-            mensaje = f"Archivo procesado exitosamente. {registros_insertados} registros subidos a la base de datos."
+            mensaje = f"Archivo procesado exitosamente. {registros_insertados} registros insertados."
+            if registros_duplicados > 0:
+                mensaje += f" {registros_duplicados} registros duplicados fueron omitidos (ya existían con la misma combinación de código cliente, producto y período)."
+            if errores:
+                mensaje += f" Se encontraron {len(errores)} error(es) al procesar algunos registros."
+            
+            # Determinar si fue exitoso (al menos algunos registros se insertaron o había duplicados)
+            success = registros_insertados > 0 or (registros_duplicados > 0 and len(errores) == 0)
             
             return JSONResponse(
-                status_code=200,
+                status_code=200 if success else 207,  # 207 = Multi-Status si hay errores pero también éxitos
                 content={
-                    "success": True,
+                    "success": success,
                     "message": mensaje,
                     "registros_insertados": registros_insertados,
-                    "total_registros": len(ventas_data)
+                    "registros_duplicados": registros_duplicados,
+                    "total_registros": len(ventas_data),
+                    "errores": errores
                 }
             )
         
     except Exception as e:
         import traceback
+        error_traceback = traceback.format_exc()
+        error_message = str(e)
+        
+        # Mensaje de error más descriptivo en español
+        mensaje_error = f"Error al procesar el archivo de ventas: {error_message}"
+        
+        # Mensajes de error más descriptivos en español según el tipo de error
+        error_lower = error_message.lower()
+        
+        if "duplicate" in error_lower or "unique" in error_lower or "ya existe" in error_lower:
+            mensaje_error = "Error: Se intentó insertar un registro duplicado. El sistema ya detectó y omitió los duplicados, pero puede haber un problema con la verificación. Por favor, verifica que no existan registros con la misma combinación de código cliente, producto y período."
+        elif "foreign key" in error_lower or "constraint" in error_lower or "violates foreign key" in error_lower:
+            mensaje_error = "Error: Violación de restricción de base de datos. Verifica que los datos de referencia (grupo de cliente) existan en la base de datos antes de insertar las ventas."
+        elif ("null" in error_lower and "not null" in error_lower) or "required" in error_lower:
+            mensaje_error = "Error: Se intentó insertar un registro con campos requeridos vacíos. Por favor, verifica que todos los campos obligatorios tengan valores válidos en el archivo Excel."
+        elif "connection" in error_lower or "timeout" in error_lower or "database" in error_lower:
+            mensaje_error = "Error: No se pudo conectar con la base de datos. Por favor, verifica la conexión e intenta nuevamente."
+        elif "value" in error_lower and "type" in error_lower:
+            mensaje_error = "Error: Tipo de dato incorrecto. Verifica que los valores en el archivo Excel sean del tipo correcto (números, fechas, texto)."
+        elif "periodo" in error_lower or "date" in error_lower:
+            mensaje_error = "Error al procesar el período. Verifica que el formato del período en el archivo Excel sea correcto (mes y año)."
+        else:
+            mensaje_error = f"Error al procesar el archivo de ventas: {error_message}"
+        
+        # Asegurar que siempre haya un mensaje de error en español
+        if not mensaje_error or mensaje_error.strip() == "":
+            mensaje_error = f"Error inesperado al procesar el archivo de ventas. Tipo de error: {type(e).__name__}"
+        
         return JSONResponse(
             status_code=500,
-            content={"error": f"Error al procesar los archivos: {str(e)}"}
+            content={
+                "success": False,
+                "error": mensaje_error,
+                "detalle_tecnico": error_message,
+                "tipo_error": type(e).__name__,
+                "traceback": error_traceback
+            }
         )
 
 

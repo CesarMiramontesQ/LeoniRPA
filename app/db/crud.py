@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List, Dict, Any
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 from decimal import Decimal
 from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta
 from app.core.security import hash_password
@@ -2866,9 +2866,11 @@ async def get_cliente_grupo_by_id(db: AsyncSession, id: int) -> Optional[Cliente
 
 
 async def get_cliente_grupo_by_codigo(db: AsyncSession, codigo_cliente: int) -> Optional[ClienteGrupo]:
-    """Obtiene un grupo de cliente por código de cliente."""
+    """Obtiene un grupo de cliente por código de cliente.
+    Si hay múltiples registros, retorna el primero encontrado."""
     result = await db.execute(select(ClienteGrupo).where(ClienteGrupo.codigo_cliente == codigo_cliente))
-    return result.scalar_one_or_none()
+    # Usar first() en lugar de scalar_one_or_none() para evitar error cuando hay múltiples registros
+    return result.scalars().first()
 
 
 async def list_cliente_grupos(
@@ -2996,36 +2998,126 @@ async def delete_cliente_grupo(db: AsyncSession, id: int) -> bool:
 async def bulk_create_ventas(
     db: AsyncSession,
     ventas_data: List[Dict[str, Any]]
-) -> int:
-    """Inserta múltiples registros de ventas de manera eficiente.
+) -> Dict[str, Any]:
+    """Inserta múltiples registros de ventas verificando duplicados.
+    No inserta si ya existe un registro con la misma combinación de codigo_cliente, producto y periodo.
     
     Args:
         db: Sesión de base de datos
         ventas_data: Lista de diccionarios con los datos de las ventas
         
     Returns:
-        Número de registros insertados
+        Diccionario con 'insertados', 'duplicados' y 'errores'
     """
     if not ventas_data:
-        return 0
+        return {"insertados": 0, "duplicados": 0, "errores": []}
     
-    ventas_objects = []
-    for venta_data in ventas_data:
-        venta = Venta(**venta_data)
-        ventas_objects.append(venta)
+    insertados = 0
+    duplicados = 0
+    errores = []
     
-    db.add_all(ventas_objects)
-    await db.commit()
+    for idx, venta_data in enumerate(ventas_data, start=1):
+        try:
+            codigo_cliente = venta_data.get('codigo_cliente')
+            producto = venta_data.get('producto')
+            periodo = venta_data.get('periodo')
+            
+            # Verificar si ya existe un registro con la misma combinación
+            venta_existente = await get_venta_by_codigo_producto_periodo(
+                db, codigo_cliente, producto, periodo
+            )
+            
+            if venta_existente:
+                # Ya existe, no insertar (contar como duplicado)
+                duplicados += 1
+            else:
+                # No existe, crear nuevo registro
+                venta = Venta(**venta_data)
+                db.add(venta)
+                insertados += 1
+        except Exception as e:
+            # Capturar errores individuales sin detener el proceso completo
+            error_str = str(e)
+            error_lower = error_str.lower()
+            
+            # Mensaje de error más descriptivo en español
+            if "multiple rows" in error_lower or "multiple rows were found" in error_lower:
+                mensaje_error = f"Error en registro {idx}: Se encontraron múltiples registros duplicados en la base de datos con la misma combinación de código cliente, producto y período. Esto indica que ya existen duplicados en la base de datos. El registro no se insertará."
+            elif "foreign key" in error_lower or "constraint" in error_lower:
+                mensaje_error = f"Error en registro {idx}: Violación de restricción de base de datos. Verifica que el grupo de cliente exista."
+            elif "null" in error_lower and "not null" in error_lower:
+                mensaje_error = f"Error en registro {idx}: Campo requerido está vacío. Verifica que todos los campos obligatorios tengan valores."
+            elif "value" in error_lower and "type" in error_lower:
+                mensaje_error = f"Error en registro {idx}: Tipo de dato incorrecto. Verifica el formato de los valores."
+            else:
+                mensaje_error = f"Error en registro {idx}: {error_str}"
+            
+            errores.append({
+                "fila": idx,
+                "error": mensaje_error,
+                "error_tecnico": error_str,
+                "codigo_cliente": venta_data.get('codigo_cliente'),
+                "producto": venta_data.get('producto'),
+                "periodo": str(venta_data.get('periodo')) if venta_data.get('periodo') else None
+            })
     
-    return len(ventas_objects)
+    try:
+        await db.commit()
+    except Exception as e:
+        # Si hay error al hacer commit, revertir cambios
+        await db.rollback()
+        error_str = str(e)
+        error_lower = error_str.lower()
+        
+        # Mensaje de error más descriptivo en español
+        if "duplicate" in error_lower or "unique" in error_lower:
+            mensaje = "Error al guardar: Se intentó insertar registros duplicados. El sistema ya verifica duplicados, pero puede haber un problema de concurrencia."
+        elif "foreign key" in error_lower:
+            mensaje = "Error al guardar: Violación de restricción de clave foránea. Verifica que los datos de referencia (grupo de cliente) existan en la base de datos."
+        elif "connection" in error_lower or "timeout" in error_lower:
+            mensaje = "Error al guardar: No se pudo conectar con la base de datos o se agotó el tiempo de espera. Por favor, intenta nuevamente."
+        else:
+            mensaje = f"Error al guardar los datos en la base de datos: {error_str}"
+        
+        raise Exception(mensaje)
+    
+    return {
+        "insertados": insertados,
+        "duplicados": duplicados,
+        "errores": errores
+    }
 
 
 async def get_cliente_grupo_by_codigo_cliente(db: AsyncSession, codigo_cliente: int) -> Optional[ClienteGrupo]:
-    """Obtiene un grupo de cliente por código de cliente."""
+    """Obtiene un grupo de cliente por código de cliente.
+    Si hay múltiples registros, retorna el primero encontrado."""
     result = await db.execute(
         select(ClienteGrupo).where(ClienteGrupo.codigo_cliente == codigo_cliente)
     )
-    return result.scalar_one_or_none()
+    # Usar first() en lugar de scalar_one_or_none() para evitar error cuando hay múltiples registros
+    return result.scalars().first()
+
+
+async def get_venta_by_codigo_producto_periodo(
+    db: AsyncSession,
+    codigo_cliente: Optional[int],
+    producto: Optional[str],
+    periodo: Optional[date]
+) -> Optional[Venta]:
+    """Verifica si existe una venta con la misma combinación de codigo_cliente, producto y periodo.
+    Si hay múltiples registros, retorna el primero encontrado (indica que ya existe un duplicado)."""
+    if codigo_cliente is None or producto is None or periodo is None:
+        return None
+    
+    query = select(Venta).where(
+        Venta.codigo_cliente == codigo_cliente,
+        Venta.producto == producto,
+        Venta.periodo == periodo
+    )
+    result = await db.execute(query)
+    # Usar first() en lugar de scalar_one_or_none() para evitar error cuando hay múltiples registros
+    # Si hay múltiples, significa que ya existen duplicados en la BD, así que retornamos el primero
+    return result.scalars().first()
 
 
 async def list_ventas(
