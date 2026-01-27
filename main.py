@@ -2287,17 +2287,23 @@ async def procesar_archivos_ventas(
             df = df.drop(df.index[0])
             df = df.reset_index(drop=True)
             
-            # Buscar la columna "Quantity OE/TO FT" en los encabezados
-            # Buscar variaciones del nombre: "Quantity OE/TO FT", "Quantity OE TO FT", etc.
+            # Buscar las columnas necesarias en los encabezados
+            # Buscar "Quantity OE/TO FT"
             columna_quantity_ft = None
+            # Buscar "Quantity OE/TO M"
+            columna_quantity_m = None
+            
             for idx, encabezado in enumerate(valores_renglon_1):
                 encabezado_str = str(encabezado).strip() if pd.notna(encabezado) else ''
                 encabezado_lower = encabezado_str.lower()
-                # Buscar variaciones del nombre
-                if ('quantity' in encabezado_lower and 'ft' in encabezado_lower and 
+                # Buscar "Quantity OE/TO FT"
+                if columna_quantity_ft is None and ('quantity' in encabezado_lower and 'ft' in encabezado_lower and 
                     ('oe' in encabezado_lower or 'to' in encabezado_lower)):
                     columna_quantity_ft = idx
-                    break
+                # Buscar "Quantity OE/TO M" (sin FT, solo M)
+                if columna_quantity_m is None and ('quantity' in encabezado_lower and 'm' in encabezado_lower and 
+                    ('oe' in encabezado_lower or 'to' in encabezado_lower) and 'ft' not in encabezado_lower):
+                    columna_quantity_m = idx
             
             # Agregar las 3 nuevas columnas
             num_filas = len(df)
@@ -2307,17 +2313,34 @@ async def procesar_archivos_ventas(
                 # Obtener los valores de la columna Quantity OE/TO FT
                 valores_quantity_ft = df.iloc[:, columna_quantity_ft]
                 # Convertir a numérico y dividir entre 3.2808
-                valores_numericos = pd.to_numeric(valores_quantity_ft, errors='coerce')
-                conversion_ft_m = valores_numericos / 3.2808
-                # Reemplazar NaN con string vacío
-                conversion_ft_m = conversion_ft_m.fillna('')
-                df['Conversion de FT a M'] = conversion_ft_m.tolist()
+                valores_numericos_ft = pd.to_numeric(valores_quantity_ft, errors='coerce')
+                conversion_ft_m = valores_numericos_ft / 3.2808
+                df['Conversion de FT a M'] = conversion_ft_m
             else:
                 # Si no se encuentra la columna, dejar vacío
-                df['Conversion de FT a M'] = [''] * num_filas
+                df['Conversion de FT a M'] = [None] * num_filas
             
-            # Las otras dos columnas se dejan vacías
-            df['Sales total MTS'] = [''] * num_filas
+            # Calcular "Sales total MTS" = Quantity OE/TO M + Conversion de FT a M
+            if columna_quantity_m is not None:
+                # Obtener los valores de la columna Quantity OE/TO M
+                valores_quantity_m = df.iloc[:, columna_quantity_m]
+                # Convertir a numérico
+                valores_numericos_m = pd.to_numeric(valores_quantity_m, errors='coerce')
+                # Obtener los valores de Conversion de FT a M (ya calculados)
+                valores_conversion = pd.to_numeric(df['Conversion de FT a M'], errors='coerce')
+                # Sumar ambos valores
+                sales_total_mts = valores_numericos_m + valores_conversion
+                df['Sales total MTS'] = sales_total_mts
+            else:
+                # Si no se encuentra la columna Quantity OE/TO M, usar solo Conversion de FT a M
+                valores_conversion = pd.to_numeric(df['Conversion de FT a M'], errors='coerce')
+                df['Sales total MTS'] = valores_conversion
+            
+            # Reemplazar NaN con string vacío en las columnas calculadas
+            df['Conversion de FT a M'] = df['Conversion de FT a M'].fillna('')
+            df['Sales total MTS'] = df['Sales total MTS'].fillna('')
+            
+            # La última columna se deja vacía
             df['Sales KM'] = [''] * num_filas
             
             # Crear una fila de encabezados usando:
