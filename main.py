@@ -2643,6 +2643,35 @@ async def procesar_archivos_ventas(
                 'precio_full_metal_m': columna_precio_full_metal_m_actualizado
             }
             
+            # Modificar la columna Customer al final: eliminar los primeros 7 caracteres y espacios en blanco
+            # Buscar la columna Customer en el DataFrame final
+            columna_customer_final = None
+            primera_fila_final = df.iloc[0]
+            for idx, encabezado in enumerate(primera_fila_final):
+                encabezado_str = str(encabezado).strip() if pd.notna(encabezado) else ''
+                encabezado_lower = encabezado_str.lower()
+                if columna_customer_final is None and 'customer' in encabezado_lower and 'number' not in encabezado_lower:
+                    columna_customer_final = idx
+                    break
+            
+            if columna_customer_final is not None:
+                # Obtener todos los valores de la columna Customer (excluyendo la primera fila que es el encabezado)
+                # Modificar desde la fila 1 en adelante (índice 1)
+                for idx_fila in range(1, len(df)):
+                    valor_original = df.iloc[idx_fila, columna_customer_final]
+                    if pd.notna(valor_original):
+                        # Convertir a string
+                        valor_str = str(valor_original)
+                        # Eliminar los primeros 7 caracteres
+                        if len(valor_str) > 7:
+                            valor_modificado = valor_str[7:]
+                        else:
+                            valor_modificado = ''
+                        # Eliminar espacios en blanco al inicio y al final
+                        valor_modificado = valor_modificado.strip()
+                        # Actualizar el valor en el DataFrame
+                        df.iloc[idx_fila, columna_customer_final] = valor_modificado
+            
             # Guardar el archivo procesado
             # Generar nombre de archivo basado en el original
             nombre_base = Path(nombre_archivo_ventas).stem
