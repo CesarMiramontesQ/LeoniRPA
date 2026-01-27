@@ -2294,6 +2294,8 @@ async def procesar_archivos_ventas(
             columna_quantity_ft = None
             # Buscar "Quantity OE/TO M"
             columna_quantity_m = None
+            # Buscar "Turnover w/o metal"
+            columna_turnover_wo_metal_original = None
             
             for idx, encabezado in enumerate(valores_renglon_1):
                 encabezado_str = str(encabezado).strip() if pd.notna(encabezado) else ''
@@ -2309,6 +2311,22 @@ async def procesar_archivos_ventas(
                 if columna_quantity_m is None and ('quantity' in encabezado_lower and 'm' in encabezado_lower and 
                     ('oe' in encabezado_lower or 'to' in encabezado_lower) and 'ft' not in encabezado_lower):
                     columna_quantity_m = idx
+                # Buscar "Turnover w/o metal"
+                if columna_turnover_wo_metal_original is None and ('turnover' in encabezado_lower and 'metal' in encabezado_lower and 'w/o' in encabezado_lower):
+                    columna_turnover_wo_metal_original = idx
+            
+            # Calcular el índice actual de "Turnover w/o metal" después de eliminar columnas
+            columna_turnover_wo_metal = None
+            if columna_turnover_wo_metal_original is not None:
+                # Crear un mapeo de índices originales a índices actuales
+                # Las columnas eliminadas están en columnas_a_eliminar
+                # Necesitamos contar cuántas columnas antes de la columna objetivo fueron eliminadas
+                columnas_eliminadas_antes = sum(1 for col_idx in columnas_a_eliminar if col_idx < columna_turnover_wo_metal_original)
+                # El índice actual es el índice original menos las columnas eliminadas antes
+                columna_turnover_wo_metal = columna_turnover_wo_metal_original - columnas_eliminadas_antes
+                # Verificar que el índice esté dentro del rango del DataFrame
+                if columna_turnover_wo_metal < 0 or columna_turnover_wo_metal >= len(df.columns):
+                    columna_turnover_wo_metal = None
             
             # Obtener todos los grupos de clientes de la base de datos
             grupos_clientes = await crud.list_cliente_grupos(db, limit=100000)
@@ -2333,6 +2351,8 @@ async def procesar_archivos_ventas(
                     columna_quantity_ft += 1
                 if columna_quantity_m is not None and columna_quantity_m > columna_customer:
                     columna_quantity_m += 1
+                if columna_turnover_wo_metal is not None and columna_turnover_wo_metal > columna_customer:
+                    columna_turnover_wo_metal += 1
                 # Actualizar valores_renglon_1 para incluir el nuevo encabezado
                 valores_renglon_1.insert(columna_customer + 1, 'Customer number')
                 
@@ -2366,6 +2386,8 @@ async def procesar_archivos_ventas(
                     columna_quantity_ft += 1
                 if columna_quantity_m is not None and columna_quantity_m > columna_customer:
                     columna_quantity_m += 1
+                if columna_turnover_wo_metal is not None and columna_turnover_wo_metal > columna_customer:
+                    columna_turnover_wo_metal += 1
                 # Actualizar valores_renglon_1 para incluir el nuevo encabezado
                 valores_renglon_1.insert(columna_customer + 2, 'grupo')
             
@@ -2405,16 +2427,33 @@ async def procesar_archivos_ventas(
             sales_km = valores_sales_total / 1000
             df['Sales KM'] = sales_km
             
+            # Calcular "Precio Exmetal" = Turnover w/o metal / Sales KM
+            if columna_turnover_wo_metal is not None:
+                # Obtener los valores de la columna Turnover w/o metal
+                valores_turnover = df.iloc[:, columna_turnover_wo_metal]
+                # Convertir a numérico
+                valores_numericos_turnover = pd.to_numeric(valores_turnover, errors='coerce')
+                # Obtener los valores de Sales KM (ya calculados)
+                valores_sales_km = pd.to_numeric(df['Sales KM'], errors='coerce')
+                # Dividir: Precio Exmetal = Turnover w/o metal / Sales KM
+                # Evitar división por cero
+                precio_exmetal = valores_numericos_turnover / valores_sales_km.replace(0, pd.NA)
+                df['Precio Exmetal'] = precio_exmetal
+            else:
+                # Si no se encuentra la columna, dejar vacío
+                df['Precio Exmetal'] = [None] * num_filas
+            
             # Reemplazar NaN con string vacío en las columnas calculadas
             df['Conversion de FT a M'] = df['Conversion de FT a M'].fillna('')
             df['Sales total MTS'] = df['Sales total MTS'].fillna('')
             df['Sales KM'] = df['Sales KM'].fillna('')
+            df['Precio Exmetal'] = df['Precio Exmetal'].fillna('')
             
             # Crear una fila de encabezados usando:
             # - Los valores del renglón 1 original para las columnas originales
-            # - Los nombres de las 3 nuevas columnas para las nuevas columnas
+            # - Los nombres de las nuevas columnas para las nuevas columnas
             nombres_encabezados = valores_renglon_1.copy()
-            nombres_encabezados.extend(['Conversion de FT a M', 'Sales total MTS', 'Sales KM'])
+            nombres_encabezados.extend(['Conversion de FT a M', 'Sales total MTS', 'Sales KM', 'Precio Exmetal'])
             
             # Convertir los valores a strings para evitar problemas
             nombres_encabezados = [str(val) if pd.notna(val) else '' for val in nombres_encabezados]
@@ -2423,6 +2462,75 @@ async def procesar_archivos_ventas(
             fila_encabezados = pd.DataFrame([nombres_encabezados], columns=df.columns)
             # Concatenar la fila de encabezados al inicio del DataFrame
             df = pd.concat([fila_encabezados, df], ignore_index=True)
+            
+            # Actualizar y guardar los índices de las columnas según su nombre
+            # Crear un diccionario que mapee el nombre de cada columna a su índice actualizado
+            indices_columnas = {}
+            for idx, nombre_columna in enumerate(df.columns):
+                # Obtener el nombre real de la columna desde los encabezados (primera fila)
+                nombre_real = str(df.iloc[0, idx]).strip() if pd.notna(df.iloc[0, idx]) else ''
+                if nombre_real:
+                    # Guardar el índice con el nombre de la columna (case-insensitive para búsqueda)
+                    indices_columnas[nombre_real.lower()] = idx
+                    # También guardar con el nombre exacto
+                    indices_columnas[nombre_real] = idx
+            
+            # Actualizar los índices de las columnas conocidas después de todas las modificaciones
+            # Buscar nuevamente las columnas en el DataFrame final para obtener sus índices actualizados
+            columna_customer_actualizado = None
+            columna_quantity_ft_actualizado = None
+            columna_quantity_m_actualizado = None
+            columna_customer_number_actualizado = None
+            columna_grupo_actualizado = None
+            columna_conversion_ft_m_actualizado = None
+            columna_sales_total_mts_actualizado = None
+            columna_sales_km_actualizado = None
+            columna_turnover_wo_metal_actualizado = None
+            columna_precio_exmetal_actualizado = None
+            
+            # Buscar en la primera fila (encabezados) del DataFrame final
+            primera_fila = df.iloc[0]
+            for idx, encabezado in enumerate(primera_fila):
+                encabezado_str = str(encabezado).strip() if pd.notna(encabezado) else ''
+                encabezado_lower = encabezado_str.lower()
+                
+                # Buscar cada columna por nombre
+                if columna_customer_actualizado is None and 'customer' in encabezado_lower and 'number' not in encabezado_lower:
+                    columna_customer_actualizado = idx
+                if columna_customer_number_actualizado is None and 'customer number' in encabezado_lower:
+                    columna_customer_number_actualizado = idx
+                if columna_grupo_actualizado is None and encabezado_lower == 'grupo':
+                    columna_grupo_actualizado = idx
+                if columna_quantity_ft_actualizado is None and ('quantity' in encabezado_lower and 'ft' in encabezado_lower and 
+                    ('oe' in encabezado_lower or 'to' in encabezado_lower)):
+                    columna_quantity_ft_actualizado = idx
+                if columna_quantity_m_actualizado is None and ('quantity' in encabezado_lower and 'm' in encabezado_lower and 
+                    ('oe' in encabezado_lower or 'to' in encabezado_lower) and 'ft' not in encabezado_lower):
+                    columna_quantity_m_actualizado = idx
+                if columna_conversion_ft_m_actualizado is None and 'conversion de ft a m' in encabezado_lower:
+                    columna_conversion_ft_m_actualizado = idx
+                if columna_sales_total_mts_actualizado is None and 'sales total mts' in encabezado_lower:
+                    columna_sales_total_mts_actualizado = idx
+                if columna_sales_km_actualizado is None and 'sales km' in encabezado_lower:
+                    columna_sales_km_actualizado = idx
+                if columna_turnover_wo_metal_actualizado is None and ('turnover' in encabezado_lower and 'metal' in encabezado_lower and 'w/o' in encabezado_lower):
+                    columna_turnover_wo_metal_actualizado = idx
+                if columna_precio_exmetal_actualizado is None and 'precio exmetal' in encabezado_lower:
+                    columna_precio_exmetal_actualizado = idx
+            
+            # Crear diccionario con los índices actualizados de las columnas principales
+            indices_columnas_principales = {
+                'customer': columna_customer_actualizado,
+                'customer_number': columna_customer_number_actualizado,
+                'grupo': columna_grupo_actualizado,
+                'quantity_ft': columna_quantity_ft_actualizado,
+                'quantity_m': columna_quantity_m_actualizado,
+                'conversion_ft_m': columna_conversion_ft_m_actualizado,
+                'sales_total_mts': columna_sales_total_mts_actualizado,
+                'sales_km': columna_sales_km_actualizado,
+                'turnover_wo_metal': columna_turnover_wo_metal_actualizado,
+                'precio_exmetal': columna_precio_exmetal_actualizado
+            }
             
             # Guardar el archivo procesado
             # Generar nombre de archivo basado en el original
@@ -2456,7 +2564,9 @@ async def procesar_archivos_ventas(
                     "archivo_guardado": str(ruta_archivo_salida),
                     "columnas_eliminadas": len(columnas_a_eliminar),
                     "total_columnas_eliminadas": len(columnas_a_eliminar),
-                    "columnas_actual_modificadas": columnas_modificadas
+                    "columnas_actual_modificadas": columnas_modificadas,
+                    "indices_columnas": indices_columnas_principales,
+                    "total_columnas": len(df.columns)
                 }
             )
         
