@@ -2672,6 +2672,62 @@ async def procesar_archivos_ventas(
                         # Actualizar el valor en el DataFrame
                         df.iloc[idx_fila, columna_customer_final] = valor_modificado
             
+            # Descomponer la columna "Product" en "Producto" y "Product description"
+            # Buscar la columna Product en el DataFrame final
+            columna_product_final = None
+            primera_fila_final = df.iloc[0]
+            for idx, encabezado in enumerate(primera_fila_final):
+                encabezado_str = str(encabezado).strip() if pd.notna(encabezado) else ''
+                encabezado_lower = encabezado_str.lower()
+                if columna_product_final is None and encabezado_lower == 'product':
+                    columna_product_final = idx
+                    break
+            
+            if columna_product_final is not None:
+                # Crear listas para almacenar los valores descompuestos
+                valores_producto = []
+                valores_product_description = []
+                
+                # Procesar cada fila (incluyendo el encabezado)
+                for idx_fila in range(len(df)):
+                    valor_original = df.iloc[idx_fila, columna_product_final]
+                    if pd.notna(valor_original):
+                        # Convertir a string
+                        valor_str = str(valor_original).strip()
+                        # Dividir por el primer espacio
+                        partes = valor_str.split(' ', 1)  # split con maxsplit=1 divide solo en el primer espacio
+                        if len(partes) == 2:
+                            # Hay dos partes: antes y después del primer espacio
+                            valores_producto.append(partes[0])
+                            # Eliminar espacios en blanco al inicio y al final de la descripción
+                            descripcion_limpia = partes[1].strip()
+                            valores_product_description.append(descripcion_limpia)
+                        elif len(partes) == 1:
+                            # Solo hay una parte (no hay espacio)
+                            valores_producto.append(partes[0])
+                            valores_product_description.append('')
+                        else:
+                            # Caso vacío
+                            valores_producto.append('')
+                            valores_product_description.append('')
+                    else:
+                        # Valor NaN
+                        valores_producto.append('')
+                        valores_product_description.append('')
+                
+                # Actualizar la columna Product con los valores de Producto
+                df.iloc[:, columna_product_final] = valores_producto
+                
+                # Cambiar el nombre del encabezado de "Product" a "Producto" en la primera fila
+                df.iloc[0, columna_product_final] = 'Producto'
+                
+                # Insertar la nueva columna "Product Description" justo después de Producto
+                # Necesitamos insertar como una serie con el mismo índice que el DataFrame
+                df.insert(columna_product_final + 1, 'Product Description', valores_product_description)
+                
+                # Asegurarse de que el encabezado en la primera fila sea "Product Description"
+                df.iloc[0, columna_product_final + 1] = 'Product Description'
+            
             # Guardar el archivo procesado
             # Generar nombre de archivo basado en el original
             nombre_base = Path(nombre_archivo_ventas).stem
