@@ -2287,9 +2287,36 @@ async def procesar_archivos_ventas(
             df = df.drop(df.index[0])
             df = df.reset_index(drop=True)
             
-            # Agregar las 3 nuevas columnas vacías al final
+            # Buscar la columna "Quantity OE/TO FT" en los encabezados
+            # Buscar variaciones del nombre: "Quantity OE/TO FT", "Quantity OE TO FT", etc.
+            columna_quantity_ft = None
+            for idx, encabezado in enumerate(valores_renglon_1):
+                encabezado_str = str(encabezado).strip() if pd.notna(encabezado) else ''
+                encabezado_lower = encabezado_str.lower()
+                # Buscar variaciones del nombre
+                if ('quantity' in encabezado_lower and 'ft' in encabezado_lower and 
+                    ('oe' in encabezado_lower or 'to' in encabezado_lower)):
+                    columna_quantity_ft = idx
+                    break
+            
+            # Agregar las 3 nuevas columnas
             num_filas = len(df)
-            df['Conversion de FT a M'] = [''] * num_filas
+            
+            # Calcular "Conversion de FT a M" = Quantity OE/TO FT / 3.2808
+            if columna_quantity_ft is not None:
+                # Obtener los valores de la columna Quantity OE/TO FT
+                valores_quantity_ft = df.iloc[:, columna_quantity_ft]
+                # Convertir a numérico y dividir entre 3.2808
+                valores_numericos = pd.to_numeric(valores_quantity_ft, errors='coerce')
+                conversion_ft_m = valores_numericos / 3.2808
+                # Reemplazar NaN con string vacío
+                conversion_ft_m = conversion_ft_m.fillna('')
+                df['Conversion de FT a M'] = conversion_ft_m.tolist()
+            else:
+                # Si no se encuentra la columna, dejar vacío
+                df['Conversion de FT a M'] = [''] * num_filas
+            
+            # Las otras dos columnas se dejan vacías
             df['Sales total MTS'] = [''] * num_filas
             df['Sales KM'] = [''] * num_filas
             
