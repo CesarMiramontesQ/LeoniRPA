@@ -93,7 +93,7 @@
                           <button
                             type="button"
                             id="ventas-menu-toggle-mobile"
-                            class="group flex w-full items-center justify-between gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page in ['ventas', 'grupos_clientes'] %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                            class="group flex w-full items-center justify-between gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page in ['ventas', 'ventas_registros', 'grupos_clientes'] %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
                           >
                             <div class="flex items-center gap-x-3">
                               <svg
@@ -102,7 +102,7 @@
                                 viewBox="0 0 24 24"
                                 stroke-width="1.5"
                                 stroke="currentColor"
-                                class="size-6 shrink-0 {% if active_page in ['ventas', 'grupos_clientes'] %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
+                                class="size-6 shrink-0 {% if active_page in ['ventas', 'ventas_registros', 'grupos_clientes'] %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
                               >
                                 <path
                                   stroke-linecap="round"
@@ -114,7 +114,7 @@
                             </div>
                             <svg
                               id="ventas-menu-arrow-mobile"
-                              class="size-5 shrink-0 transition-transform duration-200 {% if active_page in ['ventas', 'grupos_clientes'] %}rotate-90 text-[#003D89]{% else %}text-gray-400{% endif %}"
+                              class="size-5 shrink-0 transition-transform duration-200 {% if active_page in ['ventas', 'ventas_registros', 'grupos_clientes'] %}rotate-90 text-[#003D89]{% else %}text-gray-400{% endif %}"
                               xmlns="http://www.w3.org/2000/svg"
                               fill="none"
                               viewBox="0 0 24 24"
@@ -126,7 +126,7 @@
                           </button>
                           <ul
                             id="ventas-submenu-mobile"
-                            class="mt-1 space-y-1 pl-9 {% if active_page in ['ventas', 'grupos_clientes'] %}block{% else %}hidden{% endif %}"
+                            class="mt-1 space-y-1 pl-9 {% if active_page in ['ventas', 'ventas_registros', 'grupos_clientes'] %}block{% else %}hidden{% endif %}"
                           >
                             <li>
                               <a
@@ -134,6 +134,14 @@
                                 class="block rounded-md px-2 py-1.5 text-sm/6 font-medium {% if active_page == 'ventas' %}bg-gray-100 text-[#003D89]{% else %}text-gray-600 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
                               >
                                 General
+                              </a>
+                            </li>
+                            <li>
+                              <a
+                                href="/ventas-registros"
+                                class="block rounded-md px-2 py-1.5 text-sm/6 font-medium {% if active_page == 'ventas_registros' %}bg-gray-100 text-[#003D89]{% else %}text-gray-600 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                              >
+                                Registros
                               </a>
                             </li>
                             <li>
@@ -349,7 +357,7 @@
                     <button
                       type="button"
                       id="ventas-menu-toggle-desktop"
-                      class="group flex w-full items-center justify-between gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page in ['ventas', 'grupos_clientes'] %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                      class="group flex w-full items-center justify-between gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page in ['ventas', 'ventas_registros', 'grupos_clientes'] %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
                     >
                       <div class="flex items-center gap-x-3">
                         <svg
@@ -370,7 +378,7 @@
                       </div>
                       <svg
                         id="ventas-menu-arrow-desktop"
-                        class="size-5 shrink-0 transition-transform duration-200 {% if active_page in ['ventas', 'grupos_clientes'] %}rotate-90 text-[#003D89]{% else %}text-gray-400{% endif %}"
+                        class="size-5 shrink-0 transition-transform duration-200 {% if active_page in ['ventas', 'ventas_registros', 'grupos_clientes'] %}rotate-90 text-[#003D89]{% else %}text-gray-400{% endif %}"
                         xmlns="http://www.w3.org/2000/svg"
                         fill="none"
                         viewBox="0 0 24 24"
@@ -382,7 +390,7 @@
                     </button>
                     <ul
                       id="ventas-submenu-desktop"
-                      class="mt-1 space-y-1 pl-9 {% if active_page in ['ventas', 'grupos_clientes'] %}block{% else %}hidden{% endif %}"
+                      class="mt-1 space-y-1 pl-9 {% if active_page in ['ventas', 'ventas_registros', 'grupos_clientes'] %}block{% else %}hidden{% endif %}"
                     >
                       <li>
                         <a
@@ -390,6 +398,14 @@
                           class="block rounded-md px-2 py-1.5 text-sm/6 font-medium {% if active_page == 'ventas' %}bg-gray-100 text-[#003D89]{% else %}text-gray-600 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
                         >
                           General
+                        </a>
+                      </li>
+                      <li>
+                        <a
+                          href="/ventas-registros"
+                          class="block rounded-md px-2 py-1.5 text-sm/6 font-medium {% if active_page == 'ventas_registros' %}bg-gray-100 text-[#003D89]{% else %}text-gray-600 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                        >
+                          Registros
                         </a>
                       </li>
                       <li>

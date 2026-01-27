@@ -3026,3 +3026,99 @@ async def get_cliente_grupo_by_codigo_cliente(db: AsyncSession, codigo_cliente: 
         select(ClienteGrupo).where(ClienteGrupo.codigo_cliente == codigo_cliente)
     )
     return result.scalar_one_or_none()
+
+
+async def list_ventas(
+    db: AsyncSession,
+    limit: int = 100,
+    offset: int = 0,
+    search: Optional[str] = None,
+    cliente: Optional[str] = None,
+    codigo_cliente: Optional[int] = None,
+    periodo_inicio: Optional[datetime] = None,
+    periodo_fin: Optional[datetime] = None,
+    producto: Optional[str] = None,
+    planta: Optional[str] = None
+) -> List[Venta]:
+    """Lista ventas con filtros opcionales."""
+    query = select(Venta).options(selectinload(Venta.grupo))
+    
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                Venta.cliente.ilike(search_pattern),
+                Venta.producto.ilike(search_pattern),
+                Venta.descripcion_producto.ilike(search_pattern),
+                Venta.planta.ilike(search_pattern)
+            )
+        )
+    
+    if cliente:
+        query = query.where(Venta.cliente.ilike(f"%{cliente}%"))
+    
+    if codigo_cliente is not None:
+        query = query.where(Venta.codigo_cliente == codigo_cliente)
+    
+    if periodo_inicio:
+        query = query.where(Venta.periodo >= periodo_inicio.date() if isinstance(periodo_inicio, datetime) else periodo_inicio)
+    
+    if periodo_fin:
+        query = query.where(Venta.periodo <= periodo_fin.date() if isinstance(periodo_fin, datetime) else periodo_fin)
+    
+    if producto:
+        query = query.where(Venta.producto.ilike(f"%{producto}%"))
+    
+    if planta:
+        query = query.where(Venta.planta.ilike(f"%{planta}%"))
+    
+    query = query.order_by(desc(Venta.created_at)).limit(limit).offset(offset)
+    
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def count_ventas(
+    db: AsyncSession,
+    search: Optional[str] = None,
+    cliente: Optional[str] = None,
+    codigo_cliente: Optional[int] = None,
+    periodo_inicio: Optional[datetime] = None,
+    periodo_fin: Optional[datetime] = None,
+    producto: Optional[str] = None,
+    planta: Optional[str] = None
+) -> int:
+    """Cuenta el total de ventas con filtros opcionales."""
+    query = select(func.count(Venta.id))
+    
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                Venta.cliente.ilike(search_pattern),
+                Venta.producto.ilike(search_pattern),
+                Venta.descripcion_producto.ilike(search_pattern),
+                Venta.planta.ilike(search_pattern)
+            )
+        )
+    
+    if cliente:
+        query = query.where(Venta.cliente.ilike(f"%{cliente}%"))
+    
+    if codigo_cliente is not None:
+        query = query.where(Venta.codigo_cliente == codigo_cliente)
+    
+    if periodo_inicio:
+        query = query.where(Venta.periodo >= periodo_inicio.date() if isinstance(periodo_inicio, datetime) else periodo_inicio)
+    
+    if periodo_fin:
+        query = query.where(Venta.periodo <= periodo_fin.date() if isinstance(periodo_fin, datetime) else periodo_fin)
+    
+    if producto:
+        query = query.where(Venta.producto.ilike(f"%{producto}%"))
+    
+    if planta:
+        query = query.where(Venta.planta.ilike(f"%{planta}%"))
+    
+    result = await db.execute(query)
+    return result.scalar() or 0

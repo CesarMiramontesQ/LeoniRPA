@@ -83,6 +83,122 @@ async def ventas(request: Request, current_user: User = Depends(get_current_user
     )
 
 
+@app.get("/ventas-registros")
+async def ventas_registros(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Página de registros de ventas - requiere autenticación."""
+    total_ventas = await crud.count_ventas(db)
+    
+    return templates.TemplateResponse(
+        "ventas_registros.html",
+        {
+            "request": request,
+            "active_page": "ventas_registros",
+            "current_user": current_user,
+            "total_ventas": total_ventas
+        }
+    )
+
+
+@app.get("/api/ventas")
+async def api_ventas(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    search: Optional[str] = None,
+    cliente: Optional[str] = None,
+    codigo_cliente: Optional[int] = None,
+    periodo_inicio: Optional[str] = None,
+    periodo_fin: Optional[str] = None,
+    producto: Optional[str] = None,
+    planta: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0
+):
+    """API para obtener ventas con filtros y paginación."""
+    # Convertir fechas de string a datetime si están presentes
+    periodo_inicio_dt = None
+    periodo_fin_dt = None
+    
+    if periodo_inicio:
+        try:
+            periodo_inicio_dt = datetime.strptime(periodo_inicio, "%Y-%m-%d")
+        except ValueError:
+            pass
+    
+    if periodo_fin:
+        try:
+            periodo_fin_dt = datetime.strptime(periodo_fin, "%Y-%m-%d")
+        except ValueError:
+            pass
+    
+    ventas = await crud.list_ventas(
+        db=db,
+        limit=limit,
+        offset=offset,
+        search=search,
+        cliente=cliente,
+        codigo_cliente=codigo_cliente,
+        periodo_inicio=periodo_inicio_dt,
+        periodo_fin=periodo_fin_dt,
+        producto=producto,
+        planta=planta
+    )
+    
+    total = await crud.count_ventas(
+        db=db,
+        search=search,
+        cliente=cliente,
+        codigo_cliente=codigo_cliente,
+        periodo_inicio=periodo_inicio_dt,
+        periodo_fin=periodo_fin_dt,
+        producto=producto,
+        planta=planta
+    )
+    
+    # Convertir a diccionarios para JSON
+    ventas_dict = []
+    for venta in ventas:
+        venta_data = {
+            "id": venta.id,
+            "cliente": venta.cliente,
+            "codigo_cliente": venta.codigo_cliente,
+            "grupo": venta.grupo.grupo if venta.grupo else None,
+            "unidad_negocio": venta.unidad_negocio,
+            "periodo": venta.periodo.strftime("%Y-%m-%d") if venta.periodo else None,
+            "producto_condensado": venta.producto_condensado,
+            "region_asc": venta.region_asc,
+            "planta": venta.planta,
+            "ship_to_party": venta.ship_to_party,
+            "producto": venta.producto,
+            "descripcion_producto": venta.descripcion_producto,
+            "turnover_wo_metal": float(venta.turnover_wo_metal) if venta.turnover_wo_metal else None,
+            "oe_turnover_like_fi": float(venta.oe_turnover_like_fi) if venta.oe_turnover_like_fi else None,
+            "copper_sales_cuv": float(venta.copper_sales_cuv) if venta.copper_sales_cuv else None,
+            "cu_sales_effect": float(venta.cu_sales_effect) if venta.cu_sales_effect else None,
+            "cu_result": float(venta.cu_result) if venta.cu_result else None,
+            "quantity_oe_to_m": float(venta.quantity_oe_to_m) if venta.quantity_oe_to_m else None,
+            "quantity_oe_to_ft": float(venta.quantity_oe_to_ft) if venta.quantity_oe_to_ft else None,
+            "cu_weight_techn_cut": float(venta.cu_weight_techn_cut) if venta.cu_weight_techn_cut else None,
+            "cu_weight_sales_cuv": float(venta.cu_weight_sales_cuv) if venta.cu_weight_sales_cuv else None,
+            "conversion_ft_a_m": float(venta.conversion_ft_a_m) if venta.conversion_ft_a_m else None,
+            "sales_total_mts": float(venta.sales_total_mts) if venta.sales_total_mts else None,
+            "sales_km": float(venta.sales_km) if venta.sales_km else None,
+            "precio_exmetal_km": float(venta.precio_exmetal_km) if venta.precio_exmetal_km else None,
+            "precio_full_metal_km": float(venta.precio_full_metal_km) if venta.precio_full_metal_km else None,
+            "precio_exmetal_m": float(venta.precio_exmetal_m) if venta.precio_exmetal_m else None,
+            "precio_full_metal_m": float(venta.precio_full_metal_m) if venta.precio_full_metal_m else None,
+            "created_at": venta.created_at.isoformat() if venta.created_at else None
+        }
+        ventas_dict.append(venta_data)
+    
+    return JSONResponse({
+        "ventas": ventas_dict,
+        "total": total,
+        "limit": limit,
+        "offset": offset
+    })
+
+
 @app.get("/grupos-clientes")
 async def grupos_clientes(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Página de grupos de clientes - requiere autenticación."""
@@ -2848,60 +2964,130 @@ async def procesar_archivos_ventas(
                     venta_dict['periodo'] = None  # Valor por defecto
                     if pd.notna(periodo_val):
                         periodo_str = str(periodo_val).strip()
-                        # Eliminar espacios y caracteres especiales
-                        periodo_str = periodo_str.replace(' ', '').replace('_', '')
                         if periodo_str and periodo_str.lower() not in ['nan', 'none', '']:
                             try:
-                                # Intentar diferentes formatos comunes: YYYY-MM, MM/YYYY, YYYYMM, etc.
+                                import re
+                                
+                                # Buscar año de 4 dígitos (2020-2099)
+                                año_match = re.search(r'\b(20\d{2})\b', periodo_str)
+                                año = None
+                                if año_match:
+                                    año = int(año_match.group(1))
+                                
+                                # Buscar mes (1-12) - puede estar antes o después del año
+                                # Buscar números de 1-2 dígitos que representen meses válidos
+                                mes_match = None
+                                
+                                # Patrón 1: Buscar "Period YYYY" seguido de un número que podría ser el mes
+                                # Ejemplo: "Period 2025 4" o "4. Period 2025"
+                                period_pattern = re.search(r'period\s+(\d{4})\s*[.\s]*(\d{1,2})', periodo_str, re.IGNORECASE)
+                                if period_pattern:
+                                    año = int(period_pattern.group(1))
+                                    mes_candidato = int(period_pattern.group(2))
+                                    if 1 <= mes_candidato <= 12:
+                                        mes_match = mes_candidato
+                                
+                                # Patrón 2: Buscar número seguido de punto y año, luego otro número
+                                # Ejemplo: "004.2025 4" -> mes=4, año=2025
+                                dot_pattern = re.search(r'(\d{1,2})\.\s*(\d{4})\s+(\d{1,2})', periodo_str)
+                                if dot_pattern and not mes_match:
+                                    año_candidato = int(dot_pattern.group(2))
+                                    mes_candidato = int(dot_pattern.group(3))
+                                    if 1 <= mes_candidato <= 12:
+                                        año = año_candidato
+                                        mes_match = mes_candidato
+                                
+                                # Patrón 3: Buscar número antes de "Period YYYY"
+                                # Ejemplo: "4. Period 2025"
+                                before_period = re.search(r'(\d{1,2})\s*\.\s*period\s+(\d{4})', periodo_str, re.IGNORECASE)
+                                if before_period and not mes_match:
+                                    mes_candidato = int(before_period.group(1))
+                                    año_candidato = int(before_period.group(2))
+                                    if 1 <= mes_candidato <= 12:
+                                        año = año_candidato
+                                        mes_match = mes_candidato
+                                
+                                # Patrón 4: Buscar formato estándar MM/YYYY o YYYY-MM
                                 if '/' in periodo_str:
                                     partes = periodo_str.split('/')
                                     if len(partes) == 2:
                                         try:
-                                            mes = int(partes[0])
-                                            año = int(partes[1])
-                                            # Validar que el año tenga 4 dígitos
-                                            if año < 100:
-                                                año += 2000
-                                            venta_dict['periodo'] = date_class(año, mes, 1)
+                                            mes_candidato = int(partes[0])
+                                            año_candidato = int(partes[1])
+                                            if año_candidato < 100:
+                                                año_candidato += 2000
+                                            if 1 <= mes_candidato <= 12 and 2000 <= año_candidato <= 2099:
+                                                año = año_candidato
+                                                mes_match = mes_candidato
                                         except (ValueError, TypeError):
                                             pass
-                                elif '-' in periodo_str:
+                                
+                                if '-' in periodo_str and not mes_match:
                                     partes = periodo_str.split('-')
                                     if len(partes) == 2:
                                         try:
-                                            año = int(partes[0])
-                                            mes = int(partes[1])
-                                            # Validar que el año tenga 4 dígitos
-                                            if año < 100:
-                                                año += 2000
-                                            venta_dict['periodo'] = date_class(año, mes, 1)
+                                            año_candidato = int(partes[0])
+                                            mes_candidato = int(partes[1])
+                                            if año_candidato < 100:
+                                                año_candidato += 2000
+                                            if 1 <= mes_candidato <= 12 and 2000 <= año_candidato <= 2099:
+                                                año = año_candidato
+                                                mes_match = mes_candidato
                                         except (ValueError, TypeError):
                                             pass
-                                elif len(periodo_str) == 6:  # Formato YYYYMM o MMYYYY
-                                    try:
-                                        # Intentar YYYYMM primero
-                                        año = int(periodo_str[:4])
-                                        mes = int(periodo_str[4:])
-                                        venta_dict['periodo'] = date_class(año, mes, 1)
-                                    except (ValueError, TypeError):
+                                
+                                # Patrón 5: Buscar todos los números y encontrar mes y año
+                                if not mes_match and año:
+                                    numeros = re.findall(r'\d+', periodo_str)
+                                    for num_str in numeros:
+                                        num = int(num_str)
+                                        # Si es un número de 1-12, podría ser el mes
+                                        if 1 <= num <= 12 and not mes_match:
+                                            mes_match = num
+                                        # Si es un número de 4 dígitos entre 2000-2099, es el año
+                                        elif 2000 <= num <= 2099 and not año:
+                                            año = num
+                                
+                                # Patrón 6: Formato YYYYMM o MMYYYY (6 dígitos)
+                                if not mes_match and len(periodo_str.replace(' ', '').replace('.', '').replace('-', '')) == 6:
+                                    periodo_limpio = re.sub(r'[^\d]', '', periodo_str)
+                                    if len(periodo_limpio) == 6:
                                         try:
-                                            # Intentar MMYYYY
-                                            mes = int(periodo_str[:2])
-                                            año = int(periodo_str[2:])
-                                            if año < 100:
-                                                año += 2000
-                                            venta_dict['periodo'] = date_class(año, mes, 1)
+                                            # Intentar YYYYMM primero
+                                            año_candidato = int(periodo_limpio[:4])
+                                            mes_candidato = int(periodo_limpio[4:])
+                                            if 1 <= mes_candidato <= 12 and 2000 <= año_candidato <= 2099:
+                                                año = año_candidato
+                                                mes_match = mes_candidato
                                         except (ValueError, TypeError):
-                                            pass
-                                else:
-                                    # Intentar parsear como fecha completa usando pandas
+                                            try:
+                                                # Intentar MMYYYY
+                                                mes_candidato = int(periodo_limpio[:2])
+                                                año_candidato = int(periodo_limpio[2:])
+                                                if año_candidato < 100:
+                                                    año_candidato += 2000
+                                                if 1 <= mes_candidato <= 12 and 2000 <= año_candidato <= 2099:
+                                                    año = año_candidato
+                                                    mes_match = mes_candidato
+                                            except (ValueError, TypeError):
+                                                pass
+                                
+                                # Patrón 7: Intentar parsear como fecha completa usando pandas
+                                if not mes_match or not año:
                                     try:
                                         fecha = pd.to_datetime(periodo_str, errors='coerce')
                                         if pd.notna(fecha):
-                                            venta_dict['periodo'] = date_class(fecha.year, fecha.month, 1)
+                                            año = fecha.year
+                                            mes_match = fecha.month
                                     except:
                                         pass
-                            except Exception:
+                                
+                                # Si tenemos mes y año válidos, crear la fecha
+                                if año and mes_match and 1 <= mes_match <= 12 and 2000 <= año <= 2099:
+                                    venta_dict['periodo'] = date_class(año, mes_match, 1)
+                                    
+                            except Exception as e:
+                                # Si hay algún error, dejar como None
                                 pass
                 else:
                     venta_dict['periodo'] = None
