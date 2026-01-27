@@ -2336,12 +2336,15 @@ async def procesar_archivos_ventas(
                 valores_conversion = pd.to_numeric(df['Conversion de FT a M'], errors='coerce')
                 df['Sales total MTS'] = valores_conversion
             
+            # Calcular "Sales KM" = Sales total MTS / 1000
+            valores_sales_total = pd.to_numeric(df['Sales total MTS'], errors='coerce')
+            sales_km = valores_sales_total / 1000
+            df['Sales KM'] = sales_km
+            
             # Reemplazar NaN con string vacío en las columnas calculadas
             df['Conversion de FT a M'] = df['Conversion de FT a M'].fillna('')
             df['Sales total MTS'] = df['Sales total MTS'].fillna('')
-            
-            # La última columna se deja vacía
-            df['Sales KM'] = [''] * num_filas
+            df['Sales KM'] = df['Sales KM'].fillna('')
             
             # Crear una fila de encabezados usando:
             # - Los valores del renglón 1 original para las columnas originales
