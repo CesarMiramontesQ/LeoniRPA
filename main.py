@@ -2288,6 +2288,8 @@ async def procesar_archivos_ventas(
             df = df.reset_index(drop=True)
             
             # Buscar las columnas necesarias en los encabezados
+            # Buscar "Customer"
+            columna_customer = None
             # Buscar "Quantity OE/TO FT"
             columna_quantity_ft = None
             # Buscar "Quantity OE/TO M"
@@ -2296,6 +2298,9 @@ async def procesar_archivos_ventas(
             for idx, encabezado in enumerate(valores_renglon_1):
                 encabezado_str = str(encabezado).strip() if pd.notna(encabezado) else ''
                 encabezado_lower = encabezado_str.lower()
+                # Buscar "Customer"
+                if columna_customer is None and 'customer' in encabezado_lower:
+                    columna_customer = idx
                 # Buscar "Quantity OE/TO FT"
                 if columna_quantity_ft is None and ('quantity' in encabezado_lower and 'ft' in encabezado_lower and 
                     ('oe' in encabezado_lower or 'to' in encabezado_lower)):
@@ -2304,6 +2309,24 @@ async def procesar_archivos_ventas(
                 if columna_quantity_m is None and ('quantity' in encabezado_lower and 'm' in encabezado_lower and 
                     ('oe' in encabezado_lower or 'to' in encabezado_lower) and 'ft' not in encabezado_lower):
                     columna_quantity_m = idx
+            
+            # Agregar la columna "Customer number" a la derecha de "Customer"
+            if columna_customer is not None:
+                # Obtener los valores de la columna Customer
+                valores_customer = df.iloc[:, columna_customer]
+                # Extraer los primeros 7 caracteres de cada valor
+                customer_number = valores_customer.astype(str).str[:7]
+                # Reemplazar 'nan' con string vacío
+                customer_number = customer_number.replace('nan', '')
+                # Insertar la columna justo después de Customer (posición columna_customer + 1)
+                df.insert(columna_customer + 1, 'Customer number', customer_number.tolist())
+                # Actualizar los índices de las otras columnas si Customer estaba antes de ellas
+                if columna_quantity_ft is not None and columna_quantity_ft > columna_customer:
+                    columna_quantity_ft += 1
+                if columna_quantity_m is not None and columna_quantity_m > columna_customer:
+                    columna_quantity_m += 1
+                # Actualizar valores_renglon_1 para incluir el nuevo encabezado
+                valores_renglon_1.insert(columna_customer + 1, 'Customer number')
             
             # Agregar las 3 nuevas columnas
             num_filas = len(df)
