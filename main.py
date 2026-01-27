@@ -2310,6 +2310,14 @@ async def procesar_archivos_ventas(
                     ('oe' in encabezado_lower or 'to' in encabezado_lower) and 'ft' not in encabezado_lower):
                     columna_quantity_m = idx
             
+            # Obtener todos los grupos de clientes de la base de datos
+            grupos_clientes = await crud.list_cliente_grupos(db, limit=100000)
+            # Crear un diccionario que mapee codigo_cliente -> grupo
+            dict_grupos = {}
+            for grupo_cliente in grupos_clientes:
+                if grupo_cliente.codigo_cliente is not None:
+                    dict_grupos[grupo_cliente.codigo_cliente] = grupo_cliente.grupo or ''
+            
             # Agregar la columna "Customer number" a la derecha de "Customer"
             if columna_customer is not None:
                 # Obtener los valores de la columna Customer
@@ -2327,6 +2335,39 @@ async def procesar_archivos_ventas(
                     columna_quantity_m += 1
                 # Actualizar valores_renglon_1 para incluir el nuevo encabezado
                 valores_renglon_1.insert(columna_customer + 1, 'Customer number')
+                
+                # Agregar la columna "grupo" a la derecha de "Customer number"
+                # Obtener los valores de la columna Customer number (ahora en posición columna_customer + 1)
+                valores_customer_number = df.iloc[:, columna_customer + 1]
+                # Convertir a entero para buscar en el diccionario, manejando errores
+                grupos = []
+                for valor in valores_customer_number:
+                    try:
+                        # Convertir a string y limpiar
+                        valor_str = str(valor).strip()
+                        # Verificar que no esté vacío ni sea 'nan'
+                        if not valor_str or valor_str.lower() == 'nan' or valor_str == '':
+                            grupos.append('')
+                            continue
+                        # Intentar convertir a entero
+                        codigo = int(float(valor_str))
+                        # Buscar el grupo en el diccionario
+                        if codigo in dict_grupos:
+                            grupos.append(dict_grupos[codigo])
+                        else:
+                            grupos.append('')
+                    except (ValueError, TypeError):
+                        grupos.append('')
+                
+                # Insertar la columna "grupo" justo después de Customer number (posición columna_customer + 2)
+                df.insert(columna_customer + 2, 'grupo', grupos)
+                # Actualizar los índices de las otras columnas si Customer estaba antes de ellas
+                if columna_quantity_ft is not None and columna_quantity_ft > columna_customer:
+                    columna_quantity_ft += 1
+                if columna_quantity_m is not None and columna_quantity_m > columna_customer:
+                    columna_quantity_m += 1
+                # Actualizar valores_renglon_1 para incluir el nuevo encabezado
+                valores_renglon_1.insert(columna_customer + 2, 'grupo')
             
             # Agregar las 3 nuevas columnas
             num_filas = len(df)
