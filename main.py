@@ -2201,11 +2201,11 @@ async def procesar_archivos_ventas(
                     content={"error": f"Error al leer el archivo Excel: {str(e)}"}
                 )
             
-            # Validar que el archivo tenga al menos 2 filas
-            if len(df) < 2:
+            # Validar que el archivo tenga al menos 3 filas (para poder copiar del renglón 1 al 3)
+            if len(df) < 3:
                 return JSONResponse(
                     status_code=400,
-                    content={"error": "El archivo debe tener al menos 2 renglones"}
+                    content={"error": "El archivo debe tener al menos 3 renglones"}
                 )
             
             # Valores a buscar en el segundo renglón (índice 1)
@@ -2231,6 +2231,32 @@ async def procesar_archivos_ventas(
                 # Eliminar columnas por índice
                 df = df.drop(df.columns[columnas_a_eliminar], axis=1)
             
+            # Buscar columnas donde el segundo renglón (índice 1) tenga "Actual"
+            # Obtener el segundo renglón actualizado después de eliminar columnas
+            segundo_renglon_actualizado = df.iloc[1]
+            columnas_actual = []
+            
+            for idx, valor in enumerate(segundo_renglon_actualizado):
+                # Convertir a string y limpiar espacios
+                valor_str = str(valor).strip() if pd.notna(valor) else ''
+                # Comparar con "Actual" (case-insensitive)
+                if valor_str.lower() == 'actual':
+                    columnas_actual.append(idx)
+            
+            # Copiar el valor del renglón 1 (índice 0) al renglón 3 (índice 2) para las columnas "Actual"
+            columnas_modificadas = 0
+            for col_idx in columnas_actual:
+                # Obtener el valor del renglón 1 (índice 0)
+                valor_renglon_1 = df.iloc[0, col_idx]
+                # Copiar al renglón 3 (índice 2)
+                df.iloc[2, col_idx] = valor_renglon_1
+                columnas_modificadas += 1
+            
+            # Eliminar los renglones 1 y 2 (índices 0 y 1)
+            df = df.drop(df.index[0:2])
+            # Resetear el índice para que quede secuencial
+            df = df.reset_index(drop=True)
+            
             # Guardar el archivo procesado
             # Generar nombre de archivo basado en el original
             nombre_base = Path(nombre_archivo_ventas).stem
@@ -2251,14 +2277,19 @@ async def procesar_archivos_ventas(
                     content={"error": f"Error al guardar el archivo procesado: {str(e)}"}
                 )
             
+            mensaje = f"Archivo procesado exitosamente. Se eliminaron {len(columnas_a_eliminar)} columnas."
+            if columnas_modificadas > 0:
+                mensaje += f" Se modificaron {columnas_modificadas} columnas 'Actual' (valor del renglón 1 copiado al renglón 3)."
+            
             return JSONResponse(
                 status_code=200,
                 content={
                     "success": True,
-                    "message": f"Archivo procesado exitosamente. Se eliminaron {len(columnas_a_eliminar)} columnas.",
+                    "message": mensaje,
                     "archivo_guardado": str(ruta_archivo_salida),
                     "columnas_eliminadas": len(columnas_a_eliminar),
-                    "total_columnas_eliminadas": len(columnas_a_eliminar)
+                    "total_columnas_eliminadas": len(columnas_a_eliminar),
+                    "columnas_actual_modificadas": columnas_modificadas
                 }
             )
         
