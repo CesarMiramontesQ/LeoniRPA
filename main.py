@@ -2488,7 +2488,7 @@ async def procesar_archivos_ventas(
                     if has_turnover and has_like and has_fi:
                         columna_turnover_like_fi_final = idx
             
-            # Calcular "Precio Exmetal" = Turnover w/o metal / Sales KM
+            # Calcular "Precio Exmetal KM" = Turnover w/o metal / Sales KM
             if columna_turnover_wo_metal_final is not None and 0 <= columna_turnover_wo_metal_final < len(df.columns):
                 # Obtener los valores de la columna Turnover w/o metal
                 valores_turnover = df.iloc[:, columna_turnover_wo_metal_final]
@@ -2496,15 +2496,15 @@ async def procesar_archivos_ventas(
                 valores_numericos_turnover = pd.to_numeric(valores_turnover, errors='coerce')
                 # Obtener los valores de Sales KM (ya calculados)
                 valores_sales_km = pd.to_numeric(df['Sales KM'], errors='coerce')
-                # Dividir: Precio Exmetal = Turnover w/o metal / Sales KM
+                # Dividir: Precio Exmetal KM = Turnover w/o metal / Sales KM
                 # Evitar división por cero
                 precio_exmetal = valores_numericos_turnover / valores_sales_km.replace(0, pd.NA)
-                df['Precio Exmetal'] = precio_exmetal
+                df['Precio Exmetal KM'] = precio_exmetal
             else:
                 # Si no se encuentra la columna, dejar vacío
-                df['Precio Exmetal'] = [None] * num_filas
+                df['Precio Exmetal KM'] = [None] * num_filas
             
-            # Calcular "Precio Full Metal" = OE/Turnover like FI / Sales KM
+            # Calcular "Precio Full Metal KM" = OE/Turnover like FI / Sales KM
             if columna_turnover_like_fi_final is not None and 0 <= columna_turnover_like_fi_final < len(df.columns):
                 # Verificar que no sea la misma columna que Turnover w/o metal
                 if columna_turnover_like_fi_final != columna_turnover_wo_metal_final:
@@ -2514,29 +2514,29 @@ async def procesar_archivos_ventas(
                     valores_numericos_turnover_fi = pd.to_numeric(valores_turnover_fi, errors='coerce')
                     # Obtener los valores de Sales KM (ya calculados)
                     valores_sales_km = pd.to_numeric(df['Sales KM'], errors='coerce')
-                    # Dividir: Precio Full Metal = OE/Turnover like FI / Sales KM
+                    # Dividir: Precio Full Metal KM = OE/Turnover like FI / Sales KM
                     # Evitar división por cero
                     precio_full_metal = valores_numericos_turnover_fi / valores_sales_km.replace(0, pd.NA)
-                    df['Precio Full Metal'] = precio_full_metal
+                    df['Precio Full Metal KM'] = precio_full_metal
                 else:
                     # Si es la misma columna, dejar vacío
-                    df['Precio Full Metal'] = [None] * num_filas
+                    df['Precio Full Metal KM'] = [None] * num_filas
             else:
                 # Si no se encuentra la columna, dejar vacío
-                df['Precio Full Metal'] = [None] * num_filas
+                df['Precio Full Metal KM'] = [None] * num_filas
             
             # Reemplazar NaN con string vacío en las columnas calculadas
             df['Conversion de FT a M'] = df['Conversion de FT a M'].fillna('')
             df['Sales total MTS'] = df['Sales total MTS'].fillna('')
             df['Sales KM'] = df['Sales KM'].fillna('')
-            df['Precio Exmetal'] = df['Precio Exmetal'].fillna('')
-            df['Precio Full Metal'] = df['Precio Full Metal'].fillna('')
+            df['Precio Exmetal KM'] = df['Precio Exmetal KM'].fillna('')
+            df['Precio Full Metal KM'] = df['Precio Full Metal KM'].fillna('')
             
             # Crear una fila de encabezados usando:
             # - Los valores del renglón 1 original para las columnas originales
             # - Los nombres de las nuevas columnas para las nuevas columnas
             nombres_encabezados = valores_renglon_1.copy()
-            nombres_encabezados.extend(['Conversion de FT a M', 'Sales total MTS', 'Sales KM', 'Precio Exmetal', 'Precio Full Metal'])
+            nombres_encabezados.extend(['Conversion de FT a M', 'Sales total MTS', 'Sales KM', 'Precio Exmetal KM', 'Precio Full Metal KM'])
             
             # Convertir los valores a strings para evitar problemas
             nombres_encabezados = [str(val) if pd.notna(val) else '' for val in nombres_encabezados]
@@ -2600,11 +2600,11 @@ async def procesar_archivos_ventas(
                     columna_sales_km_actualizado = idx
                 if columna_turnover_wo_metal_actualizado is None and ('turnover' in encabezado_lower and 'metal' in encabezado_lower and 'w/o' in encabezado_lower):
                     columna_turnover_wo_metal_actualizado = idx
-                if columna_precio_exmetal_actualizado is None and 'precio exmetal' in encabezado_lower:
+                if columna_precio_exmetal_actualizado is None and 'precio exmetal km' in encabezado_lower:
                     columna_precio_exmetal_actualizado = idx
                 if columna_turnover_like_fi_actualizado is None and ('turnover' in encabezado_lower and 'like' in encabezado_lower and 'fi' in encabezado_lower):
                     columna_turnover_like_fi_actualizado = idx
-                if columna_precio_full_metal_actualizado is None and 'precio full metal' in encabezado_lower:
+                if columna_precio_full_metal_actualizado is None and 'precio full metal km' in encabezado_lower:
                     columna_precio_full_metal_actualizado = idx
             
             # Crear diccionario con los índices actualizados de las columnas principales
