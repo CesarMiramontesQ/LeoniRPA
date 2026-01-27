@@ -1,5 +1,5 @@
 """Modelos de base de datos."""
-from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Boolean, ForeignKey, Text, Enum as SQLEnum, Numeric, Index, UniqueConstraint, CheckConstraint
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Boolean, ForeignKey, Text, Enum as SQLEnum, Numeric, Index, UniqueConstraint, CheckConstraint, Date
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
@@ -676,4 +676,100 @@ class ClienteGrupo(Base):
     
     def __repr__(self):
         return f"<ClienteGrupo(id={self.id}, codigo_cliente={self.codigo_cliente}, grupo={self.grupo})>"
+
+
+class Venta(Base):
+    """Modelo para ventas."""
+    __tablename__ = "ventas"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Cliente
+    cliente = Column(String, nullable=True, index=True)
+    
+    # Código del cliente (FK)
+    codigo_cliente = Column(BigInteger, nullable=True, index=True)
+    
+    # Grupo (FK a ClienteGrupo)
+    grupo_id = Column(Integer, ForeignKey("cliente_grupo.id"), nullable=True, index=True)
+    grupo = relationship("ClienteGrupo", foreign_keys=[grupo_id], backref="ventas")
+    
+    # Unidad de negocio
+    unidad_negocio = Column(String, nullable=True)
+    
+    # Período (mes y año) - almacenado como Date (primer día del mes)
+    periodo = Column(Date, nullable=True, index=True)
+    
+    # Producto condensado
+    producto_condensado = Column(String, nullable=True)
+    
+    # Región ASC
+    region_asc = Column(String, nullable=True)
+    
+    # Planta
+    planta = Column(String, nullable=True, index=True)
+    
+    # Ship to party
+    ship_to_party = Column(String, nullable=True)
+    
+    # Producto
+    producto = Column(String, nullable=True, index=True)
+    
+    # Descripción del producto
+    descripcion_producto = Column(Text, nullable=True)
+    
+    # Turnover w/o metal
+    turnover_wo_metal = Column(Numeric(18, 6), nullable=True)
+    
+    # OE/Turnover like FI
+    oe_turnover_like_fi = Column(Numeric(18, 6), nullable=True)
+    
+    # Copper Sales (CUV)
+    copper_sales_cuv = Column(Numeric(18, 6), nullable=True)
+    
+    # CU-Sales effect
+    cu_sales_effect = Column(Numeric(18, 6), nullable=True)
+    
+    # CU result
+    cu_result = Column(Numeric(18, 6), nullable=True)
+    
+    # Quantity OE/TO M
+    quantity_oe_to_m = Column(Numeric(18, 6), nullable=True)
+    
+    # Quantity OE/TO FT
+    quantity_oe_to_ft = Column(Numeric(18, 6), nullable=True)
+    
+    # CU Weight techn. CUT
+    cu_weight_techn_cut = Column(Numeric(18, 6), nullable=True)
+    
+    # CU weight Sales CUV
+    cu_weight_sales_cuv = Column(Numeric(18, 6), nullable=True)
+    
+    # Conversion de FT a M
+    conversion_ft_a_m = Column(Numeric(18, 6), nullable=True)
+    
+    # Sales total MTS
+    sales_total_mts = Column(Numeric(18, 6), nullable=True)
+    
+    # Sales KM
+    sales_km = Column(Numeric(18, 6), nullable=True)
+    
+    # Precio Exmetal KM
+    precio_exmetal_km = Column(Numeric(18, 6), nullable=True)
+    
+    # Precio Full Metal KM
+    precio_full_metal_km = Column(Numeric(18, 6), nullable=True)
+    
+    # Precio Exmetal M
+    precio_exmetal_m = Column(Numeric(18, 6), nullable=True)
+    
+    # Precio Full Metal M
+    precio_full_metal_m = Column(Numeric(18, 6), nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    def __repr__(self):
+        return f"<Venta(id={self.id}, cliente={self.cliente}, codigo_cliente={self.codigo_cliente}, periodo={self.periodo})>"
 
