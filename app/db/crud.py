@@ -2989,3 +2989,40 @@ async def delete_cliente_grupo(db: AsyncSession, id: int) -> bool:
     await db.delete(cliente_grupo)
     await db.commit()
     return True
+
+
+# ==================== CRUD para Venta ====================
+
+async def bulk_create_ventas(
+    db: AsyncSession,
+    ventas_data: List[Dict[str, Any]]
+) -> int:
+    """Inserta múltiples registros de ventas de manera eficiente.
+    
+    Args:
+        db: Sesión de base de datos
+        ventas_data: Lista de diccionarios con los datos de las ventas
+        
+    Returns:
+        Número de registros insertados
+    """
+    if not ventas_data:
+        return 0
+    
+    ventas_objects = []
+    for venta_data in ventas_data:
+        venta = Venta(**venta_data)
+        ventas_objects.append(venta)
+    
+    db.add_all(ventas_objects)
+    await db.commit()
+    
+    return len(ventas_objects)
+
+
+async def get_cliente_grupo_by_codigo_cliente(db: AsyncSession, codigo_cliente: int) -> Optional[ClienteGrupo]:
+    """Obtiene un grupo de cliente por código de cliente."""
+    result = await db.execute(
+        select(ClienteGrupo).where(ClienteGrupo.codigo_cliente == codigo_cliente)
+    )
+    return result.scalar_one_or_none()

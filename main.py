@@ -2132,11 +2132,10 @@ async def procesar_historial_compras(
 async def procesar_archivos_ventas(
     request: Request,
     archivo_ventas: UploadFile = File(...),
-    carpeta_salida: str = Form(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Procesa un archivo Excel (Reporte de ventas): elimina columnas específicas según el segundo renglón y genera un archivo final."""
+    """Procesa un archivo Excel (Reporte de ventas) y sube los datos a la base de datos."""
     import tempfile
     import shutil
     import os
@@ -2158,26 +2157,6 @@ async def procesar_archivos_ventas(
                 content={"error": "El archivo de Reporte de ventas debe ser un archivo Excel (.xlsx o .xls)"}
             )
         
-        # Validar carpeta de salida
-        if not carpeta_salida or carpeta_salida.strip() == '':
-            return JSONResponse(
-                status_code=400,
-                content={"error": "La carpeta de salida es requerida"}
-            )
-        
-        # Asegurar que la carpeta termine con el separador correcto
-        carpeta_salida_path = Path(carpeta_salida)
-        if not carpeta_salida_path.exists():
-            return JSONResponse(
-                status_code=400,
-                content={"error": f"La carpeta de salida no existe: {carpeta_salida}"}
-            )
-        
-        if not carpeta_salida_path.is_dir():
-            return JSONResponse(
-                status_code=400,
-                content={"error": f"La ruta especificada no es una carpeta: {carpeta_salida}"}
-            )
         
         # Crear directorio temporal para el archivo
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -2728,41 +2707,292 @@ async def procesar_archivos_ventas(
                 # Asegurarse de que el encabezado en la primera fila sea "Product Description"
                 df.iloc[0, columna_product_final + 1] = 'Product Description'
             
-            # Guardar el archivo procesado
-            # Generar nombre de archivo basado en el original
-            nombre_base = Path(nombre_archivo_ventas).stem
-            extension = Path(nombre_archivo_ventas).suffix
-            nombre_archivo_salida = f"{nombre_base}_procesado{extension}"
-            ruta_archivo_salida = carpeta_salida_path / nombre_archivo_salida
+            # Mapear columnas del Excel a columnas de la BD
+            # Primero, obtener los índices de todas las columnas necesarias desde los encabezados
+            primera_fila = df.iloc[0]
+            columnas_map = {}
             
-            # Guardar como Excel
-            try:
-                # Si el archivo original tenía header, mantenerlo; si no, usar la primera fila como header
-                if extension_ventas == '.xlsx':
-                    df.to_excel(ruta_archivo_salida, index=False, header=False, engine='openpyxl')
+            # Debug: imprimir todos los encabezados para ver qué hay disponible
+            # print("Encabezados encontrados:", [str(h).strip() for h in primera_fila])
+            
+            # Buscar todas las columnas necesarias
+            for idx, encabezado in enumerate(primera_fila):
+                encabezado_str = str(encabezado).strip() if pd.notna(encabezado) else ''
+                encabezado_lower = encabezado_str.lower()
+                
+                # Mapear según los nombres proporcionados
+                if 'customer' in encabezado_lower and 'number' not in encabezado_lower:
+                    columnas_map['Customer'] = idx
+                elif 'customer number' in encabezado_lower:
+                    columnas_map['Customer Number'] = idx
+                elif encabezado_lower == 'grupo':
+                    columnas_map['grupo'] = idx
+                elif 'business unit' in encabezado_lower:
+                    columnas_map['Business Unit'] = idx
+                elif 'period' in encabezado_lower:
+                    if 'Period/Year' not in columnas_map:  # Solo tomar la primera coincidencia
+                        columnas_map['Period/Year'] = idx
+                elif 'artnr condensed' in encabezado_lower:
+                    columnas_map['Artnr condensed'] = idx
+                elif 'region asc' in encabezado_lower:
+                    columnas_map['Region ASC'] = idx
+                elif encabezado_lower == 'plant':
+                    columnas_map['Plant'] = idx
+                elif 'ship' in encabezado_lower and 'party' in encabezado_lower:
+                    if 'Shipt-to-party' not in columnas_map:  # Solo tomar la primera coincidencia
+                        columnas_map['Shipt-to-party'] = idx
+                elif encabezado_lower == 'producto':
+                    columnas_map['Producto'] = idx
+                elif 'product description' in encabezado_lower:
+                    columnas_map['Product Description'] = idx
+                elif 'turnover' in encabezado_lower and 'metal' in encabezado_lower and 'w/o' in encabezado_lower:
+                    columnas_map['Turnover w/o metal'] = idx
+                elif 'turnover' in encabezado_lower and 'like' in encabezado_lower and 'fi' in encabezado_lower:
+                    columnas_map['OE/Turnover like FI'] = idx
+                elif 'copper sales' in encabezado_lower and 'cuv' in encabezado_lower:
+                    columnas_map['Copper Sales (CUV)'] = idx
+                elif 'cu-sales effect' in encabezado_lower:
+                    columnas_map['CU-Sales effect'] = idx
+                elif 'cu result' in encabezado_lower:
+                    columnas_map['CU result'] = idx
+                elif 'quantity' in encabezado_lower and 'm' in encabezado_lower and 'ft' not in encabezado_lower:
+                    columnas_map['Quantity OE/TO M'] = idx
+                elif 'quantity' in encabezado_lower and 'ft' in encabezado_lower:
+                    columnas_map['Quantity OE/TO FT'] = idx
+                elif 'cu weight techn' in encabezado_lower and 'cut' in encabezado_lower:
+                    columnas_map['CU Weight techn. CUT'] = idx
+                elif 'cu weight sales' in encabezado_lower and 'cuv' in encabezado_lower:
+                    columnas_map['CU weight Sales  CUV'] = idx
+                elif 'conversion de ft a m' in encabezado_lower:
+                    columnas_map['Conversion de FT a M'] = idx
+                elif 'sales total mts' in encabezado_lower:
+                    columnas_map['Sales total MTS'] = idx
+                elif 'sales km' in encabezado_lower:
+                    columnas_map['Sales KM'] = idx
+                elif 'precio exmetal km' in encabezado_lower:
+                    columnas_map['Precio Exmetal KM'] = idx
+                elif 'precio full metal km' in encabezado_lower:
+                    columnas_map['Precio Full Metal KM'] = idx
+                elif 'precio exmetal m' in encabezado_lower:
+                    columnas_map['Precio Exmetal M'] = idx
+                elif 'precio full metal m' in encabezado_lower:
+                    columnas_map['Precio Full Metal M'] = idx
+            
+            # Debug: verificar qué columnas se encontraron
+            # print(f"Columnas encontradas: {list(columnas_map.keys())}")
+            # if 'Period/Year' not in columnas_map:
+            #     print("ADVERTENCIA: Columna Period/Year no encontrada")
+            # if 'Shipt-to-party' not in columnas_map:
+            #     print("ADVERTENCIA: Columna Shipt-to-party no encontrada")
+            
+            # Obtener todos los grupos de clientes para mapear grupo_id
+            grupos_clientes = await crud.list_cliente_grupos(db, limit=100000)
+            dict_grupos_cliente = {}
+            dict_grupos_id = {}
+            for grupo_cliente in grupos_clientes:
+                if grupo_cliente.codigo_cliente is not None:
+                    dict_grupos_cliente[grupo_cliente.codigo_cliente] = grupo_cliente.grupo or ''
+                    # Crear un diccionario para buscar grupo_id por codigo_cliente y grupo
+                    key = (grupo_cliente.codigo_cliente, grupo_cliente.grupo or '')
+                    dict_grupos_id[key] = grupo_cliente.id
+            
+            # Procesar cada fila del DataFrame (excluyendo el encabezado)
+            ventas_data = []
+            from datetime import date as date_class
+            from decimal import Decimal
+            
+            for idx_fila in range(1, len(df)):
+                venta_dict = {}
+                # Inicializar valores por defecto
+                venta_dict['periodo'] = None
+                venta_dict['ship_to_party'] = None
+                
+                # Cliente - Customer
+                if 'Customer' in columnas_map:
+                    cliente_val = df.iloc[idx_fila, columnas_map['Customer']]
+                    venta_dict['cliente'] = str(cliente_val).strip() if pd.notna(cliente_val) else None
+                
+                # Codigo_cliente - Customer Number
+                if 'Customer Number' in columnas_map:
+                    codigo_val = df.iloc[idx_fila, columnas_map['Customer Number']]
+                    try:
+                        if pd.notna(codigo_val):
+                            codigo_str = str(codigo_val).strip()
+                            if codigo_str and codigo_str.lower() != 'nan':
+                                venta_dict['codigo_cliente'] = int(float(codigo_str))
+                            else:
+                                venta_dict['codigo_cliente'] = None
+                        else:
+                            venta_dict['codigo_cliente'] = None
+                    except (ValueError, TypeError):
+                        venta_dict['codigo_cliente'] = None
+                
+                # Grupo - buscar grupo_id basado en codigo_cliente y grupo
+                grupo_id = None
+                if 'grupo' in columnas_map and venta_dict.get('codigo_cliente'):
+                    grupo_val = df.iloc[idx_fila, columnas_map['grupo']]
+                    grupo_str = str(grupo_val).strip() if pd.notna(grupo_val) else ''
+                    if grupo_str and grupo_str.lower() != 'nan':
+                        key = (venta_dict['codigo_cliente'], grupo_str)
+                        grupo_id = dict_grupos_id.get(key)
+                venta_dict['grupo_id'] = grupo_id
+                
+                # Unidad_negocio - Business Unit
+                if 'Business Unit' in columnas_map:
+                    unidad_val = df.iloc[idx_fila, columnas_map['Business Unit']]
+                    venta_dict['unidad_negocio'] = str(unidad_val).strip() if pd.notna(unidad_val) else None
+                
+                # Periodo - Period/Year (convertir a Date)
+                if 'Period/Year' in columnas_map:
+                    periodo_val = df.iloc[idx_fila, columnas_map['Period/Year']]
+                    venta_dict['periodo'] = None  # Valor por defecto
+                    if pd.notna(periodo_val):
+                        periodo_str = str(periodo_val).strip()
+                        # Eliminar espacios y caracteres especiales
+                        periodo_str = periodo_str.replace(' ', '').replace('_', '')
+                        if periodo_str and periodo_str.lower() not in ['nan', 'none', '']:
+                            try:
+                                # Intentar diferentes formatos comunes: YYYY-MM, MM/YYYY, YYYYMM, etc.
+                                if '/' in periodo_str:
+                                    partes = periodo_str.split('/')
+                                    if len(partes) == 2:
+                                        try:
+                                            mes = int(partes[0])
+                                            año = int(partes[1])
+                                            # Validar que el año tenga 4 dígitos
+                                            if año < 100:
+                                                año += 2000
+                                            venta_dict['periodo'] = date_class(año, mes, 1)
+                                        except (ValueError, TypeError):
+                                            pass
+                                elif '-' in periodo_str:
+                                    partes = periodo_str.split('-')
+                                    if len(partes) == 2:
+                                        try:
+                                            año = int(partes[0])
+                                            mes = int(partes[1])
+                                            # Validar que el año tenga 4 dígitos
+                                            if año < 100:
+                                                año += 2000
+                                            venta_dict['periodo'] = date_class(año, mes, 1)
+                                        except (ValueError, TypeError):
+                                            pass
+                                elif len(periodo_str) == 6:  # Formato YYYYMM o MMYYYY
+                                    try:
+                                        # Intentar YYYYMM primero
+                                        año = int(periodo_str[:4])
+                                        mes = int(periodo_str[4:])
+                                        venta_dict['periodo'] = date_class(año, mes, 1)
+                                    except (ValueError, TypeError):
+                                        try:
+                                            # Intentar MMYYYY
+                                            mes = int(periodo_str[:2])
+                                            año = int(periodo_str[2:])
+                                            if año < 100:
+                                                año += 2000
+                                            venta_dict['periodo'] = date_class(año, mes, 1)
+                                        except (ValueError, TypeError):
+                                            pass
+                                else:
+                                    # Intentar parsear como fecha completa usando pandas
+                                    try:
+                                        fecha = pd.to_datetime(periodo_str, errors='coerce')
+                                        if pd.notna(fecha):
+                                            venta_dict['periodo'] = date_class(fecha.year, fecha.month, 1)
+                                    except:
+                                        pass
+                            except Exception:
+                                pass
                 else:
-                    df.to_excel(ruta_archivo_salida, index=False, header=False, engine='openpyxl')
-            except Exception as e:
-                return JSONResponse(
-                    status_code=500,
-                    content={"error": f"Error al guardar el archivo procesado: {str(e)}"}
-                )
+                    venta_dict['periodo'] = None
+                
+                # Producto_condensado - Artnr condensed
+                if 'Artnr condensed' in columnas_map:
+                    producto_cond_val = df.iloc[idx_fila, columnas_map['Artnr condensed']]
+                    venta_dict['producto_condensado'] = str(producto_cond_val).strip() if pd.notna(producto_cond_val) else None
+                
+                # Region_asc - Region ASC
+                if 'Region ASC' in columnas_map:
+                    region_val = df.iloc[idx_fila, columnas_map['Region ASC']]
+                    venta_dict['region_asc'] = str(region_val).strip() if pd.notna(region_val) else None
+                
+                # Planta - Plant
+                if 'Plant' in columnas_map:
+                    planta_val = df.iloc[idx_fila, columnas_map['Plant']]
+                    venta_dict['planta'] = str(planta_val).strip() if pd.notna(planta_val) else None
+                
+                # ship_to_party - Shipt-to-party
+                if 'Shipt-to-party' in columnas_map:
+                    ship_val = df.iloc[idx_fila, columnas_map['Shipt-to-party']]
+                    if pd.notna(ship_val):
+                        ship_str = str(ship_val).strip()
+                        venta_dict['ship_to_party'] = ship_str if ship_str and ship_str.lower() != 'nan' else None
+                    else:
+                        venta_dict['ship_to_party'] = None
+                else:
+                    venta_dict['ship_to_party'] = None
+                
+                # Producto - Producto
+                if 'Producto' in columnas_map:
+                    producto_val = df.iloc[idx_fila, columnas_map['Producto']]
+                    venta_dict['producto'] = str(producto_val).strip() if pd.notna(producto_val) else None
+                
+                # descripcion_producto - Product Description
+                if 'Product Description' in columnas_map:
+                    desc_val = df.iloc[idx_fila, columnas_map['Product Description']]
+                    venta_dict['descripcion_producto'] = str(desc_val).strip() if pd.notna(desc_val) else None
+                
+                # Campos numéricos - convertir a Decimal o None
+                campos_numericos = {
+                    'Turnover w/o metal': 'turnover_wo_metal',
+                    'OE/Turnover like FI': 'oe_turnover_like_fi',
+                    'Copper Sales (CUV)': 'copper_sales_cuv',
+                    'CU-Sales effect': 'cu_sales_effect',
+                    'CU result': 'cu_result',
+                    'Quantity OE/TO M': 'quantity_oe_to_m',
+                    'Quantity OE/TO FT': 'quantity_oe_to_ft',
+                    'CU Weight techn. CUT': 'cu_weight_techn_cut',
+                    'CU weight Sales  CUV': 'cu_weight_sales_cuv',
+                    'Conversion de FT a M': 'conversion_ft_a_m',
+                    'Sales total MTS': 'sales_total_mts',
+                    'Sales KM': 'sales_km',
+                    'Precio Exmetal KM': 'precio_exmetal_km',
+                    'Precio Full Metal KM': 'precio_full_metal_km',
+                    'Precio Exmetal M': 'precio_exmetal_m',
+                    'Precio Full Metal M': 'precio_full_metal_m'
+                }
+                
+                for col_excel, col_bd in campos_numericos.items():
+                    if col_excel in columnas_map:
+                        val = df.iloc[idx_fila, columnas_map[col_excel]]
+                        if pd.notna(val):
+                            try:
+                                val_str = str(val).strip()
+                                if val_str and val_str.lower() != 'nan' and val_str != '':
+                                    venta_dict[col_bd] = Decimal(str(val))
+                                else:
+                                    venta_dict[col_bd] = None
+                            except (ValueError, TypeError):
+                                venta_dict[col_bd] = None
+                        else:
+                            venta_dict[col_bd] = None
+                    else:
+                        venta_dict[col_bd] = None
+                
+                ventas_data.append(venta_dict)
             
-            mensaje = f"Archivo procesado exitosamente. Se eliminaron {len(columnas_a_eliminar)} columnas."
-            if columnas_modificadas > 0:
-                mensaje += f" Se modificaron {columnas_modificadas} columnas 'Actual' (valor del renglón 1 copiado al renglón 3)."
+            # Insertar los datos en la base de datos
+            registros_insertados = await crud.bulk_create_ventas(db, ventas_data)
+            
+            mensaje = f"Archivo procesado exitosamente. {registros_insertados} registros subidos a la base de datos."
             
             return JSONResponse(
                 status_code=200,
                 content={
                     "success": True,
                     "message": mensaje,
-                    "archivo_guardado": str(ruta_archivo_salida),
-                    "columnas_eliminadas": len(columnas_a_eliminar),
-                    "total_columnas_eliminadas": len(columnas_a_eliminar),
-                    "columnas_actual_modificadas": columnas_modificadas,
-                    "indices_columnas": indices_columnas_principales,
-                    "total_columnas": len(df.columns)
+                    "registros_insertados": registros_insertados,
+                    "total_registros": len(ventas_data)
                 }
             )
         
