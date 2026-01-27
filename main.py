@@ -2257,6 +2257,56 @@ async def procesar_archivos_ventas(
             # Resetear el índice para que quede secuencial
             df = df.reset_index(drop=True)
             
+            # Guardar los valores del renglón 1 (índice 0) para usarlos como encabezado
+            valores_renglon_1 = df.iloc[0].tolist()
+            
+            # Verificar si hay un renglón 2 y si tiene los mismos valores que el renglón 1
+            if len(df) > 1:
+                valores_renglon_2 = df.iloc[1].tolist()
+                # Comparar los valores (considerando NaN como iguales)
+                son_iguales = True
+                for i in range(len(valores_renglon_1)):
+                    val1 = valores_renglon_1[i]
+                    val2 = valores_renglon_2[i]
+                    # Comparar considerando NaN
+                    if pd.isna(val1) and pd.isna(val2):
+                        continue
+                    elif pd.isna(val1) or pd.isna(val2):
+                        son_iguales = False
+                        break
+                    elif str(val1).strip() != str(val2).strip():
+                        son_iguales = False
+                        break
+                
+                # Si son iguales, eliminar el renglón 2
+                if son_iguales:
+                    df = df.drop(df.index[1])
+                    df = df.reset_index(drop=True)
+            
+            # Eliminar el renglón 1 (que ahora usaremos como encabezado)
+            df = df.drop(df.index[0])
+            df = df.reset_index(drop=True)
+            
+            # Agregar las 3 nuevas columnas vacías al final
+            num_filas = len(df)
+            df['Conversion de FT a M'] = [''] * num_filas
+            df['Sales total MTS'] = [''] * num_filas
+            df['Sales KM'] = [''] * num_filas
+            
+            # Crear una fila de encabezados usando:
+            # - Los valores del renglón 1 original para las columnas originales
+            # - Los nombres de las 3 nuevas columnas para las nuevas columnas
+            nombres_encabezados = valores_renglon_1.copy()
+            nombres_encabezados.extend(['Conversion de FT a M', 'Sales total MTS', 'Sales KM'])
+            
+            # Convertir los valores a strings para evitar problemas
+            nombres_encabezados = [str(val) if pd.notna(val) else '' for val in nombres_encabezados]
+            
+            # Crear un DataFrame con una sola fila (los encabezados)
+            fila_encabezados = pd.DataFrame([nombres_encabezados], columns=df.columns)
+            # Concatenar la fila de encabezados al inicio del DataFrame
+            df = pd.concat([fila_encabezados, df], ignore_index=True)
+            
             # Guardar el archivo procesado
             # Generar nombre de archivo basado en el original
             nombre_base = Path(nombre_archivo_ventas).stem
