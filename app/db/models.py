@@ -846,7 +846,7 @@ class CargaCliente(Base):
 
 
 class MasterUnificadoVirtuales(Base):
-    """Modelo para master unificado de virtuales."""
+    """Modelo para master unificado de virtuales. Identificador: numero."""
     __tablename__ = "master_unificado_virtuales"
     
     id = Column(Integer, primary_key=True, index=True)

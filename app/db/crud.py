@@ -3750,7 +3750,7 @@ async def count_master_unificado_virtuales(
 
 async def update_master_unificado_virtuales(
     db: AsyncSession,
-    master_id: int,
+    numero: int,
     solicitud_previo: Optional[bool] = None,
     agente: Optional[str] = None,
     pedimento: Optional[int] = None,
@@ -3768,13 +3768,13 @@ async def update_master_unificado_virtuales(
     informacion: Optional[str] = None,
     estatus: Optional[str] = None,
     op_regular: Optional[bool] = None,
-    numero: Optional[int] = None,
+    numero_nuevo: Optional[int] = None,
     carretes: Optional[bool] = None,
     servicio_cliente: Optional[str] = None,
     plazo: Optional[str] = None
 ) -> Optional[MasterUnificadoVirtuales]:
-    """Actualiza un registro de master unificado virtuales."""
-    master = await get_master_unificado_virtuales_by_id(db, master_id)
+    """Actualiza un registro de master unificado virtuales. Identificador: numero."""
+    master = await get_master_unificado_virtuales_by_numero(db, numero)
     if not master:
         return None
     
@@ -3812,8 +3812,8 @@ async def update_master_unificado_virtuales(
         master.estatus = estatus
     if op_regular is not None:
         master.op_regular = op_regular
-    if numero is not None:
-        master.numero = numero
+    if numero_nuevo is not None:
+        master.numero = numero_nuevo
     if carretes is not None:
         master.carretes = carretes
     if servicio_cliente is not None:
@@ -3826,9 +3826,9 @@ async def update_master_unificado_virtuales(
     return master
 
 
-async def delete_master_unificado_virtuales(db: AsyncSession, master_id: int) -> bool:
-    """Elimina un registro de master unificado virtuales."""
-    master = await get_master_unificado_virtuales_by_id(db, master_id)
+async def delete_master_unificado_virtuales(db: AsyncSession, numero: int) -> bool:
+    """Elimina un registro de master unificado virtuales. Identificador: numero."""
+    master = await get_master_unificado_virtuales_by_numero(db, numero)
     if not master:
         return False
     
