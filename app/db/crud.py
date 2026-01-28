@@ -1024,66 +1024,135 @@ async def actualizar_estatus_proveedores_por_compras(
     db: AsyncSession,
     user_id: Optional[int] = None
 ) -> Dict[str, Any]:
-    """Actualiza el estatus de proveedores basándose en compras de los últimos 6 meses.
+    """Actualiza el estatus_compras de proveedores basándose en compras y fecha de creación.
     
-    Si un proveedor no tiene compras en los últimos 6 meses, su estatus se cambia a False (baja).
+    Reglas:
+    - Cliente existente con compras en los últimos 6 meses → estatus_compras = "activo"
+    - Cliente existente sin compras en los últimos 6 meses → estatus_compras = "baja"
+    - Cliente nuevo creado este mes → estatus_compras = "alta"
     """
     errores = []
     proveedores_actualizados = 0
     proveedores_marcados_baja = 0
+    proveedores_marcados_activo = 0
+    proveedores_marcados_alta = 0
     
     try:
-        # Calcular la fecha de hace 6 meses (con timezone)
-        fecha_limite = datetime.now(timezone.utc) - timedelta(days=180)  # 6 meses aproximadamente
+        # Fecha límite para compras (últimos 6 meses)
+        fecha_limite_compras = datetime.now(timezone.utc) - timedelta(days=180)  # 6 meses aproximadamente
+        
+        # Fecha límite para nuevo cliente (inicio del mes actual)
+        ahora = datetime.now(timezone.utc)
+        fecha_inicio_mes = datetime(ahora.year, ahora.month, 1, tzinfo=timezone.utc)
         
         # Obtener todos los proveedores
         query_proveedores = select(Proveedor)
         result_proveedores = await db.execute(query_proveedores)
         todos_proveedores = result_proveedores.scalars().all()
         
-        # Para cada proveedor, buscar la fecha de compra más reciente
+        # Para cada proveedor, determinar su estatus
         for proveedor in todos_proveedores:
             try:
-                # Buscar la compra más reciente del proveedor
-                query_compra = select(func.max(Compra.posting_date)).where(
-                    Compra.codigo_proveedor == proveedor.codigo_proveedor,
-                    Compra.posting_date.isnot(None)
-                )
-                result_compra = await db.execute(query_compra)
-                fecha_ultima_compra = result_compra.scalar_one_or_none()
+                # Determinar el nuevo estatus_compras
+                nuevo_estatus_compras = None
                 
-                # Si no tiene compras o la última compra es mayor a 6 meses, marcar como baja
-                debe_estar_baja = False
-                if fecha_ultima_compra is None:
-                    # No tiene compras registradas
-                    debe_estar_baja = True
-                elif fecha_ultima_compra < fecha_limite:
-                    # La última compra es mayor a 6 meses
-                    debe_estar_baja = True
+                # Verificar si es un nuevo cliente (creado este mes)
+                es_nuevo_cliente = False
+                if proveedor.created_at and proveedor.created_at >= fecha_inicio_mes:
+                    es_nuevo_cliente = True
                 
-                # Actualizar estatus si es necesario
-                if debe_estar_baja and proveedor.estatus:
-                    # Cambiar a baja
-                    await update_proveedor(
-                        db=db,
-                        codigo_proveedor=proveedor.codigo_proveedor,
-                        estatus=False,
-                        user_id=user_id
+                if es_nuevo_cliente:
+                    # Cliente nuevo creado este mes → alta
+                    nuevo_estatus_compras = "alta"
+                else:
+                    # Cliente existente: verificar compras en los últimos 6 meses
+                    query_compra_reciente = select(func.max(Compra.posting_date)).where(
+                        Compra.codigo_proveedor == proveedor.codigo_proveedor,
+                        Compra.posting_date.isnot(None)
                     )
-                    proveedores_marcados_baja += 1
-                    proveedores_actualizados += 1
-                elif not debe_estar_baja and not proveedor.estatus:
-                    # Si tiene compras recientes pero está marcado como baja, reactivarlo
-                    await update_proveedor(
-                        db=db,
-                        codigo_proveedor=proveedor.codigo_proveedor,
-                        estatus=True,
-                        user_id=user_id
-                    )
-                    proveedores_actualizados += 1
+                    result_compra_reciente = await db.execute(query_compra_reciente)
+                    fecha_ultima_compra = result_compra_reciente.scalar_one_or_none()
+                    
+                    # Si tiene compras en los últimos 6 meses → activo, sino → baja
+                    if fecha_ultima_compra and fecha_ultima_compra >= fecha_limite_compras:
+                        nuevo_estatus_compras = "activo"
+                    else:
+                        nuevo_estatus_compras = "baja"
+                
+                # Actualizar estatus_compras si es diferente al actual
+                if proveedor.estatus_compras != nuevo_estatus_compras:
+                    max_retries = 2
+                    retry_count = 0
+                    success = False
+                    
+                    while retry_count < max_retries and not success:
+                        try:
+                            await update_proveedor(
+                                db=db,
+                                codigo_proveedor=proveedor.codigo_proveedor,
+                                estatus_compras=nuevo_estatus_compras,
+                                user_id=user_id
+                            )
+                            proveedores_actualizados += 1
+                            
+                            # Contar por tipo de estatus
+                            if nuevo_estatus_compras == "baja":
+                                proveedores_marcados_baja += 1
+                            elif nuevo_estatus_compras == "activo":
+                                proveedores_marcados_activo += 1
+                            elif nuevo_estatus_compras == "alta":
+                                proveedores_marcados_alta += 1
+                            
+                            success = True
+                        except Exception as update_error:
+                            error_str = str(update_error)
+                            retry_count += 1
+                            
+                            # Hacer rollback
+                            try:
+                                await db.rollback()
+                            except Exception:
+                                pass
+                            
+                            # Si es un error de secuencia desincronizada y es el primer intento, intentar corregirla
+                            if (retry_count == 1 and 
+                                "duplicate key value violates unique constraint" in error_str and 
+                                "proveedores_historial_pkey" in error_str):
+                                try:
+                                    # Obtener el máximo ID actual del historial
+                                    # Usar una nueva consulta después del rollback
+                                    result = await db.execute(
+                                        select(func.max(ProveedorHistorial.id))
+                                    )
+                                    max_id = result.scalar() or 0
+                                    
+                                    # Corregir la secuencia - ejecutar directamente sin commit adicional
+                                    # El rollback ya limpió la transacción, así que esto debería funcionar
+                                    stmt = text(f"SELECT setval('proveedores_historial_id_seq', {max_id + 1}, false)")
+                                    await db.execute(stmt)
+                                    await db.commit()
+                                    # Continuar el loop para reintentar
+                                except Exception as seq_error:
+                                    try:
+                                        await db.rollback()
+                                    except Exception:
+                                        pass
+                                    error_msg = f"Error al corregir secuencia para proveedor {proveedor.codigo_proveedor}: {str(seq_error)}. La secuencia puede necesitar corrección manual."
+                                    errores.append(error_msg)
+                                    break  # Salir del loop de reintentos
+                            else:
+                                # Otro tipo de error o segundo intento fallido
+                                error_msg = f"Error al actualizar proveedor {proveedor.codigo_proveedor}: {str(update_error)}"
+                                errores.append(error_msg)
+                                break  # Salir del loop de reintentos
                     
             except Exception as e:
-                error_msg = f"Error al actualizar proveedor {proveedor.codigo_proveedor}: {str(e)}"
+                # Hacer rollback en caso de error
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+                error_msg = f"Error al procesar proveedor {proveedor.codigo_proveedor}: {str(e)}"
                 errores.append(error_msg)
                 continue
         
@@ -1091,6 +1160,8 @@ async def actualizar_estatus_proveedores_por_compras(
             "total_proveedores": len(todos_proveedores),
             "proveedores_actualizados": proveedores_actualizados,
             "proveedores_marcados_baja": proveedores_marcados_baja,
+            "proveedores_marcados_activo": proveedores_marcados_activo,
+            "proveedores_marcados_alta": proveedores_marcados_alta,
             "errores": errores,
             "exitoso": len(errores) == 0
         }
@@ -1102,6 +1173,8 @@ async def actualizar_estatus_proveedores_por_compras(
             "total_proveedores": 0,
             "proveedores_actualizados": 0,
             "proveedores_marcados_baja": 0,
+            "proveedores_marcados_activo": 0,
+            "proveedores_marcados_alta": 0,
             "errores": errores,
             "exitoso": False
         }

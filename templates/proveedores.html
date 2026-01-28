@@ -296,9 +296,9 @@
             <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
               Domicilio
             </th>
-            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="estatus">
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="estatus_compras">
               <div class="flex items-center gap-1">
-                Estatus
+                Estatus Compras
                 <svg class="h-4 w-4 text-gray-400 sort-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
                 </svg>
@@ -461,14 +461,16 @@
   }
 
   function ordenarPorEstatus() {
-    // Ordenar para que los activos (true) aparezcan primero
+    // Ordenar por estatus_compras: alta primero, luego activo, luego baja
     proveedoresFiltrados.sort((a, b) => {
-      // Si ambos tienen el mismo estatus, mantener el orden original
-      if (a.estatus === b.estatus) return 0;
-      // Si a es activo (true) y b es inactivo (false), a va primero
-      if (a.estatus && !b.estatus) return -1;
-      // Si a es inactivo (false) y b es activo (true), b va primero
-      return 1;
+      const ordenEstatus = { 'alta': 1, 'activo': 2, 'baja': 3 };
+      const estatusA = (a.estatus_compras || '').toLowerCase();
+      const estatusB = (b.estatus_compras || '').toLowerCase();
+      const ordenA = ordenEstatus[estatusA] || 999;
+      const ordenB = ordenEstatus[estatusB] || 999;
+      
+      if (ordenA === ordenB) return 0;
+      return ordenA - ordenB;
     });
   }
 
@@ -594,15 +596,16 @@
       if (valorA === null || valorA === undefined) valorA = '';
       if (valorB === null || valorB === undefined) valorB = '';
 
-      // Si la columna es estatus, ordenar booleanos correctamente
-      if (columna === 'estatus') {
-        // Ordenar: true (activo) primero si es ascendente, false (inactivo) primero si es descendente
-        if (valorA === valorB) return 0;
-        if (ordenAscendente) {
-          return valorA ? -1 : 1; // true (activo) primero
-        } else {
-          return valorA ? 1 : -1; // false (inactivo) primero
-        }
+      // Si la columna es estatus_compras, ordenar por valores específicos
+      if (columna === 'estatus_compras') {
+        const ordenEstatus = { 'alta': 1, 'activo': 2, 'baja': 3 };
+        const estatusA = (valorA || '').toLowerCase();
+        const estatusB = (valorB || '').toLowerCase();
+        const ordenA = ordenEstatus[estatusA] || 999;
+        const ordenB = ordenEstatus[estatusB] || 999;
+        
+        if (ordenA === ordenB) return 0;
+        return ordenAscendente ? ordenA - ordenB : ordenB - ordenA;
       }
 
       // Convertir a string para comparación
@@ -660,9 +663,25 @@
     } else {
       tbody.innerHTML = datosPagina.map(prov => {
         const fechaUltimaCompra = prov.fecha_ultima_compra ? new Date(prov.fecha_ultima_compra).toLocaleDateString('es-MX') : 'Sin compras';
-        const estatusBadge = prov.estatus 
-          ? '<span class="inline-flex rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-800">Activo</span>'
-          : '<span class="inline-flex rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-800">Baja</span>';
+        
+        // Determinar el badge según estatus_compras
+        let estatusBadge = '';
+        if (prov.estatus_compras) {
+          const estatus = prov.estatus_compras.toLowerCase();
+          if (estatus === 'baja') {
+            estatusBadge = '<span class="inline-flex rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-800">Baja</span>';
+          } else if (estatus === 'activo') {
+            estatusBadge = '<span class="inline-flex rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800">Activo</span>';
+          } else if (estatus === 'alta') {
+            estatusBadge = '<span class="inline-flex rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-800">Alta</span>';
+          } else {
+            // Si hay un valor pero no es reconocido, mostrarlo tal cual
+            estatusBadge = `<span class="inline-flex rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-800">${escapeHtml(prov.estatus_compras)}</span>`;
+          }
+        } else {
+          // Si no hay estatus_compras, mostrar "Sin estatus"
+          estatusBadge = '<span class="inline-flex rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-800">Sin estatus</span>';
+        }
         
         return `
           <tr class="hover:bg-gray-50">
@@ -860,7 +879,7 @@
       // Detalles para actualizar estatus
       modalDetalles.classList.remove('hidden');
       modalDetalles.innerHTML = `
-        <div class="grid grid-cols-3 gap-4 text-sm">
+        <div class="grid grid-cols-5 gap-4 text-sm">
           <div class="bg-gray-50 p-3 rounded-md">
             <p class="text-gray-500 text-xs">Total proveedores</p>
             <p class="text-lg font-semibold text-gray-900 mt-1">${data.total_proveedores || 0}</p>
@@ -868,6 +887,14 @@
           <div class="bg-gray-50 p-3 rounded-md">
             <p class="text-gray-500 text-xs">Marcados como baja</p>
             <p class="text-lg font-semibold ${data.proveedores_marcados_baja > 0 ? 'text-red-600' : 'text-gray-900'} mt-1">${data.proveedores_marcados_baja || 0}</p>
+          </div>
+          <div class="bg-gray-50 p-3 rounded-md">
+            <p class="text-gray-500 text-xs">Marcados como activo</p>
+            <p class="text-lg font-semibold ${data.proveedores_marcados_activo > 0 ? 'text-blue-600' : 'text-gray-900'} mt-1">${data.proveedores_marcados_activo || 0}</p>
+          </div>
+          <div class="bg-gray-50 p-3 rounded-md">
+            <p class="text-gray-500 text-xs">Marcados como alta</p>
+            <p class="text-lg font-semibold ${data.proveedores_marcados_alta > 0 ? 'text-green-600' : 'text-gray-900'} mt-1">${data.proveedores_marcados_alta || 0}</p>
           </div>
           <div class="bg-gray-50 p-3 rounded-md">
             <p class="text-gray-500 text-xs">Total actualizados</p>

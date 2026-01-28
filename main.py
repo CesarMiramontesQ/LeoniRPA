@@ -835,9 +835,12 @@ async def actualizar_estatus_proveedores(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Actualiza el estatus de proveedores basándose en compras de los últimos 6 meses.
+    """Actualiza el estatus_compras de proveedores basándose en compras y fecha de creación.
     
-    Si un proveedor no tiene compras en los últimos 6 meses, su estatus se cambia a False (baja).
+    Reglas:
+    - Cliente existente con compras en los últimos 6 meses → estatus_compras = "activo"
+    - Cliente existente sin compras en los últimos 6 meses → estatus_compras = "baja"
+    - Cliente nuevo creado este mes → estatus_compras = "alta"
     """
     try:
         resultado = await crud.actualizar_estatus_proveedores_por_compras(
@@ -845,11 +848,17 @@ async def actualizar_estatus_proveedores(
             user_id=current_user.id
         )
         
-        # Determinar el mensaje según el resultado
+        # Construir mensaje detallado
+        partes_mensaje = []
         if resultado["proveedores_marcados_baja"] > 0:
-            mensaje = f"✓ Actualización completada. Se marcaron {resultado['proveedores_marcados_baja']} proveedor(es) como baja de {resultado['total_proveedores']} totales."
-        elif resultado["proveedores_actualizados"] > 0:
-            mensaje = f"✓ Actualización completada. Se reactivaron {resultado['proveedores_actualizados']} proveedor(es)."
+            partes_mensaje.append(f"{resultado['proveedores_marcados_baja']} como baja")
+        if resultado["proveedores_marcados_activo"] > 0:
+            partes_mensaje.append(f"{resultado['proveedores_marcados_activo']} como activo")
+        if resultado["proveedores_marcados_alta"] > 0:
+            partes_mensaje.append(f"{resultado['proveedores_marcados_alta']} como alta")
+        
+        if partes_mensaje:
+            mensaje = f"✓ Actualización completada. Se actualizaron {resultado['proveedores_actualizados']} proveedor(es): {', '.join(partes_mensaje)} de {resultado['total_proveedores']} totales."
         else:
             mensaje = f"✓ Actualización completada. No se requirieron cambios en los {resultado['total_proveedores']} proveedores."
         
@@ -864,6 +873,8 @@ async def actualizar_estatus_proveedores(
             "total_proveedores": resultado["total_proveedores"],
             "proveedores_actualizados": resultado["proveedores_actualizados"],
             "proveedores_marcados_baja": resultado["proveedores_marcados_baja"],
+            "proveedores_marcados_activo": resultado["proveedores_marcados_activo"],
+            "proveedores_marcados_alta": resultado["proveedores_marcados_alta"],
             "errores": resultado["errores"],
             "mensaje": mensaje
         })
