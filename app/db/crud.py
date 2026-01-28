@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta, timezone, date
 from decimal import Decimal
-from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta
+from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaCliente
 from app.core.security import hash_password
 
 
@@ -3287,3 +3287,294 @@ async def count_ventas(
     
     result = await db.execute(query)
     return result.scalar() or 0
+
+
+# ============================================================================
+# CRUD para CargaProveedor
+# ============================================================================
+
+async def create_carga_proveedor(
+    db: AsyncSession,
+    codigo_proveedor: str,
+    nombre: Optional[str] = None,
+    apellido_paterno: Optional[str] = None,
+    apellido_materno: Optional[str] = None,
+    pais: Optional[str] = None,
+    domicilio: Optional[str] = None,
+    cliente_proveedor: Optional[str] = None,
+    estatus: Optional[str] = None
+) -> CargaProveedor:
+    """Crea un nuevo registro de carga de proveedor."""
+    carga_proveedor = CargaProveedor(
+        codigo_proveedor=codigo_proveedor,
+        nombre=nombre,
+        apellido_paterno=apellido_paterno,
+        apellido_materno=apellido_materno,
+        pais=pais,
+        domicilio=domicilio,
+        cliente_proveedor=cliente_proveedor,
+        estatus=estatus
+    )
+    db.add(carga_proveedor)
+    await db.commit()
+    await db.refresh(carga_proveedor)
+    return carga_proveedor
+
+
+async def get_carga_proveedor_by_id(db: AsyncSession, carga_id: int) -> Optional[CargaProveedor]:
+    """Obtiene un registro de carga de proveedor por ID."""
+    result = await db.execute(
+        select(CargaProveedor)
+        .where(CargaProveedor.id == carga_id)
+        .options(selectinload(CargaProveedor.proveedor))
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_carga_proveedor_by_codigo(db: AsyncSession, codigo_proveedor: str) -> Optional[CargaProveedor]:
+    """Obtiene un registro de carga de proveedor por código de proveedor."""
+    result = await db.execute(
+        select(CargaProveedor)
+        .where(CargaProveedor.codigo_proveedor == codigo_proveedor)
+        .options(selectinload(CargaProveedor.proveedor))
+        .order_by(desc(CargaProveedor.created_at))
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def list_carga_proveedores(
+    db: AsyncSession,
+    limit: int = 100,
+    offset: int = 0,
+    codigo_proveedor: Optional[str] = None,
+    cliente_proveedor: Optional[str] = None,
+    estatus: Optional[str] = None
+) -> List[CargaProveedor]:
+    """Lista registros de carga de proveedores con filtros opcionales."""
+    query = select(CargaProveedor).options(selectinload(CargaProveedor.proveedor))
+    
+    if codigo_proveedor:
+        query = query.where(CargaProveedor.codigo_proveedor.ilike(f"%{codigo_proveedor}%"))
+    
+    if cliente_proveedor:
+        query = query.where(CargaProveedor.cliente_proveedor.ilike(f"%{cliente_proveedor}%"))
+    
+    if estatus:
+        query = query.where(CargaProveedor.estatus == estatus)
+    
+    query = query.order_by(desc(CargaProveedor.created_at)).limit(limit).offset(offset)
+    
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def count_carga_proveedores(
+    db: AsyncSession,
+    codigo_proveedor: Optional[str] = None,
+    cliente_proveedor: Optional[str] = None,
+    estatus: Optional[str] = None
+) -> int:
+    """Cuenta el total de registros de carga de proveedores con filtros opcionales."""
+    query = select(func.count(CargaProveedor.id))
+    
+    if codigo_proveedor:
+        query = query.where(CargaProveedor.codigo_proveedor.ilike(f"%{codigo_proveedor}%"))
+    
+    if cliente_proveedor:
+        query = query.where(CargaProveedor.cliente_proveedor.ilike(f"%{cliente_proveedor}%"))
+    
+    if estatus:
+        query = query.where(CargaProveedor.estatus == estatus)
+    
+    result = await db.execute(query)
+    return result.scalar() or 0
+
+
+async def update_carga_proveedor(
+    db: AsyncSession,
+    carga_id: int,
+    codigo_proveedor: Optional[str] = None,
+    nombre: Optional[str] = None,
+    apellido_paterno: Optional[str] = None,
+    apellido_materno: Optional[str] = None,
+    pais: Optional[str] = None,
+    domicilio: Optional[str] = None,
+    cliente_proveedor: Optional[str] = None,
+    estatus: Optional[str] = None
+) -> Optional[CargaProveedor]:
+    """Actualiza un registro de carga de proveedor."""
+    carga_proveedor = await get_carga_proveedor_by_id(db, carga_id)
+    if not carga_proveedor:
+        return None
+    
+    if codigo_proveedor is not None:
+        carga_proveedor.codigo_proveedor = codigo_proveedor
+    if nombre is not None:
+        carga_proveedor.nombre = nombre
+    if apellido_paterno is not None:
+        carga_proveedor.apellido_paterno = apellido_paterno
+    if apellido_materno is not None:
+        carga_proveedor.apellido_materno = apellido_materno
+    if pais is not None:
+        carga_proveedor.pais = pais
+    if domicilio is not None:
+        carga_proveedor.domicilio = domicilio
+    if cliente_proveedor is not None:
+        carga_proveedor.cliente_proveedor = cliente_proveedor
+    if estatus is not None:
+        carga_proveedor.estatus = estatus
+    
+    await db.commit()
+    await db.refresh(carga_proveedor)
+    return carga_proveedor
+
+
+async def delete_carga_proveedor(db: AsyncSession, carga_id: int) -> bool:
+    """Elimina un registro de carga de proveedor."""
+    carga_proveedor = await get_carga_proveedor_by_id(db, carga_id)
+    if not carga_proveedor:
+        return False
+    
+    await db.delete(carga_proveedor)
+    await db.commit()
+    return True
+
+
+# ============================================================================
+# CRUD para CargaCliente
+# ============================================================================
+
+async def create_carga_cliente(
+    db: AsyncSession,
+    codigo_cliente: int,
+    nombre: Optional[str] = None,
+    pais: Optional[str] = None,
+    domicilio: Optional[str] = None,
+    cliente_proveedor: Optional[str] = None,
+    estatus: Optional[str] = None
+) -> CargaCliente:
+    """Crea un nuevo registro de carga de cliente."""
+    carga_cliente = CargaCliente(
+        codigo_cliente=codigo_cliente,
+        nombre=nombre,
+        pais=pais,
+        domicilio=domicilio,
+        cliente_proveedor=cliente_proveedor,
+        estatus=estatus
+    )
+    db.add(carga_cliente)
+    await db.commit()
+    await db.refresh(carga_cliente)
+    return carga_cliente
+
+
+async def get_carga_cliente_by_id(db: AsyncSession, carga_id: int) -> Optional[CargaCliente]:
+    """Obtiene un registro de carga de cliente por ID."""
+    result = await db.execute(
+        select(CargaCliente).where(CargaCliente.id == carga_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_carga_cliente_by_codigo(db: AsyncSession, codigo_cliente: int) -> Optional[CargaCliente]:
+    """Obtiene un registro de carga de cliente por código de cliente."""
+    result = await db.execute(
+        select(CargaCliente)
+        .where(CargaCliente.codigo_cliente == codigo_cliente)
+        .order_by(desc(CargaCliente.created_at))
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def list_carga_clientes(
+    db: AsyncSession,
+    limit: int = 100,
+    offset: int = 0,
+    codigo_cliente: Optional[int] = None,
+    cliente_proveedor: Optional[str] = None,
+    estatus: Optional[str] = None
+) -> List[CargaCliente]:
+    """Lista registros de carga de clientes con filtros opcionales."""
+    query = select(CargaCliente)
+    
+    if codigo_cliente is not None:
+        query = query.where(CargaCliente.codigo_cliente == codigo_cliente)
+    
+    if cliente_proveedor:
+        query = query.where(CargaCliente.cliente_proveedor.ilike(f"%{cliente_proveedor}%"))
+    
+    if estatus:
+        query = query.where(CargaCliente.estatus == estatus)
+    
+    query = query.order_by(desc(CargaCliente.created_at)).limit(limit).offset(offset)
+    
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def count_carga_clientes(
+    db: AsyncSession,
+    codigo_cliente: Optional[int] = None,
+    cliente_proveedor: Optional[str] = None,
+    estatus: Optional[str] = None
+) -> int:
+    """Cuenta el total de registros de carga de clientes con filtros opcionales."""
+    query = select(func.count(CargaCliente.id))
+    
+    if codigo_cliente is not None:
+        query = query.where(CargaCliente.codigo_cliente == codigo_cliente)
+    
+    if cliente_proveedor:
+        query = query.where(CargaCliente.cliente_proveedor.ilike(f"%{cliente_proveedor}%"))
+    
+    if estatus:
+        query = query.where(CargaCliente.estatus == estatus)
+    
+    result = await db.execute(query)
+    return result.scalar() or 0
+
+
+async def update_carga_cliente(
+    db: AsyncSession,
+    carga_id: int,
+    codigo_cliente: Optional[int] = None,
+    nombre: Optional[str] = None,
+    pais: Optional[str] = None,
+    domicilio: Optional[str] = None,
+    cliente_proveedor: Optional[str] = None,
+    estatus: Optional[str] = None
+) -> Optional[CargaCliente]:
+    """Actualiza un registro de carga de cliente."""
+    carga_cliente = await get_carga_cliente_by_id(db, carga_id)
+    if not carga_cliente:
+        return None
+    
+    if codigo_cliente is not None:
+        carga_cliente.codigo_cliente = codigo_cliente
+    if nombre is not None:
+        carga_cliente.nombre = nombre
+    if pais is not None:
+        carga_cliente.pais = pais
+    if domicilio is not None:
+        carga_cliente.domicilio = domicilio
+    if cliente_proveedor is not None:
+        carga_cliente.cliente_proveedor = cliente_proveedor
+    if estatus is not None:
+        carga_cliente.estatus = estatus
+    
+    await db.commit()
+    await db.refresh(carga_cliente)
+    return carga_cliente
+
+
+async def delete_carga_cliente(db: AsyncSession, carga_id: int) -> bool:
+    """Elimina un registro de carga de cliente."""
+    carga_cliente = await get_carga_cliente_by_id(db, carga_id)
+    if not carga_cliente:
+        return False
+    
+    await db.delete(carga_cliente)
+    await db.commit()
+    return True

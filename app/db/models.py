@@ -773,3 +773,74 @@ class Venta(Base):
     def __repr__(self):
         return f"<Venta(id={self.id}, cliente={self.cliente}, codigo_cliente={self.codigo_cliente}, periodo={self.periodo})>"
 
+
+class CargaProveedor(Base):
+    """Modelo para carga de proveedores en aduanas."""
+    __tablename__ = "carga_proveedores"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Clave foránea a proveedores
+    codigo_proveedor = Column(String, ForeignKey("proveedores.codigo_proveedor"), nullable=False, index=True)
+    
+    # Nombre (referencia a proveedores.nombre a través de la relación)
+    nombre = Column(String, nullable=True)
+    
+    # Apellidos
+    apellido_paterno = Column(String, nullable=True)
+    apellido_materno = Column(String, nullable=True)
+    
+    # País (referencia a proveedores.pais a través de la relación)
+    pais = Column(String, nullable=True, index=True)
+    
+    # Domicilio (referencia a proveedores.domicilio a través de la relación)
+    domicilio = Column(Text, nullable=True)
+    
+    # Cliente o Proveedor
+    cliente_proveedor = Column(String, nullable=True)
+    
+    # Estatus
+    estatus = Column(String, nullable=True, index=True)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    # Relaciones
+    proveedor = relationship("Proveedor", foreign_keys=[codigo_proveedor], backref="carga_proveedores")
+    
+    def __repr__(self):
+        return f"<CargaProveedor(id={self.id}, codigo_proveedor={self.codigo_proveedor}, cliente_proveedor={self.cliente_proveedor})>"
+
+
+class CargaCliente(Base):
+    """Modelo para carga de clientes en aduanas."""
+    __tablename__ = "carga_clientes"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Código del cliente (Integer, similar a ClienteGrupo y Venta)
+    codigo_cliente = Column(BigInteger, nullable=False, index=True)
+    
+    # Nombre del cliente
+    nombre = Column(String, nullable=True)
+    
+    # País
+    pais = Column(String, nullable=True, index=True)
+    
+    # Domicilio
+    domicilio = Column(String, nullable=True)
+    
+    # Cliente o Proveedor
+    cliente_proveedor = Column(String, nullable=True)
+    
+    # Estatus
+    estatus = Column(String, nullable=True, index=True)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    def __repr__(self):
+        return f"<CargaCliente(id={self.id}, codigo_cliente={self.codigo_cliente}, nombre={self.nombre})>"
+
