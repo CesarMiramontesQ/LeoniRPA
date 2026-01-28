@@ -593,6 +593,19 @@ async def paises_origen(request: Request, current_user: User = Depends(get_curre
     )
 
 
+@app.get("/carga-cliente-proveedor")
+async def carga_cliente_proveedor(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Página de carga de cliente/proveedor - requiere autenticación."""
+    return templates.TemplateResponse(
+        "carga_cliente_proveedor.html",
+        {
+            "request": request,
+            "active_page": "carga_cliente_proveedor",
+            "current_user": current_user,
+        }
+    )
+
+
 @app.put("/api/paises-origen/{pais_id}")
 async def actualizar_pais_origen(
     pais_id: int,
