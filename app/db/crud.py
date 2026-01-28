@@ -6,7 +6,7 @@ from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta, timezone, date
 from decimal import Decimal
-from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaCliente
+from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaCliente, MasterUnificadoVirtuales
 from app.core.security import hash_password
 
 
@@ -3576,5 +3576,262 @@ async def delete_carga_cliente(db: AsyncSession, carga_id: int) -> bool:
         return False
     
     await db.delete(carga_cliente)
+    await db.commit()
+    return True
+
+
+# ============================================================================
+# CRUD para MasterUnificadoVirtuales
+# ============================================================================
+
+async def create_master_unificado_virtuales(
+    db: AsyncSession,
+    solicitud_previo: Optional[bool] = None,
+    agente: Optional[str] = None,
+    pedimento: Optional[int] = None,
+    aduana: Optional[int] = None,
+    patente: Optional[int] = None,
+    destino: Optional[int] = None,
+    cliente_space: Optional[str] = None,
+    impo_expo: Optional[str] = None,
+    proveedor_cliente: Optional[str] = None,
+    mes: Optional[str] = None,
+    complemento: Optional[str] = None,
+    tipo_immex: Optional[str] = None,
+    factura: Optional[str] = None,
+    fecha_pago: Optional[date] = None,
+    informacion: Optional[str] = None,
+    estatus: Optional[str] = None,
+    op_regular: Optional[bool] = None,
+    numero: Optional[int] = None,
+    carretes: Optional[bool] = None,
+    servicio_cliente: Optional[str] = None,
+    plazo: Optional[str] = None
+) -> MasterUnificadoVirtuales:
+    """Crea un nuevo registro de master unificado virtuales."""
+    master = MasterUnificadoVirtuales(
+        solicitud_previo=solicitud_previo,
+        agente=agente,
+        pedimento=pedimento,
+        aduana=aduana,
+        patente=patente,
+        destino=destino,
+        cliente_space=cliente_space,
+        impo_expo=impo_expo,
+        proveedor_cliente=proveedor_cliente,
+        mes=mes,
+        complemento=complemento,
+        tipo_immex=tipo_immex,
+        factura=factura,
+        fecha_pago=fecha_pago,
+        informacion=informacion,
+        estatus=estatus,
+        op_regular=op_regular,
+        numero=numero,
+        carretes=carretes,
+        servicio_cliente=servicio_cliente,
+        plazo=plazo
+    )
+    db.add(master)
+    await db.commit()
+    await db.refresh(master)
+    return master
+
+
+async def get_master_unificado_virtuales_by_id(db: AsyncSession, master_id: int) -> Optional[MasterUnificadoVirtuales]:
+    """Obtiene un registro de master unificado virtuales por ID."""
+    result = await db.execute(
+        select(MasterUnificadoVirtuales).where(MasterUnificadoVirtuales.id == master_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_master_unificado_virtuales_by_pedimento(db: AsyncSession, pedimento: int) -> Optional[MasterUnificadoVirtuales]:
+    """Obtiene un registro de master unificado virtuales por pedimento."""
+    result = await db.execute(
+        select(MasterUnificadoVirtuales)
+        .where(MasterUnificadoVirtuales.pedimento == pedimento)
+        .order_by(desc(MasterUnificadoVirtuales.created_at))
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_master_unificado_virtuales_by_numero(db: AsyncSession, numero: int) -> Optional[MasterUnificadoVirtuales]:
+    """Obtiene un registro de master unificado virtuales por número."""
+    result = await db.execute(
+        select(MasterUnificadoVirtuales)
+        .where(MasterUnificadoVirtuales.numero == numero)
+        .order_by(desc(MasterUnificadoVirtuales.created_at))
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def list_master_unificado_virtuales(
+    db: AsyncSession,
+    limit: int = 100,
+    offset: int = 0,
+    pedimento: Optional[int] = None,
+    numero: Optional[int] = None,
+    aduana: Optional[int] = None,
+    patente: Optional[int] = None,
+    estatus: Optional[str] = None,
+    proveedor_cliente: Optional[str] = None,
+    mes: Optional[str] = None
+) -> List[MasterUnificadoVirtuales]:
+    """Lista registros de master unificado virtuales con filtros opcionales."""
+    query = select(MasterUnificadoVirtuales)
+    
+    if pedimento is not None:
+        query = query.where(MasterUnificadoVirtuales.pedimento == pedimento)
+    
+    if numero is not None:
+        query = query.where(MasterUnificadoVirtuales.numero == numero)
+    
+    if aduana is not None:
+        query = query.where(MasterUnificadoVirtuales.aduana == aduana)
+    
+    if patente is not None:
+        query = query.where(MasterUnificadoVirtuales.patente == patente)
+    
+    if estatus:
+        query = query.where(MasterUnificadoVirtuales.estatus == estatus)
+    
+    if proveedor_cliente:
+        query = query.where(MasterUnificadoVirtuales.proveedor_cliente.ilike(f"%{proveedor_cliente}%"))
+    
+    if mes:
+        query = query.where(MasterUnificadoVirtuales.mes == mes)
+    
+    query = query.order_by(desc(MasterUnificadoVirtuales.created_at)).limit(limit).offset(offset)
+    
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def count_master_unificado_virtuales(
+    db: AsyncSession,
+    pedimento: Optional[int] = None,
+    numero: Optional[int] = None,
+    aduana: Optional[int] = None,
+    patente: Optional[int] = None,
+    estatus: Optional[str] = None,
+    proveedor_cliente: Optional[str] = None,
+    mes: Optional[str] = None
+) -> int:
+    """Cuenta el total de registros de master unificado virtuales con filtros opcionales."""
+    query = select(func.count(MasterUnificadoVirtuales.id))
+    
+    if pedimento is not None:
+        query = query.where(MasterUnificadoVirtuales.pedimento == pedimento)
+    
+    if numero is not None:
+        query = query.where(MasterUnificadoVirtuales.numero == numero)
+    
+    if aduana is not None:
+        query = query.where(MasterUnificadoVirtuales.aduana == aduana)
+    
+    if patente is not None:
+        query = query.where(MasterUnificadoVirtuales.patente == patente)
+    
+    if estatus:
+        query = query.where(MasterUnificadoVirtuales.estatus == estatus)
+    
+    if proveedor_cliente:
+        query = query.where(MasterUnificadoVirtuales.proveedor_cliente.ilike(f"%{proveedor_cliente}%"))
+    
+    if mes:
+        query = query.where(MasterUnificadoVirtuales.mes == mes)
+    
+    result = await db.execute(query)
+    return result.scalar() or 0
+
+
+async def update_master_unificado_virtuales(
+    db: AsyncSession,
+    master_id: int,
+    solicitud_previo: Optional[bool] = None,
+    agente: Optional[str] = None,
+    pedimento: Optional[int] = None,
+    aduana: Optional[int] = None,
+    patente: Optional[int] = None,
+    destino: Optional[int] = None,
+    cliente_space: Optional[str] = None,
+    impo_expo: Optional[str] = None,
+    proveedor_cliente: Optional[str] = None,
+    mes: Optional[str] = None,
+    complemento: Optional[str] = None,
+    tipo_immex: Optional[str] = None,
+    factura: Optional[str] = None,
+    fecha_pago: Optional[date] = None,
+    informacion: Optional[str] = None,
+    estatus: Optional[str] = None,
+    op_regular: Optional[bool] = None,
+    numero: Optional[int] = None,
+    carretes: Optional[bool] = None,
+    servicio_cliente: Optional[str] = None,
+    plazo: Optional[str] = None
+) -> Optional[MasterUnificadoVirtuales]:
+    """Actualiza un registro de master unificado virtuales."""
+    master = await get_master_unificado_virtuales_by_id(db, master_id)
+    if not master:
+        return None
+    
+    if solicitud_previo is not None:
+        master.solicitud_previo = solicitud_previo
+    if agente is not None:
+        master.agente = agente
+    if pedimento is not None:
+        master.pedimento = pedimento
+    if aduana is not None:
+        master.aduana = aduana
+    if patente is not None:
+        master.patente = patente
+    if destino is not None:
+        master.destino = destino
+    if cliente_space is not None:
+        master.cliente_space = cliente_space
+    if impo_expo is not None:
+        master.impo_expo = impo_expo
+    if proveedor_cliente is not None:
+        master.proveedor_cliente = proveedor_cliente
+    if mes is not None:
+        master.mes = mes
+    if complemento is not None:
+        master.complemento = complemento
+    if tipo_immex is not None:
+        master.tipo_immex = tipo_immex
+    if factura is not None:
+        master.factura = factura
+    if fecha_pago is not None:
+        master.fecha_pago = fecha_pago
+    if informacion is not None:
+        master.informacion = informacion
+    if estatus is not None:
+        master.estatus = estatus
+    if op_regular is not None:
+        master.op_regular = op_regular
+    if numero is not None:
+        master.numero = numero
+    if carretes is not None:
+        master.carretes = carretes
+    if servicio_cliente is not None:
+        master.servicio_cliente = servicio_cliente
+    if plazo is not None:
+        master.plazo = plazo
+    
+    await db.commit()
+    await db.refresh(master)
+    return master
+
+
+async def delete_master_unificado_virtuales(db: AsyncSession, master_id: int) -> bool:
+    """Elimina un registro de master unificado virtuales."""
+    master = await get_master_unificado_virtuales_by_id(db, master_id)
+    if not master:
+        return False
+    
+    await db.delete(master)
     await db.commit()
     return True

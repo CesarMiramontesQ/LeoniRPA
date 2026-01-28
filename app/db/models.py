@@ -844,3 +844,80 @@ class CargaCliente(Base):
     def __repr__(self):
         return f"<CargaCliente(id={self.id}, codigo_cliente={self.codigo_cliente}, nombre={self.nombre})>"
 
+
+class MasterUnificadoVirtuales(Base):
+    """Modelo para master unificado de virtuales."""
+    __tablename__ = "master_unificado_virtuales"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # Solicitud previo
+    solicitud_previo = Column(Boolean, nullable=True, default=False)
+    
+    # Agente
+    agente = Column(String, nullable=True)
+    
+    # Pedimento
+    pedimento = Column(BigInteger, nullable=True, index=True)
+    
+    # Aduana
+    aduana = Column(Integer, nullable=True, index=True)
+    
+    # Patente
+    patente = Column(Integer, nullable=True, index=True)
+    
+    # Destino
+    destino = Column(Integer, nullable=True)
+    
+    # Cliente Space
+    cliente_space = Column(String, nullable=True)
+    
+    # Impo/Expo
+    impo_expo = Column(String, nullable=True)
+    
+    # Proveedor/Cliente
+    proveedor_cliente = Column(String, nullable=True)
+    
+    # Mes
+    mes = Column(String, nullable=True)
+    
+    # Complemento
+    complemento = Column(String, nullable=True)
+    
+    # Tipo IMMEX
+    tipo_immex = Column(String, nullable=True)
+    
+    # Factura
+    factura = Column(String, nullable=True)
+    
+    # Fecha de pago
+    fecha_pago = Column(Date, nullable=True, index=True)
+    
+    # Información
+    informacion = Column(String, nullable=True)
+    
+    # Estatus
+    estatus = Column(String, nullable=True, index=True)
+    
+    # OP Regular
+    op_regular = Column(Boolean, nullable=True, default=False)
+    
+    # Número
+    numero = Column(BigInteger, nullable=True, index=True)
+    
+    # Carretes
+    carretes = Column(Boolean, nullable=True, default=False)
+    
+    # Servicio Cliente
+    servicio_cliente = Column(String, nullable=True)
+    
+    # Plazo
+    plazo = Column(String, nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    def __repr__(self):
+        return f"<MasterUnificadoVirtuales(id={self.id}, pedimento={self.pedimento}, numero={self.numero})>"
+
