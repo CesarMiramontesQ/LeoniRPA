@@ -3603,10 +3603,12 @@ async def create_master_unificado_virtuales(
     informacion: Optional[str] = None,
     estatus: Optional[str] = None,
     op_regular: Optional[bool] = None,
+    tipo: Optional[str] = None,
     numero: Optional[int] = None,
     carretes: Optional[bool] = None,
     servicio_cliente: Optional[str] = None,
-    plazo: Optional[str] = None
+    plazo: Optional[str] = None,
+    firma: Optional[str] = None
 ) -> MasterUnificadoVirtuales:
     """Crea un nuevo registro de master unificado virtuales."""
     master = MasterUnificadoVirtuales(
@@ -3627,10 +3629,12 @@ async def create_master_unificado_virtuales(
         informacion=informacion,
         estatus=estatus,
         op_regular=op_regular,
+        tipo=tipo,
         numero=numero,
         carretes=carretes,
         servicio_cliente=servicio_cliente,
-        plazo=plazo
+        plazo=plazo,
+        firma=firma
     )
     db.add(master)
     await db.commit()
@@ -3768,10 +3772,12 @@ async def update_master_unificado_virtuales(
     informacion: Optional[str] = None,
     estatus: Optional[str] = None,
     op_regular: Optional[bool] = None,
+    tipo: Optional[str] = None,
     numero_nuevo: Optional[int] = None,
     carretes: Optional[bool] = None,
     servicio_cliente: Optional[str] = None,
-    plazo: Optional[str] = None
+    plazo: Optional[str] = None,
+    firma: Optional[str] = None
 ) -> Optional[MasterUnificadoVirtuales]:
     """Actualiza un registro de master unificado virtuales. Identificador: numero."""
     master = await get_master_unificado_virtuales_by_numero(db, numero)
@@ -3812,6 +3818,8 @@ async def update_master_unificado_virtuales(
         master.estatus = estatus
     if op_regular is not None:
         master.op_regular = op_regular
+    if tipo is not None:
+        master.tipo = tipo
     if numero_nuevo is not None:
         master.numero = numero_nuevo
     if carretes is not None:
@@ -3820,6 +3828,8 @@ async def update_master_unificado_virtuales(
         master.servicio_cliente = servicio_cliente
     if plazo is not None:
         master.plazo = plazo
+    if firma is not None:
+        master.firma = firma
     
     await db.commit()
     await db.refresh(master)

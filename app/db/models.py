@@ -901,6 +901,9 @@ class MasterUnificadoVirtuales(Base):
     
     # OP Regular
     op_regular = Column(Boolean, nullable=True, default=False)
+
+    # Tipo
+    tipo = Column(String, nullable=True)
     
     # Número
     numero = Column(BigInteger, nullable=True, index=True)
@@ -913,6 +916,9 @@ class MasterUnificadoVirtuales(Base):
     
     # Plazo
     plazo = Column(String, nullable=True)
+    
+    # Firma
+    firma = Column(String, nullable=True)
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

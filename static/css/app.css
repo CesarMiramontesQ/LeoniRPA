@@ -513,6 +513,9 @@
   .w-px {
     width: 1px;
   }
+  .max-w-\[180px\] {
+    max-width: 180px;
+  }
   .max-w-sm {
     max-width: var(--container-sm);
   }
@@ -1594,6 +1597,11 @@
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
   }
+  .sm\:flex-row {
+    @media (width >= 40rem) {
+      flex-direction: row;
+    }
+  }
   .sm\:flex-row-reverse {
     @media (width >= 40rem) {
       flex-direction: row-reverse;
@@ -1676,6 +1684,11 @@
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
+  .md\:grid-cols-4 {
+    @media (width >= 48rem) {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
   .lg\:fixed {
     @media (width >= 64rem) {
       position: fixed;
@@ -1741,6 +1754,11 @@
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }
   }
+  .lg\:grid-cols-5 {
+    @media (width >= 64rem) {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+  }
   .lg\:flex-col {
     @media (width >= 64rem) {
       flex-direction: column;
@@ -1759,6 +1777,11 @@
   .lg\:pl-72 {
     @media (width >= 64rem) {
       padding-left: calc(var(--spacing) * 72);
+    }
+  }
+  .xl\:grid-cols-6 {
+    @media (width >= 80rem) {
+      grid-template-columns: repeat(6, minmax(0, 1fr));
     }
   }
   .xl\:px-24 {

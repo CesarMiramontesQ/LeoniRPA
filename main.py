@@ -606,6 +606,31 @@ async def carga_cliente_proveedor(request: Request, current_user: User = Depends
     )
 
 
+@app.get("/virtuales")
+async def virtuales(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Página Virtuales (master unificado) dentro de Aduanas - requiere autenticación."""
+    virtuales_data = await crud.list_master_unificado_virtuales(db, limit=2000, offset=0)
+    total_virtuales = await crud.count_master_unificado_virtuales(db)
+    
+    # Contar registros por estatus
+    from collections import Counter
+    estatus_counts = Counter(v.estatus or "Sin estatus" for v in virtuales_data)
+    # Ordenar por cantidad descendente
+    estatus_counts = dict(sorted(estatus_counts.items(), key=lambda x: x[1], reverse=True))
+    
+    return templates.TemplateResponse(
+        "virtuales.html",
+        {
+            "request": request,
+            "active_page": "virtuales",
+            "current_user": current_user,
+            "virtuales": virtuales_data,
+            "total_virtuales": total_virtuales,
+            "estatus_counts": estatus_counts,
+        }
+    )
+
+
 @app.put("/api/paises-origen/{pais_id}")
 async def actualizar_pais_origen(
     pais_id: int,
