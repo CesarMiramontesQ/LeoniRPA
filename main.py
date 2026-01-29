@@ -631,6 +631,109 @@ async def virtuales(request: Request, current_user: User = Depends(get_current_u
     )
 
 
+@app.put("/api/virtuales/{numero}")
+async def actualizar_virtual(
+    numero: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Actualiza un registro de virtuales."""
+    try:
+        data = await request.json()
+        
+        # Convertir valores booleanos
+        solicitud_previo = None
+        if data.get("solicitud_previo"):
+            solicitud_previo = data.get("solicitud_previo") == "Sí"
+        
+        op_regular = None
+        if data.get("op_regular"):
+            op_regular = data.get("op_regular") == "Sí"
+        
+        carretes = None
+        if data.get("carretes"):
+            carretes = data.get("carretes") == "Sí"
+        
+        # Convertir valores numéricos
+        pedimento = None
+        if data.get("pedimento"):
+            try:
+                pedimento = int(data.get("pedimento"))
+            except (ValueError, TypeError):
+                pass
+        
+        aduana = None
+        if data.get("aduana"):
+            try:
+                aduana = int(data.get("aduana"))
+            except (ValueError, TypeError):
+                pass
+        
+        patente = None
+        if data.get("patente"):
+            try:
+                patente = int(data.get("patente"))
+            except (ValueError, TypeError):
+                pass
+        
+        destino = None
+        if data.get("destino"):
+            try:
+                destino = int(data.get("destino"))
+            except (ValueError, TypeError):
+                pass
+        
+        virtual_actualizado = await crud.update_master_unificado_virtuales(
+            db=db,
+            numero=numero,
+            solicitud_previo=solicitud_previo,
+            agente=data.get("agente") or None,
+            pedimento=pedimento,
+            aduana=aduana,
+            patente=patente,
+            destino=destino,
+            cliente_space=data.get("cliente_space") or None,
+            impo_expo=data.get("impo_expo") or None,
+            proveedor_cliente=data.get("proveedor_cliente") or None,
+            mes=data.get("mes") or None,
+            complemento=data.get("complemento") or None,
+            tipo_immex=data.get("tipo_immex") or None,
+            factura=data.get("factura") or None,
+            informacion=data.get("informacion") or None,
+            estatus=data.get("estatus") or None,
+            op_regular=op_regular,
+            tipo=data.get("tipo") or None,
+            carretes=carretes,
+            servicio_cliente=data.get("servicio_cliente") or None,
+            plazo=data.get("plazo") or None,
+            firma=data.get("firma") or None,
+            incoterm=data.get("incoterm") or None,
+            tipo_exportacion=data.get("tipo_exportacion") or None
+        )
+        
+        if not virtual_actualizado:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"No se encontró el registro con número {numero}"}
+            )
+        
+        return JSONResponse(
+            status_code=200,
+            content={
+                "success": True,
+                "message": "Registro actualizado correctamente",
+                "numero": numero
+            }
+        )
+        
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Error al actualizar el registro: {str(e)}"}
+        )
+
+
 @app.put("/api/paises-origen/{pais_id}")
 async def actualizar_pais_origen(
     pais_id: int,

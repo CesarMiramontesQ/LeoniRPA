@@ -920,6 +920,12 @@ class MasterUnificadoVirtuales(Base):
     # Firma
     firma = Column(String, nullable=True)
     
+    # Incoterm
+    incoterm = Column(String, nullable=True)
+    
+    # Tipo Exportación
+    tipo_exportacion = Column(String, nullable=True)
+    
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

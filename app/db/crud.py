@@ -3777,7 +3777,9 @@ async def update_master_unificado_virtuales(
     carretes: Optional[bool] = None,
     servicio_cliente: Optional[str] = None,
     plazo: Optional[str] = None,
-    firma: Optional[str] = None
+    firma: Optional[str] = None,
+    incoterm: Optional[str] = None,
+    tipo_exportacion: Optional[str] = None
 ) -> Optional[MasterUnificadoVirtuales]:
     """Actualiza un registro de master unificado virtuales. Identificador: numero."""
     master = await get_master_unificado_virtuales_by_numero(db, numero)
@@ -3830,6 +3832,10 @@ async def update_master_unificado_virtuales(
         master.plazo = plazo
     if firma is not None:
         master.firma = firma
+    if incoterm is not None:
+        master.incoterm = incoterm
+    if tipo_exportacion is not None:
+        master.tipo_exportacion = tipo_exportacion
     
     await db.commit()
     await db.refresh(master)
