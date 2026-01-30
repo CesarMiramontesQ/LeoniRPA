@@ -813,6 +813,54 @@ class CargaProveedor(Base):
         return f"<CargaProveedor(id={self.id}, codigo_proveedor={self.codigo_proveedor}, cliente_proveedor={self.cliente_proveedor})>"
 
 
+class CargaProveedorOperacion(PyEnum):
+    """Tipos de operaciones en el historial de carga de proveedores."""
+    CREATE = "CREATE"      # Proveedor nuevo agregado (Alta)
+    UPDATE = "UPDATE"      # Estatus modificado
+    DELETE = "DELETE"      # Proveedor eliminado
+
+
+class CargaProveedorHistorial(Base):
+    """Modelo para el historial de cambios en carga de proveedores."""
+    __tablename__ = "carga_proveedores_historial"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # ID del registro de carga_proveedores
+    carga_proveedor_id = Column(Integer, nullable=True, index=True)
+    
+    # Código del proveedor
+    codigo_proveedor = Column(String, nullable=True, index=True)
+    
+    # Tipo de operación
+    operacion = Column(
+        SQLEnum(CargaProveedorOperacion, name="carga_proveedor_operacion_enum"),
+        nullable=False,
+        index=True
+    )
+    
+    # Estatus anterior (antes del cambio)
+    estatus_anterior = Column(String, nullable=True)
+    
+    # Estatus nuevo (después del cambio)
+    estatus_nuevo = Column(String, nullable=True)
+    
+    # Datos completos antes del cambio (JSON)
+    datos_antes = Column(JSONB, nullable=True)
+    
+    # Datos completos después del cambio (JSON)
+    datos_despues = Column(JSONB, nullable=True)
+    
+    # Motivo del cambio
+    motivo = Column(String, nullable=True)
+    
+    # Timestamp
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    
+    def __repr__(self):
+        return f"<CargaProveedorHistorial(id={self.id}, codigo_proveedor={self.codigo_proveedor}, operacion={self.operacion.value}, created_at={self.created_at})>"
+
+
 class CargaCliente(Base):
     """Modelo para carga de clientes en aduanas."""
     __tablename__ = "carga_clientes"
@@ -843,6 +891,54 @@ class CargaCliente(Base):
     
     def __repr__(self):
         return f"<CargaCliente(id={self.id}, codigo_cliente={self.codigo_cliente}, nombre={self.nombre})>"
+
+
+class CargaClienteOperacion(PyEnum):
+    """Tipos de operaciones en el historial de carga de clientes."""
+    CREATE = "CREATE"      # Cliente nuevo agregado (Alta)
+    UPDATE = "UPDATE"      # Estatus modificado
+    DELETE = "DELETE"      # Cliente eliminado
+
+
+class CargaClienteHistorial(Base):
+    """Modelo para el historial de cambios en carga de clientes."""
+    __tablename__ = "carga_clientes_historial"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    
+    # ID del registro de carga_clientes
+    carga_cliente_id = Column(Integer, nullable=True, index=True)
+    
+    # Código del cliente
+    codigo_cliente = Column(BigInteger, nullable=True, index=True)
+    
+    # Tipo de operación
+    operacion = Column(
+        SQLEnum(CargaClienteOperacion, name="carga_cliente_operacion_enum"),
+        nullable=False,
+        index=True
+    )
+    
+    # Estatus anterior (antes del cambio)
+    estatus_anterior = Column(String, nullable=True)
+    
+    # Estatus nuevo (después del cambio)
+    estatus_nuevo = Column(String, nullable=True)
+    
+    # Datos completos antes del cambio (JSON)
+    datos_antes = Column(JSONB, nullable=True)
+    
+    # Datos completos después del cambio (JSON)
+    datos_despues = Column(JSONB, nullable=True)
+    
+    # Motivo del cambio
+    motivo = Column(String, nullable=True)
+    
+    # Timestamp
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    
+    def __repr__(self):
+        return f"<CargaClienteHistorial(id={self.id}, codigo_cliente={self.codigo_cliente}, operacion={self.operacion.value}, created_at={self.created_at})>"
 
 
 class MasterUnificadoVirtuales(Base):

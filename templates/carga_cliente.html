@@ -1,0 +1,541 @@
+{% extends "base.html" %} {% block content %}
+<div class="space-y-6">
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold text-gray-900">Carga Cliente</h1>
+      <p class="mt-1 text-sm text-gray-600">
+        Gestión y carga de información de clientes para aduanas
+      </p>
+    </div>
+    <div class="flex items-center gap-3">
+      <span class="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-sm font-medium text-blue-800">
+        {{ total_clientes }} clientes
+      </span>
+      <button
+        id="btn-actualizar"
+        onclick="actualizarClientes()"
+        class="inline-flex items-center rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        <svg id="icon-actualizar" class="mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+        </svg>
+        <svg id="icon-loading" class="mr-2 h-4 w-4 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <span id="btn-text">Actualizar</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Tarjetas de Resumen -->
+  <div>
+    <h3 class="text-base font-semibold text-gray-900">Resumen de Clientes</h3>
+    <dl class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      <a href="/carga-cliente" class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6 hover:shadow-md transition-shadow border-l-4 border-indigo-500">
+        <dt class="truncate text-sm font-medium text-gray-500">Total Clientes</dt>
+        <dd class="mt-1 text-3xl font-semibold tracking-tight text-indigo-600">{{ count_total }}</dd>
+      </a>
+      <a href="/carga-cliente?estatus=Sin+modificacion" class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6 hover:shadow-md transition-shadow border-l-4 border-blue-500">
+        <dt class="truncate text-sm font-medium text-gray-500">Sin Modificación</dt>
+        <dd class="mt-1 text-3xl font-semibold tracking-tight text-blue-600">{{ count_sin_modificacion }}</dd>
+      </a>
+      <a href="/carga-cliente?estatus=Alta" class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6 hover:shadow-md transition-shadow border-l-4 border-green-500">
+        <dt class="truncate text-sm font-medium text-gray-500">Alta</dt>
+        <dd class="mt-1 text-3xl font-semibold tracking-tight text-green-600">{{ count_alta }}</dd>
+      </a>
+      <a href="/carga-cliente?estatus=Baja" class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6 hover:shadow-md transition-shadow border-l-4 border-red-500">
+        <dt class="truncate text-sm font-medium text-gray-500">Baja</dt>
+        <dd class="mt-1 text-3xl font-semibold tracking-tight text-red-600">{{ count_baja }}</dd>
+      </a>
+    </dl>
+  </div>
+
+  <!-- Filtros -->
+  <div class="rounded-lg bg-white shadow-sm">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <form method="GET" action="/carga-cliente" class="flex flex-wrap items-end gap-4">
+        <div class="flex-1 min-w-[200px]">
+          <label for="search" class="block text-sm font-medium text-gray-700 mb-1">Buscar por código</label>
+          <input
+            type="text"
+            id="search"
+            name="search"
+            value="{{ search }}"
+            placeholder="Código de cliente..."
+            class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+        <div class="w-40">
+          <label for="estatus" class="block text-sm font-medium text-gray-700 mb-1">Estatus</label>
+          <select
+            id="estatus"
+            name="estatus"
+            class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="">Todos</option>
+            <option value="Alta" {% if estatus == 'Alta' %}selected{% endif %}>Alta</option>
+            <option value="Baja" {% if estatus == 'Baja' %}selected{% endif %}>Baja</option>
+            <option value="Sin modificacion" {% if estatus == 'Sin modificacion' %}selected{% endif %}>Sin modificación</option>
+          </select>
+        </div>
+        <div>
+          <button
+            type="submit"
+            class="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          >
+            <svg class="mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+            </svg>
+            Buscar
+          </button>
+        </div>
+        {% if search or estatus %}
+        <div>
+          <a
+            href="/carga-cliente"
+            class="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Limpiar
+          </a>
+        </div>
+        {% endif %}
+      </form>
+    </div>
+  </div>
+
+  <!-- Tabla de Clientes -->
+  <div class="rounded-lg bg-white shadow-sm overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <h2 class="text-lg font-medium text-gray-900">Clientes Cargados</h2>
+    </div>
+    
+    {% if clientes and clientes|length > 0 %}
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Código
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Nombre
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              País
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Domicilio
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Tipo
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Estatus
+            </th>
+          </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+          {% for cliente in clientes %}
+          <tr class="hover:bg-gray-50">
+            <td class="px-4 py-3 whitespace-nowrap">
+              <span class="text-sm font-medium text-blue-600">{{ cliente.codigo_cliente }}</span>
+            </td>
+            <td class="px-4 py-3">
+              <div class="text-sm text-gray-900">{{ cliente.nombre or '-' }}</div>
+            </td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">
+                {{ cliente.pais or '-' }}
+              </span>
+            </td>
+            <td class="px-4 py-3">
+              <div class="text-sm text-gray-600 max-w-xs truncate" title="{{ cliente.domicilio or '' }}">
+                {{ cliente.domicilio or '-' }}
+              </div>
+            </td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              {% if cliente.cliente_proveedor == 'Cliente' %}
+              <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+                Cliente
+              </span>
+              {% elif cliente.cliente_proveedor == 'Proveedor' %}
+              <span class="inline-flex items-center rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-medium text-purple-800">
+                Proveedor
+              </span>
+              {% else %}
+              <span class="text-sm text-gray-500">{{ cliente.cliente_proveedor or '-' }}</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              {% if cliente.estatus == 'Alta' %}
+              <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+                <span class="mr-1 h-1.5 w-1.5 rounded-full bg-green-500"></span>
+                Alta
+              </span>
+              {% elif cliente.estatus == 'Baja' %}
+              <span class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">
+                <span class="mr-1 h-1.5 w-1.5 rounded-full bg-red-500"></span>
+                Baja
+              </span>
+              {% elif cliente.estatus == 'Sin modificacion' %}
+              <span class="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">
+                <span class="mr-1 h-1.5 w-1.5 rounded-full bg-blue-500"></span>
+                Sin modificación
+              </span>
+              {% else %}
+              <span class="text-sm text-gray-500">{{ cliente.estatus or '-' }}</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Paginación -->
+    {% if total_pages > 1 %}
+    <div class="px-6 py-4 border-t border-gray-200 bg-gray-50">
+      <div class="flex items-center justify-between">
+        <div class="text-sm text-gray-700">
+          Mostrando página <span class="font-medium">{{ page }}</span> de <span class="font-medium">{{ total_pages }}</span>
+        </div>
+        <div class="flex items-center gap-2">
+          {% if page > 1 %}
+          <a
+            href="/carga-cliente?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}{% if estatus %}&estatus={{ estatus }}{% endif %}"
+            class="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            <svg class="mr-1 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+            </svg>
+            Anterior
+          </a>
+          {% endif %}
+          
+          {% if page < total_pages %}
+          <a
+            href="/carga-cliente?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}{% if estatus %}&estatus={{ estatus }}{% endif %}"
+            class="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Siguiente
+            <svg class="ml-1 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+            </svg>
+          </a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <!-- Estado vacío -->
+    <div class="px-6 py-12">
+      <div class="text-center">
+        <svg
+          class="mx-auto h-12 w-12 text-gray-400"
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke-width="1.5"
+          stroke="currentColor"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m6 4.125l2.25 2.25m0 0l2.25 2.25M12 13.875l2.25-2.25M12 13.875l-2.25 2.25M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"
+          />
+        </svg>
+        <h3 class="mt-2 text-sm font-semibold text-gray-900">No hay clientes</h3>
+        <p class="mt-1 text-sm text-gray-500">
+          {% if search or estatus %}
+          No se encontraron clientes con los filtros seleccionados.
+          {% else %}
+          Aún no se han cargado clientes en el sistema.
+          {% endif %}
+        </p>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Historial de Movimientos -->
+  <div class="rounded-lg bg-white shadow-sm overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-medium text-gray-900">Historial de Movimientos</h2>
+        <span class="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-sm font-medium text-gray-600">
+          Últimos 50 movimientos
+        </span>
+      </div>
+    </div>
+    
+    {% if historial and historial|length > 0 %}
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Fecha
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Código Cliente
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Operación
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Estatus Anterior
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Estatus Nuevo
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Motivo
+            </th>
+          </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+          {% for registro in historial %}
+          <tr class="hover:bg-gray-50">
+            <td class="px-4 py-3 whitespace-nowrap">
+              <span class="text-sm text-gray-600">
+                {{ registro.created_at.strftime('%d/%m/%Y %H:%M') if registro.created_at else '-' }}
+              </span>
+            </td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              <span class="text-sm font-medium text-blue-600">{{ registro.codigo_cliente or '-' }}</span>
+            </td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              {% if registro.operacion.value == 'CREATE' %}
+              <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+                <svg class="mr-1 h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+                Alta
+              </span>
+              {% elif registro.operacion.value == 'UPDATE' %}
+              <span class="inline-flex items-center rounded-full bg-yellow-100 px-2.5 py-0.5 text-xs font-medium text-yellow-800">
+                <svg class="mr-1 h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" />
+                </svg>
+                Modificación
+              </span>
+              {% elif registro.operacion.value == 'DELETE' %}
+              <span class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">
+                <svg class="mr-1 h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                </svg>
+                Baja
+              </span>
+              {% else %}
+              <span class="text-sm text-gray-500">{{ registro.operacion.value }}</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              {% if registro.estatus_anterior %}
+              <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700">
+                {{ registro.estatus_anterior }}
+              </span>
+              {% else %}
+              <span class="text-sm text-gray-400">-</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              {% if registro.estatus_nuevo == 'Alta' %}
+              <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+                {{ registro.estatus_nuevo }}
+              </span>
+              {% elif registro.estatus_nuevo == 'Baja' %}
+              <span class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">
+                {{ registro.estatus_nuevo }}
+              </span>
+              {% elif registro.estatus_nuevo == 'Sin modificacion' %}
+              <span class="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">
+                Sin modificación
+              </span>
+              {% elif registro.estatus_nuevo %}
+              <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700">
+                {{ registro.estatus_nuevo }}
+              </span>
+              {% else %}
+              <span class="text-sm text-gray-400">-</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3">
+              <div class="text-sm text-gray-600 max-w-xs truncate" title="{{ registro.motivo or '' }}">
+                {{ registro.motivo or '-' }}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <!-- Estado vacío del historial -->
+    <div class="px-6 py-12">
+      <div class="text-center">
+        <svg
+          class="mx-auto h-12 w-12 text-gray-400"
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke-width="1.5"
+          stroke="currentColor"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
+          />
+        </svg>
+        <h3 class="mt-2 text-sm font-semibold text-gray-900">Sin historial</h3>
+        <p class="mt-1 text-sm text-gray-500">
+          Aún no hay movimientos registrados en el historial de clientes.
+        </p>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Modal de Resultado -->
+<div id="modal-resultado" class="fixed inset-0 z-50 hidden overflow-y-auto">
+  <div class="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
+    <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"></div>
+    <div class="relative transform overflow-hidden rounded-lg bg-white text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg">
+      <div class="bg-white px-4 pb-4 pt-5 sm:p-6 sm:pb-4">
+        <div class="sm:flex sm:items-start">
+          <div id="modal-icon-success" class="mx-auto hidden flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-green-100 sm:mx-0 sm:h-10 sm:w-10">
+            <svg class="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+          </div>
+          <div id="modal-icon-error" class="mx-auto hidden flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+            <svg class="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+            </svg>
+          </div>
+          <div class="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left">
+            <h3 id="modal-titulo" class="text-base font-semibold leading-6 text-gray-900">Actualización completada</h3>
+            <div class="mt-2">
+              <p id="modal-mensaje" class="text-sm text-gray-500"></p>
+              <div id="modal-resumen" class="mt-3 hidden">
+                <div class="flex gap-4 text-sm">
+                  <div class="flex items-center gap-1">
+                    <span class="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
+                      <span id="resumen-altas">0</span>
+                    </span>
+                    <span class="text-gray-600">Altas</span>
+                  </div>
+                  <div class="flex items-center gap-1">
+                    <span class="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
+                      <span id="resumen-bajas">0</span>
+                    </span>
+                    <span class="text-gray-600">Bajas</span>
+                  </div>
+                  <div class="flex items-center gap-1">
+                    <span class="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
+                      <span id="resumen-sin-mod">0</span>
+                    </span>
+                    <span class="text-gray-600">Sin mod.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="bg-gray-50 px-4 py-3 sm:flex sm:flex-row-reverse sm:px-6">
+        <button type="button" onclick="cerrarModalYRecargar()" class="inline-flex w-full justify-center rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 sm:ml-3 sm:w-auto">
+          Aceptar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+async function actualizarClientes() {
+  const btn = document.getElementById('btn-actualizar');
+  const iconActualizar = document.getElementById('icon-actualizar');
+  const iconLoading = document.getElementById('icon-loading');
+  const btnText = document.getElementById('btn-text');
+  
+  // Deshabilitar botón y mostrar loading
+  btn.disabled = true;
+  iconActualizar.classList.add('hidden');
+  iconLoading.classList.remove('hidden');
+  btnText.textContent = 'Actualizando...';
+  
+  try {
+    const response = await fetch('/carga-cliente/actualizar', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    });
+    
+    const data = await response.json();
+    
+    if (data.success) {
+      mostrarModal(true, 'Actualización completada', data.message, data.resumen);
+    } else {
+      mostrarModal(false, 'Error en actualización', data.message, null);
+    }
+  } catch (error) {
+    mostrarModal(false, 'Error de conexión', 'No se pudo conectar con el servidor: ' + error.message, null);
+  } finally {
+    // Restaurar botón
+    btn.disabled = false;
+    iconActualizar.classList.remove('hidden');
+    iconLoading.classList.add('hidden');
+    btnText.textContent = 'Actualizar';
+  }
+}
+
+function mostrarModal(success, titulo, mensaje, resumen) {
+  const modal = document.getElementById('modal-resultado');
+  const iconSuccess = document.getElementById('modal-icon-success');
+  const iconError = document.getElementById('modal-icon-error');
+  const modalTitulo = document.getElementById('modal-titulo');
+  const modalMensaje = document.getElementById('modal-mensaje');
+  const modalResumen = document.getElementById('modal-resumen');
+  
+  modalTitulo.textContent = titulo;
+  modalMensaje.textContent = mensaje;
+  
+  if (success) {
+    iconSuccess.classList.remove('hidden');
+    iconSuccess.classList.add('flex');
+    iconError.classList.add('hidden');
+    iconError.classList.remove('flex');
+    
+    if (resumen) {
+      document.getElementById('resumen-altas').textContent = resumen.altas || 0;
+      document.getElementById('resumen-bajas').textContent = resumen.bajas || 0;
+      document.getElementById('resumen-sin-mod').textContent = resumen.sin_modificacion || 0;
+      modalResumen.classList.remove('hidden');
+    } else {
+      modalResumen.classList.add('hidden');
+    }
+  } else {
+    iconSuccess.classList.add('hidden');
+    iconSuccess.classList.remove('flex');
+    iconError.classList.remove('hidden');
+    iconError.classList.add('flex');
+    modalResumen.classList.add('hidden');
+  }
+  
+  modal.classList.remove('hidden');
+}
+
+function cerrarModalYRecargar() {
+  document.getElementById('modal-resultado').classList.add('hidden');
+  window.location.reload();
+}
+</script>
+{% endblock %}

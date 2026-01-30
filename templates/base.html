@@ -251,7 +251,7 @@
                           <button
                             type="button"
                             id="aduanas-menu-toggle-mobile"
-                            class="group flex w-full items-center justify-between gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page in ['carga_cliente_proveedor', 'virtuales'] %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                            class="group flex w-full items-center justify-between gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page in ['carga_proveedor', 'carga_cliente', 'virtuales'] %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
                           >
                             <div class="flex items-center gap-x-3">
                               <svg
@@ -260,7 +260,7 @@
                                 viewBox="0 0 24 24"
                                 stroke-width="1.5"
                                 stroke="currentColor"
-                                class="size-6 shrink-0 {% if active_page in ['carga_cliente_proveedor', 'virtuales'] %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
+                                class="size-6 shrink-0 {% if active_page in ['carga_proveedor', 'carga_cliente', 'virtuales'] %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
                               >
                                 <path
                                   stroke-linecap="round"
@@ -272,7 +272,7 @@
                             </div>
                             <svg
                               id="aduanas-menu-arrow-mobile"
-                              class="size-5 shrink-0 transition-transform duration-200 {% if active_page in ['carga_cliente_proveedor', 'virtuales'] %}rotate-90 text-[#003D89]{% else %}text-gray-400{% endif %}"
+                              class="size-5 shrink-0 transition-transform duration-200 {% if active_page in ['carga_proveedor', 'carga_cliente', 'virtuales'] %}rotate-90 text-[#003D89]{% else %}text-gray-400{% endif %}"
                               xmlns="http://www.w3.org/2000/svg"
                               fill="none"
                               viewBox="0 0 24 24"
@@ -284,14 +284,22 @@
                           </button>
                           <ul
                             id="aduanas-submenu-mobile"
-                            class="mt-1 space-y-1 pl-9 {% if active_page in ['carga_cliente_proveedor', 'virtuales'] %}block{% else %}hidden{% endif %}"
+                            class="mt-1 space-y-1 pl-9 {% if active_page in ['carga_proveedor', 'carga_cliente', 'virtuales'] %}block{% else %}hidden{% endif %}"
                           >
                             <li>
                               <a
-                                href="/carga-cliente-proveedor"
-                                class="block rounded-md px-2 py-1.5 text-sm/6 font-medium {% if active_page == 'carga_cliente_proveedor' %}bg-gray-100 text-[#003D89]{% else %}text-gray-600 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                                href="/carga-proveedor"
+                                class="block rounded-md px-2 py-1.5 text-sm/6 font-medium {% if active_page == 'carga_proveedor' %}bg-gray-100 text-[#003D89]{% else %}text-gray-600 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
                               >
-                                Carga Cliente/Proveedor
+                                Carga Proveedor
+                              </a>
+                            </li>
+                            <li>
+                              <a
+                                href="/carga-cliente"
+                                class="block rounded-md px-2 py-1.5 text-sm/6 font-medium {% if active_page == 'carga_cliente' %}bg-gray-100 text-[#003D89]{% else %}text-gray-600 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                              >
+                                Carga Cliente
                               </a>
                             </li>
                             <li>
@@ -574,7 +582,7 @@
                     <button
                       type="button"
                       id="aduanas-menu-toggle-desktop"
-                      class="group flex w-full items-center justify-between gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page in ['carga_cliente_proveedor', 'virtuales'] %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                      class="group flex w-full items-center justify-between gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page in ['carga_proveedor', 'carga_cliente', 'virtuales'] %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
                     >
                       <div class="flex items-center gap-x-3">
                         <svg
@@ -583,7 +591,7 @@
                           viewBox="0 0 24 24"
                           stroke-width="1.5"
                           stroke="currentColor"
-                          class="size-6 shrink-0 {% if active_page in ['carga_cliente_proveedor', 'virtuales'] %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
+                          class="size-6 shrink-0 {% if active_page in ['carga_proveedor', 'carga_cliente', 'virtuales'] %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
                         >
                           <path
                             stroke-linecap="round"
@@ -595,7 +603,7 @@
                       </div>
                       <svg
                         id="aduanas-menu-arrow-desktop"
-                        class="size-5 shrink-0 transition-transform duration-200 {% if active_page in ['carga_cliente_proveedor', 'virtuales'] %}rotate-90 text-[#003D89]{% else %}text-gray-400{% endif %}"
+                        class="size-5 shrink-0 transition-transform duration-200 {% if active_page in ['carga_proveedor', 'carga_cliente', 'virtuales'] %}rotate-90 text-[#003D89]{% else %}text-gray-400{% endif %}"
                         xmlns="http://www.w3.org/2000/svg"
                         fill="none"
                         viewBox="0 0 24 24"
@@ -607,14 +615,22 @@
                     </button>
                     <ul
                       id="aduanas-submenu-desktop"
-                      class="mt-1 space-y-1 pl-9 {% if active_page in ['carga_cliente_proveedor', 'virtuales'] %}block{% else %}hidden{% endif %}"
+                      class="mt-1 space-y-1 pl-9 {% if active_page in ['carga_proveedor', 'carga_cliente', 'virtuales'] %}block{% else %}hidden{% endif %}"
                     >
                       <li>
                         <a
-                          href="/carga-cliente-proveedor"
-                          class="block rounded-md px-2 py-1.5 text-sm/6 font-medium {% if active_page == 'carga_cliente_proveedor' %}bg-gray-100 text-[#003D89]{% else %}text-gray-600 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                          href="/carga-proveedor"
+                          class="block rounded-md px-2 py-1.5 text-sm/6 font-medium {% if active_page == 'carga_proveedor' %}bg-gray-100 text-[#003D89]{% else %}text-gray-600 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
                         >
-                          Carga Cliente/Proveedor
+                          Carga Proveedor
+                        </a>
+                      </li>
+                      <li>
+                        <a
+                          href="/carga-cliente"
+                          class="block rounded-md px-2 py-1.5 text-sm/6 font-medium {% if active_page == 'carga_cliente' %}bg-gray-100 text-[#003D89]{% else %}text-gray-600 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                        >
+                          Carga Cliente
                         </a>
                       </li>
                       <li>

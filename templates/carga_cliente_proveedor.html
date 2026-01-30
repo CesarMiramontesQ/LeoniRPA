@@ -3,20 +3,241 @@
   <!-- Header -->
   <div class="flex items-center justify-between">
     <div>
-      <h1 class="text-2xl font-semibold text-gray-900">Carga Cliente/Proveedor</h1>
+      <h1 class="text-2xl font-semibold text-gray-900">Carga Proveedor</h1>
       <p class="mt-1 text-sm text-gray-600">
-        Gestión y carga de información de clientes y proveedores para aduanas
+        Gestión y carga de información de proveedores para aduanas
       </p>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-sm font-medium text-blue-800">
+        {{ total_proveedores }} proveedores
+      </span>
+      <button
+        id="btn-actualizar"
+        onclick="actualizarProveedores()"
+        class="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+      >
+        <svg id="icon-refresh" class="mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+        </svg>
+        <svg id="icon-loading" class="mr-2 h-4 w-4 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <span id="btn-text">Actualizar</span>
+      </button>
     </div>
   </div>
 
-  <!-- Contenido Principal -->
+  <!-- Tarjetas de Resumen -->
+  <div>
+    <h3 class="text-base font-semibold text-gray-900">Resumen de Proveedores</h3>
+    <dl class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      <a href="/carga-proveedor" class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6 hover:shadow-md transition-shadow border-l-4 border-indigo-500">
+        <dt class="truncate text-sm font-medium text-gray-500">Total Proveedores</dt>
+        <dd class="mt-1 text-3xl font-semibold tracking-tight text-indigo-600">{{ count_total }}</dd>
+      </a>
+      <a href="/carga-proveedor?estatus=Sin+modificacion" class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6 hover:shadow-md transition-shadow border-l-4 border-blue-500">
+        <dt class="truncate text-sm font-medium text-gray-500">Sin Modificación</dt>
+        <dd class="mt-1 text-3xl font-semibold tracking-tight text-blue-600">{{ count_sin_modificacion }}</dd>
+      </a>
+      <a href="/carga-proveedor?estatus=Alta" class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6 hover:shadow-md transition-shadow border-l-4 border-green-500">
+        <dt class="truncate text-sm font-medium text-gray-500">Alta</dt>
+        <dd class="mt-1 text-3xl font-semibold tracking-tight text-green-600">{{ count_alta }}</dd>
+      </a>
+      <a href="/carga-proveedor?estatus=Baja" class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6 hover:shadow-md transition-shadow border-l-4 border-red-500">
+        <dt class="truncate text-sm font-medium text-gray-500">Baja</dt>
+        <dd class="mt-1 text-3xl font-semibold tracking-tight text-red-600">{{ count_baja }}</dd>
+      </a>
+    </dl>
+  </div>
+
+  <!-- Filtros -->
   <div class="rounded-lg bg-white shadow-sm">
     <div class="px-6 py-4 border-b border-gray-200">
-      <h2 class="text-lg font-medium text-gray-900">Información</h2>
-      <p class="mt-1 text-sm text-gray-500">Esta página está en desarrollo</p>
+      <form method="GET" action="/carga-proveedor" class="flex flex-wrap items-end gap-4">
+        <div class="flex-1 min-w-[200px]">
+          <label for="search" class="block text-sm font-medium text-gray-700 mb-1">Buscar por código</label>
+          <input
+            type="text"
+            id="search"
+            name="search"
+            value="{{ search }}"
+            placeholder="Código de proveedor..."
+            class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+        <div class="w-40">
+          <label for="estatus" class="block text-sm font-medium text-gray-700 mb-1">Estatus</label>
+          <select
+            id="estatus"
+            name="estatus"
+            class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="">Todos</option>
+            <option value="Alta" {% if estatus == 'Alta' %}selected{% endif %}>Alta</option>
+            <option value="Baja" {% if estatus == 'Baja' %}selected{% endif %}>Baja</option>
+            <option value="Sin modificacion" {% if estatus == 'Sin modificacion' %}selected{% endif %}>Sin modificación</option>
+          </select>
+        </div>
+        <div>
+          <button
+            type="submit"
+            class="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          >
+            <svg class="mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+            </svg>
+            Buscar
+          </button>
+        </div>
+        {% if search or estatus %}
+        <div>
+          <a
+            href="/carga-proveedor"
+            class="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Limpiar
+          </a>
+        </div>
+        {% endif %}
+      </form>
     </div>
-    <div class="px-6 py-8">
+  </div>
+
+  <!-- Tabla de Proveedores -->
+  <div class="rounded-lg bg-white shadow-sm overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <h2 class="text-lg font-medium text-gray-900">Proveedores Cargados</h2>
+    </div>
+    
+    {% if proveedores and proveedores|length > 0 %}
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Código
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Nombre / Razón Social
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              País
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Domicilio
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Tipo
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Estatus
+            </th>
+          </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+          {% for prov in proveedores %}
+          <tr class="hover:bg-gray-50">
+            <td class="px-4 py-3 whitespace-nowrap">
+              <span class="text-sm font-medium text-blue-600">{{ prov.codigo_proveedor }}</span>
+            </td>
+            <td class="px-4 py-3">
+              <div class="text-sm text-gray-900">{{ prov.nombre or '-' }}</div>
+              {% if prov.apellido_paterno or prov.apellido_materno %}
+              <div class="text-xs text-gray-500">
+                {{ prov.apellido_paterno or '' }} {{ prov.apellido_materno or '' }}
+              </div>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">
+                {{ prov.pais or '-' }}
+              </span>
+            </td>
+            <td class="px-4 py-3">
+              <div class="text-sm text-gray-600 max-w-xs truncate" title="{{ prov.domicilio or '' }}">
+                {{ prov.domicilio or '-' }}
+              </div>
+            </td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              {% if prov.cliente_proveedor == 'Proveedor' %}
+              <span class="inline-flex items-center rounded-full bg-purple-100 px-2.5 py-0.5 text-xs font-medium text-purple-800">
+                Proveedor
+              </span>
+              {% elif prov.cliente_proveedor == 'Cliente' %}
+              <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+                Cliente
+              </span>
+              {% else %}
+              <span class="text-sm text-gray-500">{{ prov.cliente_proveedor or '-' }}</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              {% if prov.estatus == 'Alta' %}
+              <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+                <span class="mr-1 h-1.5 w-1.5 rounded-full bg-green-500"></span>
+                Alta
+              </span>
+              {% elif prov.estatus == 'Baja' %}
+              <span class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">
+                <span class="mr-1 h-1.5 w-1.5 rounded-full bg-red-500"></span>
+                Baja
+              </span>
+              {% elif prov.estatus == 'Sin modificacion' %}
+              <span class="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">
+                <span class="mr-1 h-1.5 w-1.5 rounded-full bg-blue-500"></span>
+                Sin modificación
+              </span>
+              {% else %}
+              <span class="text-sm text-gray-500">{{ prov.estatus or '-' }}</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Paginación -->
+    {% if total_pages > 1 %}
+    <div class="px-6 py-4 border-t border-gray-200 bg-gray-50">
+      <div class="flex items-center justify-between">
+        <div class="text-sm text-gray-700">
+          Mostrando página <span class="font-medium">{{ page }}</span> de <span class="font-medium">{{ total_pages }}</span>
+        </div>
+        <div class="flex items-center gap-2">
+          {% if page > 1 %}
+          <a
+            href="/carga-proveedor?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}{% if estatus %}&estatus={{ estatus }}{% endif %}"
+            class="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            <svg class="mr-1 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+            </svg>
+            Anterior
+          </a>
+          {% endif %}
+          
+          {% if page < total_pages %}
+          <a
+            href="/carga-proveedor?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}{% if estatus %}&estatus={{ estatus }}{% endif %}"
+            class="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Siguiente
+            <svg class="ml-1 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+            </svg>
+          </a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <!-- Estado vacío -->
+    <div class="px-6 py-12">
       <div class="text-center">
         <svg
           class="mx-auto h-12 w-12 text-gray-400"
@@ -29,15 +250,418 @@
           <path
             stroke-linecap="round"
             stroke-linejoin="round"
-            d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z"
+            d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m6 4.125l2.25 2.25m0 0l2.25 2.25M12 13.875l2.25-2.25M12 13.875l-2.25 2.25M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z"
           />
         </svg>
-        <h3 class="mt-2 text-sm font-semibold text-gray-900">Página en desarrollo</h3>
+        <h3 class="mt-2 text-sm font-semibold text-gray-900">No hay proveedores</h3>
         <p class="mt-1 text-sm text-gray-500">
-          La funcionalidad de carga de cliente/proveedor estará disponible próximamente.
+          {% if search or estatus %}
+          No se encontraron proveedores con los filtros seleccionados.
+          {% else %}
+          Aún no se han cargado proveedores en el sistema.
+          {% endif %}
         </p>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Historial de Movimientos -->
+  <div class="rounded-lg bg-white shadow-sm overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <svg class="h-5 w-5 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+          </svg>
+          <h2 class="text-lg font-medium text-gray-900">Historial de Movimientos</h2>
+        </div>
+        <span class="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-sm font-medium text-gray-600">
+          {{ total_historial }} registros
+        </span>
+      </div>
+    </div>
+    
+    {% if historial and historial|length > 0 %}
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Fecha/Hora
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Código Proveedor
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Operación
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Estatus Anterior
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Estatus Nuevo
+            </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              Motivo
+            </th>
+          </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+          {% for h in historial %}
+          <tr class="hover:bg-gray-50">
+            <td class="px-4 py-3 whitespace-nowrap">
+              <div class="text-sm text-gray-900">{{ h.created_at.strftime('%d/%m/%Y') }}</div>
+              <div class="text-xs text-gray-500">{{ h.created_at.strftime('%H:%M:%S') }}</div>
+            </td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              <span class="text-sm font-medium text-blue-600">{{ h.codigo_proveedor or '-' }}</span>
+            </td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              {% if h.operacion.value == 'CREATE' %}
+              <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+                <svg class="mr-1 h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+                Nuevo
+              </span>
+              {% elif h.operacion.value == 'UPDATE' %}
+              <span class="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">
+                <svg class="mr-1 h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" />
+                </svg>
+                Modificado
+              </span>
+              {% elif h.operacion.value == 'DELETE' %}
+              <span class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">
+                <svg class="mr-1 h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                </svg>
+                Eliminado
+              </span>
+              {% else %}
+              <span class="text-sm text-gray-500">{{ h.operacion.value }}</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              {% if h.estatus_anterior %}
+                {% if h.estatus_anterior == 'Alta' %}
+                <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+                  {{ h.estatus_anterior }}
+                </span>
+                {% elif h.estatus_anterior == 'Baja' %}
+                <span class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">
+                  {{ h.estatus_anterior }}
+                </span>
+                {% elif h.estatus_anterior == 'Sin modificacion' %}
+                <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">
+                  {{ h.estatus_anterior }}
+                </span>
+                {% else %}
+                <span class="text-sm text-gray-600">{{ h.estatus_anterior }}</span>
+                {% endif %}
+              {% else %}
+              <span class="text-sm text-gray-400">-</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              {% if h.estatus_nuevo %}
+                {% if h.estatus_nuevo == 'Alta' %}
+                <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
+                  {{ h.estatus_nuevo }}
+                </span>
+                {% elif h.estatus_nuevo == 'Baja' %}
+                <span class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">
+                  {{ h.estatus_nuevo }}
+                </span>
+                {% elif h.estatus_nuevo == 'Sin modificacion' %}
+                <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">
+                  {{ h.estatus_nuevo }}
+                </span>
+                {% else %}
+                <span class="text-sm text-gray-600">{{ h.estatus_nuevo }}</span>
+                {% endif %}
+              {% else %}
+              <span class="text-sm text-gray-400">-</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3">
+              <div class="text-sm text-gray-600 max-w-xs truncate" title="{{ h.motivo or '' }}">
+                {{ h.motivo or '-' }}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <!-- Estado vacío del historial -->
+    <div class="px-6 py-8">
+      <div class="text-center">
+        <svg
+          class="mx-auto h-10 w-10 text-gray-400"
+          xmlns="http://www.w3.org/2000/svg"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke-width="1.5"
+          stroke="currentColor"
+        >
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+        </svg>
+        <h3 class="mt-2 text-sm font-semibold text-gray-900">Sin movimientos</h3>
+        <p class="mt-1 text-sm text-gray-500">
+          Aún no hay historial de cambios registrado.
+        </p>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Modal de Resultados -->
+<div id="modal-resultados" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+  <div class="flex min-h-screen items-center justify-center p-4 text-center sm:p-0">
+    <!-- Backdrop -->
+    <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onclick="cerrarModal()"></div>
+    
+    <!-- Modal Panel -->
+    <div class="relative transform overflow-hidden rounded-lg bg-white text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg">
+      <!-- Header -->
+      <div id="modal-header" class="px-6 py-4 border-b border-gray-200">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div id="modal-icon" class="flex h-10 w-10 items-center justify-center rounded-full">
+              <!-- Icono se inserta dinámicamente -->
+            </div>
+            <h3 id="modal-title" class="text-lg font-semibold text-gray-900">Resultado de Actualización</h3>
+          </div>
+          <button onclick="cerrarModal()" class="text-gray-400 hover:text-gray-500">
+            <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+      
+      <!-- Body -->
+      <div class="px-6 py-4">
+        <p id="modal-message" class="text-sm text-gray-600 mb-4"></p>
+        
+        <!-- Estadísticas -->
+        <div id="modal-stats" class="grid grid-cols-2 gap-4">
+          <!-- Proveedores Nuevos -->
+          <div class="rounded-lg bg-green-50 p-4 border border-green-200">
+            <div class="flex items-center gap-2">
+              <svg class="h-5 w-5 text-green-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              <span class="text-sm font-medium text-green-800">Nuevos (Alta)</span>
+            </div>
+            <p id="stat-nuevos" class="mt-2 text-2xl font-bold text-green-600">0</p>
+          </div>
+          
+          <!-- Sin Modificación -->
+          <div class="rounded-lg bg-blue-50 p-4 border border-blue-200">
+            <div class="flex items-center gap-2">
+              <svg class="h-5 w-5 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+              </svg>
+              <span class="text-sm font-medium text-blue-800">Sin modificación</span>
+            </div>
+            <p id="stat-sin-modificacion" class="mt-2 text-2xl font-bold text-blue-600">0</p>
+          </div>
+          
+          <!-- Dados de Baja -->
+          <div class="rounded-lg bg-red-50 p-4 border border-red-200">
+            <div class="flex items-center gap-2">
+              <svg class="h-5 w-5 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 13.5 12 21m0 0-7.5-7.5M12 21V3" />
+              </svg>
+              <span class="text-sm font-medium text-red-800">Dados de Baja</span>
+            </div>
+            <p id="stat-baja" class="mt-2 text-2xl font-bold text-red-600">0</p>
+          </div>
+          
+          <!-- Omitidos (MX) -->
+          <div class="rounded-lg bg-gray-50 p-4 border border-gray-200">
+            <div class="flex items-center gap-2">
+              <svg class="h-5 w-5 text-gray-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636" />
+              </svg>
+              <span class="text-sm font-medium text-gray-700">Omitidos (MX)</span>
+            </div>
+            <p id="stat-omitidos" class="mt-2 text-2xl font-bold text-gray-600">0</p>
+          </div>
+        </div>
+        
+        <!-- Total Procesados -->
+        <div class="mt-4 rounded-lg bg-indigo-50 p-4 border border-indigo-200">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <svg class="h-5 w-5 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
+              </svg>
+              <span class="text-sm font-medium text-indigo-800">Total Procesados</span>
+            </div>
+            <p id="stat-total" class="text-2xl font-bold text-indigo-600">0</p>
+          </div>
+        </div>
+        
+        <!-- Errores (si los hay) -->
+        <div id="modal-errores" class="mt-4 hidden">
+          <div class="rounded-lg bg-yellow-50 p-4 border border-yellow-200">
+            <div class="flex items-center gap-2 mb-2">
+              <svg class="h-5 w-5 text-yellow-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+              </svg>
+              <span class="text-sm font-medium text-yellow-800">Advertencias</span>
+            </div>
+            <ul id="lista-errores" class="text-sm text-yellow-700 list-disc list-inside max-h-32 overflow-y-auto">
+            </ul>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Footer -->
+      <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+        <button onclick="cerrarModal()" class="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+          Cerrar
+        </button>
+        <button onclick="cerrarYRecargar()" class="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+          <svg class="mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+          </svg>
+          Actualizar Página
+        </button>
       </div>
     </div>
   </div>
 </div>
+
+<!-- Toast para errores -->
+<div id="toast-error" class="fixed top-4 right-4 z-50 hidden">
+  <div class="rounded-lg px-4 py-3 shadow-lg bg-red-100 text-red-800">
+    <div class="flex items-center">
+      <svg class="mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+      </svg>
+      <span id="toast-error-message" class="text-sm font-medium"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+function mostrarModal(data) {
+  const modal = document.getElementById('modal-resultados');
+  const modalIcon = document.getElementById('modal-icon');
+  const modalTitle = document.getElementById('modal-title');
+  const modalMessage = document.getElementById('modal-message');
+  
+  // Establecer valores de estadísticas
+  document.getElementById('stat-nuevos').textContent = data.data?.proveedores_nuevos || 0;
+  document.getElementById('stat-sin-modificacion').textContent = data.data?.proveedores_sin_modificacion || 0;
+  document.getElementById('stat-baja').textContent = data.data?.proveedores_marcados_baja || 0;
+  document.getElementById('stat-omitidos').textContent = data.data?.proveedores_omitidos_mx || 0;
+  document.getElementById('stat-total').textContent = data.data?.total_procesados || 0;
+  
+  if (data.success) {
+    // Éxito
+    modalIcon.className = 'flex h-10 w-10 items-center justify-center rounded-full bg-green-100';
+    modalIcon.innerHTML = `
+      <svg class="h-6 w-6 text-green-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+      </svg>
+    `;
+    modalTitle.textContent = 'Actualización Completada';
+    modalMessage.textContent = 'Se han procesado los proveedores según las reglas establecidas.';
+  } else {
+    // Error
+    modalIcon.className = 'flex h-10 w-10 items-center justify-center rounded-full bg-red-100';
+    modalIcon.innerHTML = `
+      <svg class="h-6 w-6 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+      </svg>
+    `;
+    modalTitle.textContent = 'Error en Actualización';
+    modalMessage.textContent = data.message || 'Ocurrió un error durante la actualización.';
+  }
+  
+  // Mostrar errores si existen
+  const erroresContainer = document.getElementById('modal-errores');
+  const listaErrores = document.getElementById('lista-errores');
+  if (data.data?.errores && data.data.errores.length > 0) {
+    listaErrores.innerHTML = data.data.errores.map(e => `<li>${e}</li>`).join('');
+    erroresContainer.classList.remove('hidden');
+  } else {
+    erroresContainer.classList.add('hidden');
+  }
+  
+  // Mostrar modal
+  modal.classList.remove('hidden');
+}
+
+function cerrarModal() {
+  document.getElementById('modal-resultados').classList.add('hidden');
+}
+
+function cerrarYRecargar() {
+  cerrarModal();
+  window.location.reload();
+}
+
+function mostrarToastError(message) {
+  const toast = document.getElementById('toast-error');
+  document.getElementById('toast-error-message').textContent = message;
+  toast.classList.remove('hidden');
+  
+  setTimeout(() => {
+    toast.classList.add('hidden');
+  }, 5000);
+}
+
+async function actualizarProveedores() {
+  const btn = document.getElementById('btn-actualizar');
+  const iconRefresh = document.getElementById('icon-refresh');
+  const iconLoading = document.getElementById('icon-loading');
+  const btnText = document.getElementById('btn-text');
+  
+  // Deshabilitar botón y mostrar loading
+  btn.disabled = true;
+  btn.classList.add('opacity-50', 'cursor-not-allowed');
+  iconRefresh.classList.add('hidden');
+  iconLoading.classList.remove('hidden');
+  btnText.textContent = 'Actualizando...';
+  
+  try {
+    const response = await fetch('/carga-proveedor/actualizar', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    });
+    
+    const data = await response.json();
+    
+    // Restaurar botón
+    btn.disabled = false;
+    btn.classList.remove('opacity-50', 'cursor-not-allowed');
+    iconRefresh.classList.remove('hidden');
+    iconLoading.classList.add('hidden');
+    btnText.textContent = 'Actualizar';
+    
+    // Mostrar modal con resultados
+    mostrarModal(data);
+    
+  } catch (error) {
+    mostrarToastError('Error de conexión: ' + error.message);
+    // Restaurar botón
+    btn.disabled = false;
+    btn.classList.remove('opacity-50', 'cursor-not-allowed');
+    iconRefresh.classList.remove('hidden');
+    iconLoading.classList.add('hidden');
+    btnText.textContent = 'Actualizar';
+  }
+}
+</script>
 {% endblock %}

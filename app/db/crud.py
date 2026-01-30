@@ -1,4 +1,5 @@
 """Operaciones CRUD para usuarios, ejecuciones y BOM."""
+import json
 from sqlalchemy import select, desc, func, or_, String, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -6,7 +7,7 @@ from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta, timezone, date
 from decimal import Decimal
-from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaCliente, MasterUnificadoVirtuales
+from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaCliente, MasterUnificadoVirtuales, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion
 from app.core.security import hash_password
 
 
@@ -2179,6 +2180,164 @@ async def sincronizar_precios_materiales_desde_compras(
         }
 
 
+async def actualizar_pais_origen_en_precios_materiales(
+    db: AsyncSession,
+    user_id: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Actualiza el campo country_origin en precios_materiales usando datos de pais_origen_material.
+    Busca todos los registros en precios_materiales donde country_origin esté vacío o sea null,
+    y para cada uno busca en pais_origen_material usando codigo_proveedor y numero_material
+    para obtener el pais_origen correspondiente.
+    
+    Returns:
+        Dict con estadísticas de la actualización:
+        - total_procesados: Total de registros procesados
+        - actualizados: Cantidad de registros actualizados
+        - no_encontrados: Cantidad de registros sin país de origen en la tabla pais_origen_material
+        - errores: Lista de errores encontrados
+    """
+    errores = []
+    actualizados = 0
+    no_encontrados = 0
+    
+    try:
+        # Primero, corregir la secuencia de precios_materiales_historial para evitar errores de clave duplicada
+        try:
+            result_max_id = await db.execute(
+                select(func.max(PrecioMaterialHistorial.id))
+            )
+            max_id = result_max_id.scalar() or 0
+            await db.execute(
+                text(f"SELECT setval('precios_materiales_historial_id_seq', {max_id + 1}, false)")
+            )
+            await db.commit()
+        except Exception as seq_error:
+            # Si falla la corrección de secuencia, intentar continuar de todas formas
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+        
+        # 1. Obtener todos los precios sin país de origen (NULL o cadena vacía)
+        # Obtenemos solo los IDs para luego procesar uno por uno con una sesión limpia
+        query_sin_pais = select(
+            PrecioMaterial.id,
+            PrecioMaterial.codigo_proveedor,
+            PrecioMaterial.numero_material
+        ).where(
+            or_(
+                PrecioMaterial.country_origin.is_(None),
+                PrecioMaterial.country_origin == ''
+            )
+        )
+        
+        result = await db.execute(query_sin_pais)
+        precios_sin_pais = result.all()
+        
+        total_procesados = len(precios_sin_pais)
+        
+        # 2. Para cada precio, buscar el país de origen en pais_origen_material
+        for precio_id, codigo_proveedor, numero_material in precios_sin_pais:
+            if not codigo_proveedor or not numero_material:
+                continue
+            
+            try:
+                # Buscar en pais_origen_material
+                result_pais = await db.execute(
+                    select(PaisOrigenMaterial.pais_origen).where(
+                        PaisOrigenMaterial.codigo_proveedor == codigo_proveedor,
+                        PaisOrigenMaterial.numero_material == numero_material
+                    )
+                )
+                pais_origen_valor = result_pais.scalar_one_or_none()
+                
+                if pais_origen_valor and pais_origen_valor != "Pendiente":
+                    # Obtener el precio actual para guardar datos antes
+                    result_precio = await db.execute(
+                        select(PrecioMaterial).where(PrecioMaterial.id == precio_id)
+                    )
+                    precio = result_precio.scalar_one_or_none()
+                    
+                    if precio:
+                        # Guardar datos antes del cambio
+                        datos_antes = _precio_material_to_dict(precio)
+                        
+                        # Actualizar el país de origen directamente con UPDATE
+                        await db.execute(
+                            text("""
+                                UPDATE precios_materiales 
+                                SET country_origin = :pais_origen, updated_at = NOW()
+                                WHERE id = :precio_id
+                            """),
+                            {"pais_origen": pais_origen_valor, "precio_id": precio_id}
+                        )
+                        
+                        # Registrar en historial si se proporciona user_id
+                        if user_id is not None:
+                            # Construir datos_despues manualmente
+                            datos_despues = datos_antes.copy()
+                            datos_despues["country_origin"] = pais_origen_valor
+                            
+                            await db.execute(
+                                text("""
+                                    INSERT INTO precios_materiales_historial 
+                                    (precio_material_id, codigo_proveedor, numero_material, operacion, user_id, datos_antes, datos_despues, campos_modificados)
+                                    VALUES (:precio_id, :codigo_proveedor, :numero_material, 'UPDATE', :user_id, :datos_antes, :datos_despues, :campos_modificados)
+                                """),
+                                {
+                                    "precio_id": precio_id,
+                                    "codigo_proveedor": codigo_proveedor,
+                                    "numero_material": numero_material,
+                                    "user_id": user_id,
+                                    "datos_antes": json.dumps(datos_antes),
+                                    "datos_despues": json.dumps(datos_despues),
+                                    "campos_modificados": json.dumps(["country_origin"])
+                                }
+                            )
+                        
+                        await db.commit()
+                        actualizados += 1
+                else:
+                    no_encontrados += 1
+                    
+            except Exception as e:
+                error_str = str(e)
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+                
+                # Solo agregar error si no es un error de secuencia que ya manejamos
+                if "duplicate key" not in error_str.lower():
+                    error_msg = f"Error al actualizar país de origen para {codigo_proveedor}/{numero_material}: {error_str}"
+                    errores.append(error_msg)
+                continue
+        
+        return {
+            "total_procesados": total_procesados,
+            "actualizados": actualizados,
+            "no_encontrados": no_encontrados,
+            "errores": errores,
+            "exitoso": len(errores) == 0 or actualizados > 0
+        }
+        
+    except Exception as e:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        error_msg = f"Error general en actualización de países de origen: {str(e)}"
+        errores.append(error_msg)
+        return {
+            "total_procesados": 0,
+            "actualizados": 0,
+            "no_encontrados": 0,
+            "errores": errores,
+            "exitoso": False
+        }
+
+
 async def delete_precio_material(
     db: AsyncSession,
     precio_id: int,
@@ -3441,6 +3600,278 @@ async def delete_carga_proveedor(db: AsyncSession, carga_id: int) -> bool:
     return True
 
 
+async def actualizar_estatus_carga_proveedores_por_compras(
+    db: AsyncSession
+) -> Dict[str, Any]:
+    """
+    Actualiza los estatus de carga_proveedores basándose en compras de los últimos 6 meses.
+    Solo considera proveedores con país diferente a "MX" (México).
+    
+    Reglas:
+    - Solo se consideran proveedores con país != "MX"
+    - Si un proveedor de carga_proveedores NO tiene compras en los últimos 6 meses → estatus = "Baja"
+    - Si SÍ tiene compras en los últimos 6 meses → estatus = "Sin modificacion"
+    - Si hay un proveedor nuevo (está en compras pero no en carga_proveedores) → agregarlo con estatus = "Alta"
+    
+    Returns:
+        Dict con estadísticas de la actualización
+    """
+    errores = []
+    proveedores_marcados_baja = 0
+    proveedores_sin_modificacion = 0
+    proveedores_nuevos = 0
+    proveedores_omitidos_mx = 0
+    
+    try:
+        # Fecha límite para compras (últimos 6 meses)
+        fecha_limite_compras = datetime.now(timezone.utc) - timedelta(days=180)
+        
+        # 1. Obtener proveedores extranjeros (país != "MX") desde la tabla proveedores
+        query_proveedores_extranjeros = select(Proveedor.codigo_proveedor).where(
+            or_(
+                Proveedor.pais != "MX",
+                Proveedor.pais.is_(None)  # Incluir proveedores sin país definido
+            )
+        )
+        result_proveedores_extranjeros = await db.execute(query_proveedores_extranjeros)
+        proveedores_extranjeros = set(row[0] for row in result_proveedores_extranjeros.fetchall() if row[0])
+        
+        # 2. Obtener todos los código_proveedor con compras en los últimos 6 meses
+        # Solo considerar proveedores extranjeros (país != "MX")
+        query_proveedores_con_compras = select(Compra.codigo_proveedor).where(
+            Compra.codigo_proveedor.isnot(None),
+            Compra.posting_date.isnot(None),
+            Compra.posting_date >= fecha_limite_compras,
+            Compra.codigo_proveedor.in_(proveedores_extranjeros)  # Solo proveedores extranjeros
+        ).distinct()
+        result_proveedores_con_compras = await db.execute(query_proveedores_con_compras)
+        proveedores_con_compras_recientes = set(row[0] for row in result_proveedores_con_compras.fetchall() if row[0])
+        
+        # 3. Obtener todos los proveedores actuales en carga_proveedores
+        query_carga_proveedores = select(CargaProveedor)
+        result_carga_proveedores = await db.execute(query_carga_proveedores)
+        carga_proveedores_existentes = result_carga_proveedores.scalars().all()
+        
+        codigos_en_carga = set(cp.codigo_proveedor for cp in carga_proveedores_existentes)
+        
+        # 4. Actualizar estatus de proveedores existentes (solo extranjeros)
+        for carga_prov in carga_proveedores_existentes:
+            try:
+                # Verificar si el proveedor es extranjero (país != "MX")
+                if carga_prov.pais and carga_prov.pais.upper() == "MX":
+                    proveedores_omitidos_mx += 1
+                    continue  # Omitir proveedores mexicanos
+                
+                estatus_anterior = carga_prov.estatus
+                nuevo_estatus = None
+                motivo = None
+                
+                if carga_prov.codigo_proveedor in proveedores_con_compras_recientes:
+                    # Tiene compras en los últimos 6 meses
+                    if carga_prov.estatus != "Sin modificacion":
+                        nuevo_estatus = "Sin modificacion"
+                        motivo = "Tiene compras en los últimos 6 meses"
+                        carga_prov.estatus = nuevo_estatus
+                        proveedores_sin_modificacion += 1
+                else:
+                    # No tiene compras en los últimos 6 meses
+                    if carga_prov.estatus != "Baja":
+                        nuevo_estatus = "Baja"
+                        motivo = "Sin compras en los últimos 6 meses"
+                        carga_prov.estatus = nuevo_estatus
+                        proveedores_marcados_baja += 1
+                
+                # Registrar en historial si hubo cambio
+                if nuevo_estatus and estatus_anterior != nuevo_estatus:
+                    historial = CargaProveedorHistorial(
+                        carga_proveedor_id=carga_prov.id,
+                        codigo_proveedor=carga_prov.codigo_proveedor,
+                        operacion=CargaProveedorOperacion.UPDATE,
+                        estatus_anterior=estatus_anterior,
+                        estatus_nuevo=nuevo_estatus,
+                        datos_antes={
+                            "id": carga_prov.id,
+                            "codigo_proveedor": carga_prov.codigo_proveedor,
+                            "nombre": carga_prov.nombre,
+                            "pais": carga_prov.pais,
+                            "estatus": estatus_anterior
+                        },
+                        datos_despues={
+                            "id": carga_prov.id,
+                            "codigo_proveedor": carga_prov.codigo_proveedor,
+                            "nombre": carga_prov.nombre,
+                            "pais": carga_prov.pais,
+                            "estatus": nuevo_estatus
+                        },
+                        motivo=motivo
+                    )
+                    db.add(historial)
+            except Exception as e:
+                errores.append(f"Error actualizando proveedor {carga_prov.codigo_proveedor}: {str(e)}")
+        
+        # 5. Agregar proveedores nuevos (están en compras recientes pero no en carga_proveedores)
+        # Solo proveedores extranjeros
+        proveedores_nuevos_codigos = proveedores_con_compras_recientes - codigos_en_carga
+        
+        for codigo_proveedor in proveedores_nuevos_codigos:
+            try:
+                # VERIFICACIÓN DOBLE: Consultar directamente si ya existe en carga_proveedores
+                query_existe = select(func.count(CargaProveedor.id)).where(
+                    CargaProveedor.codigo_proveedor == codigo_proveedor
+                )
+                result_existe = await db.execute(query_existe)
+                cantidad_existente = result_existe.scalar() or 0
+                
+                if cantidad_existente > 0:
+                    # Ya existe, no agregar duplicado
+                    continue
+                
+                # Obtener info del proveedor desde la tabla proveedores
+                query_proveedor = select(Proveedor).where(Proveedor.codigo_proveedor == codigo_proveedor)
+                result_proveedor = await db.execute(query_proveedor)
+                proveedor_info = result_proveedor.scalar_one_or_none()
+                
+                # Verificar que no sea mexicano
+                if proveedor_info and proveedor_info.pais and proveedor_info.pais.upper() == "MX":
+                    proveedores_omitidos_mx += 1
+                    continue  # Omitir proveedores mexicanos
+                
+                # Si no está en proveedores, obtener info de compras
+                if proveedor_info:
+                    nombre = proveedor_info.nombre
+                    pais = proveedor_info.pais
+                    domicilio = proveedor_info.domicilio
+                else:
+                    # Obtener nombre de la tabla compras
+                    query_nombre = select(Compra.nombre_proveedor).where(
+                        Compra.codigo_proveedor == codigo_proveedor,
+                        Compra.nombre_proveedor.isnot(None)
+                    ).limit(1)
+                    result_nombre = await db.execute(query_nombre)
+                    nombre_row = result_nombre.fetchone()
+                    nombre = nombre_row[0] if nombre_row else None
+                    pais = None
+                    domicilio = None
+                
+                # Crear nuevo registro en carga_proveedores
+                nuevo_carga_proveedor = CargaProveedor(
+                    codigo_proveedor=codigo_proveedor,
+                    nombre=nombre,
+                    pais=pais,
+                    domicilio=domicilio,
+                    cliente_proveedor="Proveedor",
+                    estatus="Alta"
+                )
+                db.add(nuevo_carga_proveedor)
+                await db.flush()  # Para obtener el ID del nuevo registro
+                
+                # Registrar en historial
+                historial = CargaProveedorHistorial(
+                    carga_proveedor_id=nuevo_carga_proveedor.id,
+                    codigo_proveedor=codigo_proveedor,
+                    operacion=CargaProveedorOperacion.CREATE,
+                    estatus_anterior=None,
+                    estatus_nuevo="Alta",
+                    datos_antes=None,
+                    datos_despues={
+                        "id": nuevo_carga_proveedor.id,
+                        "codigo_proveedor": codigo_proveedor,
+                        "nombre": nombre,
+                        "pais": pais,
+                        "domicilio": domicilio,
+                        "cliente_proveedor": "Proveedor",
+                        "estatus": "Alta"
+                    },
+                    motivo="Proveedor nuevo con compras en los últimos 6 meses"
+                )
+                db.add(historial)
+                proveedores_nuevos += 1
+            except Exception as e:
+                errores.append(f"Error creando proveedor nuevo {codigo_proveedor}: {str(e)}")
+        
+        # Guardar cambios
+        await db.commit()
+        
+        return {
+            "exitoso": True,
+            "proveedores_marcados_baja": proveedores_marcados_baja,
+            "proveedores_sin_modificacion": proveedores_sin_modificacion,
+            "proveedores_nuevos": proveedores_nuevos,
+            "proveedores_omitidos_mx": proveedores_omitidos_mx,
+            "total_procesados": proveedores_marcados_baja + proveedores_sin_modificacion + proveedores_nuevos,
+            "errores": errores if errores else None
+        }
+        
+    except Exception as e:
+        await db.rollback()
+        return {
+            "exitoso": False,
+            "error": str(e),
+            "proveedores_marcados_baja": proveedores_marcados_baja,
+            "proveedores_sin_modificacion": proveedores_sin_modificacion,
+            "proveedores_nuevos": proveedores_nuevos,
+            "proveedores_omitidos_mx": proveedores_omitidos_mx
+        }
+
+
+# ============================================================================
+# CRUD para CargaProveedorHistorial
+# ============================================================================
+
+async def list_carga_proveedor_historial(
+    db: AsyncSession,
+    limit: int = 100,
+    offset: int = 0,
+    codigo_proveedor: Optional[str] = None,
+    operacion: Optional[str] = None
+) -> List[CargaProveedorHistorial]:
+    """Lista el historial de cambios en carga_proveedores con filtros opcionales."""
+    query = select(CargaProveedorHistorial)
+    
+    if codigo_proveedor:
+        query = query.where(CargaProveedorHistorial.codigo_proveedor.ilike(f"%{codigo_proveedor}%"))
+    
+    if operacion:
+        query = query.where(CargaProveedorHistorial.operacion == operacion)
+    
+    query = query.order_by(desc(CargaProveedorHistorial.created_at)).limit(limit).offset(offset)
+    
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def count_carga_proveedor_historial(
+    db: AsyncSession,
+    codigo_proveedor: Optional[str] = None,
+    operacion: Optional[str] = None
+) -> int:
+    """Cuenta el total de registros en el historial con filtros opcionales."""
+    query = select(func.count(CargaProveedorHistorial.id))
+    
+    if codigo_proveedor:
+        query = query.where(CargaProveedorHistorial.codigo_proveedor.ilike(f"%{codigo_proveedor}%"))
+    
+    if operacion:
+        query = query.where(CargaProveedorHistorial.operacion == operacion)
+    
+    result = await db.execute(query)
+    return result.scalar() or 0
+
+
+async def get_historial_por_proveedor(
+    db: AsyncSession,
+    codigo_proveedor: str,
+    limit: int = 50
+) -> List[CargaProveedorHistorial]:
+    """Obtiene el historial de un proveedor específico."""
+    query = select(CargaProveedorHistorial).where(
+        CargaProveedorHistorial.codigo_proveedor == codigo_proveedor
+    ).order_by(desc(CargaProveedorHistorial.created_at)).limit(limit)
+    
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
 # ============================================================================
 # CRUD para CargaCliente
 # ============================================================================
@@ -3578,6 +4009,260 @@ async def delete_carga_cliente(db: AsyncSession, carga_id: int) -> bool:
     await db.delete(carga_cliente)
     await db.commit()
     return True
+
+
+# ============================================================================
+# CRUD para CargaClienteHistorial
+# ============================================================================
+
+async def list_carga_cliente_historial(
+    db: AsyncSession,
+    limit: int = 100,
+    offset: int = 0,
+    codigo_cliente: Optional[int] = None,
+    operacion: Optional[str] = None
+) -> List[CargaClienteHistorial]:
+    """Lista el historial de cambios en carga_clientes con filtros opcionales."""
+    query = select(CargaClienteHistorial)
+    
+    if codigo_cliente:
+        query = query.where(CargaClienteHistorial.codigo_cliente == codigo_cliente)
+    
+    if operacion:
+        query = query.where(CargaClienteHistorial.operacion == operacion)
+    
+    query = query.order_by(desc(CargaClienteHistorial.created_at)).limit(limit).offset(offset)
+    
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def count_carga_cliente_historial(
+    db: AsyncSession,
+    codigo_cliente: Optional[int] = None,
+    operacion: Optional[str] = None
+) -> int:
+    """Cuenta el total de registros en el historial con filtros opcionales."""
+    query = select(func.count(CargaClienteHistorial.id))
+    
+    if codigo_cliente:
+        query = query.where(CargaClienteHistorial.codigo_cliente == codigo_cliente)
+    
+    if operacion:
+        query = query.where(CargaClienteHistorial.operacion == operacion)
+    
+    result = await db.execute(query)
+    return result.scalar() or 0
+
+
+async def get_historial_por_cliente(
+    db: AsyncSession,
+    codigo_cliente: int,
+    limit: int = 50
+) -> List[CargaClienteHistorial]:
+    """Obtiene el historial de un cliente específico."""
+    query = select(CargaClienteHistorial).where(
+        CargaClienteHistorial.codigo_cliente == codigo_cliente
+    ).order_by(desc(CargaClienteHistorial.created_at)).limit(limit)
+    
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def create_carga_cliente_historial(
+    db: AsyncSession,
+    carga_cliente_id: Optional[int] = None,
+    codigo_cliente: Optional[int] = None,
+    operacion: CargaClienteOperacion = CargaClienteOperacion.CREATE,
+    estatus_anterior: Optional[str] = None,
+    estatus_nuevo: Optional[str] = None,
+    datos_antes: Optional[Dict[str, Any]] = None,
+    datos_despues: Optional[Dict[str, Any]] = None,
+    motivo: Optional[str] = None
+) -> CargaClienteHistorial:
+    """Crea un nuevo registro en el historial de carga de clientes."""
+    historial = CargaClienteHistorial(
+        carga_cliente_id=carga_cliente_id,
+        codigo_cliente=codigo_cliente,
+        operacion=operacion,
+        estatus_anterior=estatus_anterior,
+        estatus_nuevo=estatus_nuevo,
+        datos_antes=datos_antes,
+        datos_despues=datos_despues,
+        motivo=motivo
+    )
+    db.add(historial)
+    await db.commit()
+    await db.refresh(historial)
+    return historial
+
+
+async def get_clientes_con_ventas_ultimos_6_meses(
+    db: AsyncSession
+) -> List[Dict[str, Any]]:
+    """
+    Obtiene los clientes únicos con ventas en los últimos 6 meses
+    donde region_asc != 'MX  Mexiko' (exportaciones/internacionales).
+    Retorna lista de diccionarios con codigo_cliente y datos del cliente.
+    """
+    from app.db.models import Venta
+    from dateutil.relativedelta import relativedelta
+    
+    # Calcular fecha de hace 6 meses
+    fecha_limite = date.today() - relativedelta(months=6)
+    
+    # Query para obtener clientes únicos con ventas internacionales en últimos 6 meses
+    query = select(
+        Venta.codigo_cliente,
+        Venta.cliente,
+        Venta.ship_to_party
+    ).where(
+        Venta.region_asc != "MX  Mexiko",
+        Venta.region_asc.isnot(None),
+        Venta.codigo_cliente.isnot(None),
+        Venta.periodo >= fecha_limite
+    ).distinct(Venta.codigo_cliente)
+    
+    result = await db.execute(query)
+    rows = result.all()
+    
+    clientes = []
+    for row in rows:
+        clientes.append({
+            "codigo_cliente": row.codigo_cliente,
+            "nombre": row.cliente,
+            "ship_to_party": row.ship_to_party
+        })
+    
+    return clientes
+
+
+async def get_todos_codigos_clientes_carga(db: AsyncSession) -> Dict[int, CargaCliente]:
+    """
+    Obtiene todos los clientes de carga_clientes como diccionario
+    con codigo_cliente como clave.
+    """
+    query = select(CargaCliente)
+    result = await db.execute(query)
+    clientes = result.scalars().all()
+    
+    return {c.codigo_cliente: c for c in clientes}
+
+
+async def actualizar_carga_clientes_desde_ventas(db: AsyncSession) -> Dict[str, Any]:
+    """
+    Actualiza la tabla carga_clientes basándose en las ventas:
+    - Si el cliente existe pero NO tiene ventas en últimos 6 meses → Baja
+    - Si el cliente existe y SÍ tiene ventas en últimos 6 meses → Sin modificacion
+    - Si el cliente NO existe y tiene ventas → Alta (crear nuevo)
+    
+    Retorna un resumen de los cambios realizados.
+    """
+    from app.db.models import Venta
+    from dateutil.relativedelta import relativedelta
+    
+    resumen = {
+        "altas": 0,
+        "bajas": 0,
+        "sin_modificacion": 0,
+        "errores": 0,
+        "detalles": []
+    }
+    
+    # 1. Obtener clientes con ventas internacionales en últimos 6 meses
+    clientes_con_ventas = await get_clientes_con_ventas_ultimos_6_meses(db)
+    codigos_con_ventas = {c["codigo_cliente"] for c in clientes_con_ventas}
+    
+    # 2. Obtener todos los clientes actuales en carga_clientes
+    clientes_actuales = await get_todos_codigos_clientes_carga(db)
+    
+    # 3. Procesar clientes existentes
+    for codigo_cliente, cliente_carga in clientes_actuales.items():
+        estatus_anterior = cliente_carga.estatus
+        
+        if codigo_cliente in codigos_con_ventas:
+            # Cliente tiene ventas en últimos 6 meses → Sin modificacion
+            nuevo_estatus = "Sin modificacion"
+            if estatus_anterior != nuevo_estatus:
+                cliente_carga.estatus = nuevo_estatus
+                
+                # Registrar en historial
+                historial = CargaClienteHistorial(
+                    carga_cliente_id=cliente_carga.id,
+                    codigo_cliente=codigo_cliente,
+                    operacion=CargaClienteOperacion.UPDATE,
+                    estatus_anterior=estatus_anterior,
+                    estatus_nuevo=nuevo_estatus,
+                    motivo="Actualización automática: cliente con ventas en últimos 6 meses"
+                )
+                db.add(historial)
+                
+                resumen["sin_modificacion"] += 1
+                resumen["detalles"].append({
+                    "codigo_cliente": codigo_cliente,
+                    "accion": "Sin modificacion",
+                    "estatus_anterior": estatus_anterior
+                })
+        else:
+            # Cliente NO tiene ventas en últimos 6 meses → Baja
+            nuevo_estatus = "Baja"
+            if estatus_anterior != nuevo_estatus:
+                cliente_carga.estatus = nuevo_estatus
+                
+                # Registrar en historial
+                historial = CargaClienteHistorial(
+                    carga_cliente_id=cliente_carga.id,
+                    codigo_cliente=codigo_cliente,
+                    operacion=CargaClienteOperacion.UPDATE,
+                    estatus_anterior=estatus_anterior,
+                    estatus_nuevo=nuevo_estatus,
+                    motivo="Actualización automática: cliente sin ventas en últimos 6 meses"
+                )
+                db.add(historial)
+                
+                resumen["bajas"] += 1
+                resumen["detalles"].append({
+                    "codigo_cliente": codigo_cliente,
+                    "accion": "Baja",
+                    "estatus_anterior": estatus_anterior
+                })
+    
+    # 4. Crear nuevos clientes (los que tienen ventas pero no están en carga_clientes)
+    for cliente_venta in clientes_con_ventas:
+        codigo = cliente_venta["codigo_cliente"]
+        if codigo not in clientes_actuales:
+            # Crear nuevo cliente con estatus Alta
+            nuevo_cliente = CargaCliente(
+                codigo_cliente=codigo,
+                nombre=cliente_venta.get("nombre"),
+                cliente_proveedor="Cliente",
+                estatus="Alta"
+            )
+            db.add(nuevo_cliente)
+            await db.flush()  # Para obtener el ID
+            
+            # Registrar en historial
+            historial = CargaClienteHistorial(
+                carga_cliente_id=nuevo_cliente.id,
+                codigo_cliente=codigo,
+                operacion=CargaClienteOperacion.CREATE,
+                estatus_anterior=None,
+                estatus_nuevo="Alta",
+                motivo="Actualización automática: nuevo cliente con ventas detectado"
+            )
+            db.add(historial)
+            
+            resumen["altas"] += 1
+            resumen["detalles"].append({
+                "codigo_cliente": codigo,
+                "accion": "Alta",
+                "nombre": cliente_venta.get("nombre")
+            })
+    
+    # 5. Commit de todos los cambios
+    await db.commit()
+    
+    return resumen
 
 
 # ============================================================================

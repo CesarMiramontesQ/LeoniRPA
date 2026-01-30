@@ -549,6 +549,65 @@ async def api_precios_compra_historial(
     return JSONResponse({"movimientos": items})
 
 
+@app.post("/api/precios-compra/actualizar-pais-origen")
+async def actualizar_pais_origen_precios(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Actualiza el país de origen en precios_materiales usando datos de pais_origen_material.
+    
+    Busca todos los registros en precios_materiales donde country_origin esté vacío o sea null,
+    y para cada uno busca en pais_origen_material usando codigo_proveedor y numero_material
+    para obtener el pais_origen correspondiente.
+    """
+    try:
+        resultado = await crud.actualizar_pais_origen_en_precios_materiales(
+            db=db,
+            user_id=current_user.id
+        )
+        
+        # Determinar el mensaje según el resultado
+        if resultado["actualizados"] > 0:
+            mensaje = (
+                f"✓ Actualización completada. Se actualizaron {resultado['actualizados']} "
+                f"país(es) de origen de {resultado['total_procesados']} registros procesados."
+            )
+            if resultado["no_encontrados"] > 0:
+                mensaje += f" {resultado['no_encontrados']} registro(s) no tienen país de origen definido en la tabla de países."
+        elif resultado["total_procesados"] > 0:
+            mensaje = (
+                f"✓ Actualización completada. No se requirieron cambios en los "
+                f"{resultado['total_procesados']} registros procesados."
+            )
+            if resultado["no_encontrados"] > 0:
+                mensaje += f" {resultado['no_encontrados']} registro(s) no tienen país de origen definido en la tabla de países."
+        else:
+            mensaje = "✓ No hay registros sin país de origen para actualizar."
+        
+        if resultado["errores"]:
+            mensaje += f" Se encontraron {len(resultado['errores'])} error(es)."
+        
+        return JSONResponse({
+            "success": resultado["exitoso"],
+            "mensaje": mensaje,
+            "total_procesados": resultado["total_procesados"],
+            "actualizados": resultado["actualizados"],
+            "no_encontrados": resultado["no_encontrados"],
+            "errores": resultado["errores"][:10] if resultado["errores"] else []
+        })
+        
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "mensaje": f"Error al actualizar países de origen: {str(e)}"
+            }
+        )
+
+
 @app.get("/paises-origen")
 async def paises_origen(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Página de países de origen de materiales - requiere autenticación."""
@@ -593,17 +652,196 @@ async def paises_origen(request: Request, current_user: User = Depends(get_curre
     )
 
 
-@app.get("/carga-cliente-proveedor")
-async def carga_cliente_proveedor(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+@app.get("/carga-proveedor")
+async def carga_proveedor(
+    request: Request, 
+    current_user: User = Depends(get_current_user), 
+    db: AsyncSession = Depends(get_db),
+    page: int = 1,
+    search: str = "",
+    estatus: str = ""
+):
     """Página de carga de cliente/proveedor - requiere autenticación."""
+    limit = 50
+    offset = (page - 1) * limit
+    
+    # Obtener proveedores
+    proveedores = await crud.list_carga_proveedores(
+        db, 
+        limit=limit, 
+        offset=offset,
+        codigo_proveedor=search if search else None,
+        estatus=estatus if estatus else None
+    )
+    total_proveedores = await crud.count_carga_proveedores(
+        db,
+        codigo_proveedor=search if search else None,
+        estatus=estatus if estatus else None
+    )
+    
+    total_pages = (total_proveedores + limit - 1) // limit
+    
+    # Obtener historial reciente de movimientos
+    historial = await crud.list_carga_proveedor_historial(db, limit=20)
+    total_historial = await crud.count_carga_proveedor_historial(db)
+    
+    # Obtener conteos por estatus para las tarjetas
+    count_alta = await crud.count_carga_proveedores(db, estatus="Alta")
+    count_baja = await crud.count_carga_proveedores(db, estatus="Baja")
+    count_sin_modificacion = await crud.count_carga_proveedores(db, estatus="Sin modificacion")
+    count_total = await crud.count_carga_proveedores(db)
+    
     return templates.TemplateResponse(
         "carga_cliente_proveedor.html",
         {
             "request": request,
-            "active_page": "carga_cliente_proveedor",
+            "active_page": "carga_proveedor",
             "current_user": current_user,
+            "proveedores": proveedores,
+            "total_proveedores": total_proveedores,
+            "page": page,
+            "total_pages": total_pages,
+            "search": search,
+            "estatus": estatus,
+            "historial": historial,
+            "total_historial": total_historial,
+            "count_alta": count_alta,
+            "count_baja": count_baja,
+            "count_sin_modificacion": count_sin_modificacion,
+            "count_total": count_total,
         }
     )
+
+
+@app.post("/carga-proveedor/actualizar")
+async def actualizar_carga_proveedores(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Actualiza los estatus de proveedores según las compras de los últimos 6 meses.
+    
+    Reglas:
+    - Si un proveedor NO tiene compras en los últimos 6 meses → estatus = "Baja"
+    - Si SÍ tiene compras en los últimos 6 meses → estatus = "Sin modificacion"
+    - Si hay un proveedor nuevo → se agrega con estatus = "Alta"
+    """
+    resultado = await crud.actualizar_estatus_carga_proveedores_por_compras(db)
+    
+    if resultado["exitoso"]:
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": f"Actualización completada. Nuevos: {resultado['proveedores_nuevos']}, Sin modificación: {resultado['proveedores_sin_modificacion']}, Baja: {resultado['proveedores_marcados_baja']}, Omitidos (MX): {resultado.get('proveedores_omitidos_mx', 0)}",
+                "data": resultado
+            },
+            status_code=200
+        )
+    else:
+        return JSONResponse(
+            content={
+                "success": False,
+                "message": f"Error durante la actualización: {resultado.get('error', 'Error desconocido')}",
+                "data": resultado
+            },
+            status_code=500
+        )
+
+
+@app.get("/carga-cliente")
+async def carga_cliente(
+    request: Request, 
+    current_user: User = Depends(get_current_user), 
+    db: AsyncSession = Depends(get_db),
+    page: int = 1,
+    search: str = "",
+    estatus: str = ""
+):
+    """Página de carga de cliente - requiere autenticación."""
+    limit = 50
+    offset = (page - 1) * limit
+    
+    # Convertir search a int si es posible para buscar por código
+    codigo_cliente = None
+    if search:
+        try:
+            codigo_cliente = int(search)
+        except ValueError:
+            pass
+    
+    # Obtener clientes
+    clientes = await crud.list_carga_clientes(
+        db, 
+        limit=limit, 
+        offset=offset,
+        codigo_cliente=codigo_cliente,
+        estatus=estatus if estatus else None
+    )
+    total_clientes = await crud.count_carga_clientes(
+        db,
+        codigo_cliente=codigo_cliente,
+        estatus=estatus if estatus else None
+    )
+    
+    total_pages = (total_clientes + limit - 1) // limit
+    
+    # Obtener conteos por estatus para las tarjetas
+    count_alta = await crud.count_carga_clientes(db, estatus="Alta")
+    count_baja = await crud.count_carga_clientes(db, estatus="Baja")
+    count_sin_modificacion = await crud.count_carga_clientes(db, estatus="Sin modificacion")
+    count_total = await crud.count_carga_clientes(db)
+    
+    # Obtener historial de movimientos (últimos 50)
+    historial = await crud.list_carga_cliente_historial(db, limit=50)
+    
+    return templates.TemplateResponse(
+        "carga_cliente.html",
+        {
+            "request": request,
+            "active_page": "carga_cliente",
+            "current_user": current_user,
+            "clientes": clientes,
+            "total_clientes": total_clientes,
+            "page": page,
+            "total_pages": total_pages,
+            "search": search,
+            "estatus": estatus,
+            "count_alta": count_alta,
+            "count_baja": count_baja,
+            "count_sin_modificacion": count_sin_modificacion,
+            "count_total": count_total,
+            "historial": historial,
+        }
+    )
+
+
+@app.post("/carga-cliente/actualizar")
+async def actualizar_carga_clientes(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Actualiza los estatus de carga_clientes basándose en las ventas:
+    - Clientes existentes sin ventas en últimos 6 meses → Baja
+    - Clientes existentes con ventas en últimos 6 meses → Sin modificacion
+    - Clientes nuevos con ventas → Alta
+    """
+    try:
+        resumen = await crud.actualizar_carga_clientes_desde_ventas(db)
+        
+        return {
+            "success": True,
+            "message": f"Actualización completada: {resumen['altas']} altas, {resumen['bajas']} bajas, {resumen['sin_modificacion']} sin modificación",
+            "resumen": resumen
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error al actualizar: {str(e)}",
+            "resumen": None
+        }
 
 
 @app.get("/virtuales")
