@@ -402,63 +402,201 @@
   </div>
 </div>
 
-<!-- Modal de Resultado -->
-<div id="modal-resultado" class="fixed inset-0 z-50 hidden overflow-y-auto">
-  <div class="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
-    <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"></div>
+<!-- Modal de Resultados -->
+<div id="modal-resultados" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+  <div class="flex min-h-screen items-center justify-center p-4 text-center sm:p-0">
+    <!-- Backdrop -->
+    <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onclick="cerrarModal()"></div>
+    
+    <!-- Modal Panel -->
     <div class="relative transform overflow-hidden rounded-lg bg-white text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg">
-      <div class="bg-white px-4 pb-4 pt-5 sm:p-6 sm:pb-4">
-        <div class="sm:flex sm:items-start">
-          <div id="modal-icon-success" class="mx-auto hidden flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-green-100 sm:mx-0 sm:h-10 sm:w-10">
-            <svg class="h-6 w-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-            </svg>
+      <!-- Header -->
+      <div id="modal-header" class="px-6 py-4 border-b border-gray-200">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div id="modal-icon" class="flex h-10 w-10 items-center justify-center rounded-full">
+              <!-- Icono se inserta dinámicamente -->
+            </div>
+            <h3 id="modal-title" class="text-lg font-semibold text-gray-900">Resultado de Actualización</h3>
           </div>
-          <div id="modal-icon-error" class="mx-auto hidden flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
-            <svg class="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+          <button onclick="cerrarModal()" class="text-gray-400 hover:text-gray-500">
+            <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
             </svg>
+          </button>
+        </div>
+      </div>
+      
+      <!-- Body -->
+      <div class="px-6 py-4">
+        <p id="modal-message" class="text-sm text-gray-600 mb-4"></p>
+        
+        <!-- Estadísticas -->
+        <div id="modal-stats" class="grid grid-cols-2 gap-3">
+          <!-- Clientes Nuevos (Alta) -->
+          <div class="rounded-lg bg-green-50 p-3 border border-green-200">
+            <div class="flex items-center gap-2">
+              <svg class="h-4 w-4 text-green-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              <span class="text-xs font-medium text-green-800">Nuevos (Alta)</span>
+            </div>
+            <p id="stat-altas" class="mt-1 text-xl font-bold text-green-600">0</p>
           </div>
-          <div class="mt-3 text-center sm:ml-4 sm:mt-0 sm:text-left">
-            <h3 id="modal-titulo" class="text-base font-semibold leading-6 text-gray-900">Actualización completada</h3>
-            <div class="mt-2">
-              <p id="modal-mensaje" class="text-sm text-gray-500"></p>
-              <div id="modal-resumen" class="mt-3 hidden">
-                <div class="flex gap-4 text-sm">
-                  <div class="flex items-center gap-1">
-                    <span class="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
-                      <span id="resumen-altas">0</span>
-                    </span>
-                    <span class="text-gray-600">Altas</span>
-                  </div>
-                  <div class="flex items-center gap-1">
-                    <span class="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800">
-                      <span id="resumen-bajas">0</span>
-                    </span>
-                    <span class="text-gray-600">Bajas</span>
-                  </div>
-                  <div class="flex items-center gap-1">
-                    <span class="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
-                      <span id="resumen-sin-mod">0</span>
-                    </span>
-                    <span class="text-gray-600">Sin mod.</span>
-                  </div>
-                </div>
+          
+          <!-- Sin Modificación -->
+          <div class="rounded-lg bg-blue-50 p-3 border border-blue-200">
+            <div class="flex items-center gap-2">
+              <svg class="h-4 w-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+              </svg>
+              <span class="text-xs font-medium text-blue-800">Sin modificación</span>
+            </div>
+            <p id="stat-sin-modificacion" class="mt-1 text-xl font-bold text-blue-600">0</p>
+          </div>
+          
+          <!-- Dados de Baja -->
+          <div class="rounded-lg bg-yellow-50 p-3 border border-yellow-200">
+            <div class="flex items-center gap-2">
+              <svg class="h-4 w-4 text-yellow-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 13.5 12 21m0 0-7.5-7.5M12 21V3" />
+              </svg>
+              <span class="text-xs font-medium text-yellow-800">Dados de Baja</span>
+            </div>
+            <p id="stat-bajas" class="mt-1 text-xl font-bold text-yellow-600">0</p>
+          </div>
+          
+          <!-- Eliminados -->
+          <div class="rounded-lg bg-red-50 p-3 border border-red-200">
+            <div class="flex items-center gap-2">
+              <svg class="h-4 w-4 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+              </svg>
+              <span class="text-xs font-medium text-red-800">Eliminados</span>
+            </div>
+            <p id="stat-eliminados" class="mt-1 text-xl font-bold text-red-600">0</p>
+          </div>
+          
+          <!-- Ya actualizados -->
+          <div class="rounded-lg bg-gray-50 p-3 border border-gray-200 col-span-2">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <svg class="h-4 w-4 text-gray-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                </svg>
+                <span class="text-xs font-medium text-gray-700">Ya actualizados este mes</span>
               </div>
+              <p id="stat-sin-cambios" class="text-xl font-bold text-gray-600">0</p>
             </div>
           </div>
         </div>
+        
+        <!-- Total Procesados -->
+        <div class="mt-4 rounded-lg bg-indigo-50 p-4 border border-indigo-200">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <svg class="h-5 w-5 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
+              </svg>
+              <span class="text-sm font-medium text-indigo-800">Total Cambios Realizados</span>
+            </div>
+            <p id="stat-total" class="text-2xl font-bold text-indigo-600">0</p>
+          </div>
+        </div>
       </div>
-      <div class="bg-gray-50 px-4 py-3 sm:flex sm:flex-row-reverse sm:px-6">
-        <button type="button" onclick="cerrarModalYRecargar()" class="inline-flex w-full justify-center rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500 sm:ml-3 sm:w-auto">
-          Aceptar
+      
+      <!-- Footer -->
+      <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+        <button onclick="cerrarModal()" class="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+          Cerrar
+        </button>
+        <button onclick="cerrarYRecargar()" class="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+          <svg class="mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+          </svg>
+          Actualizar Página
         </button>
       </div>
     </div>
   </div>
 </div>
 
+<!-- Toast para errores -->
+<div id="toast-error" class="fixed top-4 right-4 z-50 hidden">
+  <div class="rounded-lg px-4 py-3 shadow-lg bg-red-100 text-red-800">
+    <div class="flex items-center">
+      <svg class="mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+      </svg>
+      <span id="toast-error-message" class="text-sm font-medium"></span>
+    </div>
+  </div>
+</div>
+
 <script>
+function mostrarModal(data) {
+  const modal = document.getElementById('modal-resultados');
+  const modalIcon = document.getElementById('modal-icon');
+  const modalTitle = document.getElementById('modal-title');
+  const modalMessage = document.getElementById('modal-message');
+  
+  // Establecer valores de estadísticas
+  document.getElementById('stat-altas').textContent = data.resumen?.altas || 0;
+  document.getElementById('stat-sin-modificacion').textContent = data.resumen?.sin_modificacion || 0;
+  document.getElementById('stat-bajas').textContent = data.resumen?.bajas || 0;
+  document.getElementById('stat-eliminados').textContent = data.resumen?.eliminados || 0;
+  document.getElementById('stat-sin-cambios').textContent = data.resumen?.sin_cambios || 0;
+  
+  // Calcular total de cambios (sin contar sin_cambios)
+  const total = (data.resumen?.altas || 0) + (data.resumen?.sin_modificacion || 0) + 
+                (data.resumen?.bajas || 0) + (data.resumen?.eliminados || 0);
+  document.getElementById('stat-total').textContent = total;
+  
+  if (data.success) {
+    // Éxito
+    modalIcon.className = 'flex h-10 w-10 items-center justify-center rounded-full bg-green-100';
+    modalIcon.innerHTML = `
+      <svg class="h-6 w-6 text-green-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+      </svg>
+    `;
+    modalTitle.textContent = 'Actualización Completada';
+    modalMessage.textContent = 'Se han procesado los clientes según las reglas establecidas.';
+  } else {
+    // Error
+    modalIcon.className = 'flex h-10 w-10 items-center justify-center rounded-full bg-red-100';
+    modalIcon.innerHTML = `
+      <svg class="h-6 w-6 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" />
+      </svg>
+    `;
+    modalTitle.textContent = 'Error en Actualización';
+    modalMessage.textContent = data.message || 'Ocurrió un error durante la actualización.';
+  }
+  
+  // Mostrar modal
+  modal.classList.remove('hidden');
+}
+
+function cerrarModal() {
+  document.getElementById('modal-resultados').classList.add('hidden');
+}
+
+function cerrarYRecargar() {
+  cerrarModal();
+  window.location.reload();
+}
+
+function mostrarToastError(message) {
+  const toast = document.getElementById('toast-error');
+  document.getElementById('toast-error-message').textContent = message;
+  toast.classList.remove('hidden');
+  
+  setTimeout(() => {
+    toast.classList.add('hidden');
+  }, 5000);
+}
+
 async function actualizarClientes() {
   const btn = document.getElementById('btn-actualizar');
   const iconActualizar = document.getElementById('icon-actualizar');
@@ -467,6 +605,7 @@ async function actualizarClientes() {
   
   // Deshabilitar botón y mostrar loading
   btn.disabled = true;
+  btn.classList.add('opacity-50', 'cursor-not-allowed');
   iconActualizar.classList.add('hidden');
   iconLoading.classList.remove('hidden');
   btnText.textContent = 'Actualizando...';
@@ -481,61 +620,25 @@ async function actualizarClientes() {
     
     const data = await response.json();
     
-    if (data.success) {
-      mostrarModal(true, 'Actualización completada', data.message, data.resumen);
-    } else {
-      mostrarModal(false, 'Error en actualización', data.message, null);
-    }
-  } catch (error) {
-    mostrarModal(false, 'Error de conexión', 'No se pudo conectar con el servidor: ' + error.message, null);
-  } finally {
     // Restaurar botón
     btn.disabled = false;
+    btn.classList.remove('opacity-50', 'cursor-not-allowed');
+    iconActualizar.classList.remove('hidden');
+    iconLoading.classList.add('hidden');
+    btnText.textContent = 'Actualizar';
+    
+    // Mostrar modal con resultados
+    mostrarModal(data);
+    
+  } catch (error) {
+    mostrarToastError('Error de conexión: ' + error.message);
+    // Restaurar botón
+    btn.disabled = false;
+    btn.classList.remove('opacity-50', 'cursor-not-allowed');
     iconActualizar.classList.remove('hidden');
     iconLoading.classList.add('hidden');
     btnText.textContent = 'Actualizar';
   }
-}
-
-function mostrarModal(success, titulo, mensaje, resumen) {
-  const modal = document.getElementById('modal-resultado');
-  const iconSuccess = document.getElementById('modal-icon-success');
-  const iconError = document.getElementById('modal-icon-error');
-  const modalTitulo = document.getElementById('modal-titulo');
-  const modalMensaje = document.getElementById('modal-mensaje');
-  const modalResumen = document.getElementById('modal-resumen');
-  
-  modalTitulo.textContent = titulo;
-  modalMensaje.textContent = mensaje;
-  
-  if (success) {
-    iconSuccess.classList.remove('hidden');
-    iconSuccess.classList.add('flex');
-    iconError.classList.add('hidden');
-    iconError.classList.remove('flex');
-    
-    if (resumen) {
-      document.getElementById('resumen-altas').textContent = resumen.altas || 0;
-      document.getElementById('resumen-bajas').textContent = resumen.bajas || 0;
-      document.getElementById('resumen-sin-mod').textContent = resumen.sin_modificacion || 0;
-      modalResumen.classList.remove('hidden');
-    } else {
-      modalResumen.classList.add('hidden');
-    }
-  } else {
-    iconSuccess.classList.add('hidden');
-    iconSuccess.classList.remove('flex');
-    iconError.classList.remove('hidden');
-    iconError.classList.add('flex');
-    modalResumen.classList.add('hidden');
-  }
-  
-  modal.classList.remove('hidden');
-}
-
-function cerrarModalYRecargar() {
-  document.getElementById('modal-resultado').classList.add('hidden');
-  window.location.reload();
 }
 </script>
 {% endblock %}

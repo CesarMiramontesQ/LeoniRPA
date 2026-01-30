@@ -3600,6 +3600,24 @@ async def delete_carga_proveedor(db: AsyncSession, carga_id: int) -> bool:
     return True
 
 
+async def obtener_fecha_ultimo_cambio_estatus_proveedor(db: AsyncSession, codigo_proveedor: str, estatus: str) -> Optional[date]:
+    """
+    Obtiene la fecha del último registro en el historial donde el proveedor
+    cambió a un estatus específico. Retorna None si no hay registro.
+    """
+    query = select(CargaProveedorHistorial).where(
+        CargaProveedorHistorial.codigo_proveedor == codigo_proveedor,
+        CargaProveedorHistorial.estatus_nuevo == estatus
+    ).order_by(desc(CargaProveedorHistorial.created_at)).limit(1)
+    
+    result = await db.execute(query)
+    historial = result.scalar_one_or_none()
+    
+    if historial and historial.created_at:
+        return historial.created_at.date()
+    return None
+
+
 async def actualizar_estatus_carga_proveedores_por_compras(
     db: AsyncSession
 ) -> Dict[str, Any]:
@@ -3607,11 +3625,12 @@ async def actualizar_estatus_carga_proveedores_por_compras(
     Actualiza los estatus de carga_proveedores basándose en compras de los últimos 6 meses.
     Solo considera proveedores con país diferente a "MX" (México).
     
-    Reglas:
+    Reglas con verificación de MES CALENDARIO:
     - Solo se consideran proveedores con país != "MX"
-    - Si un proveedor de carga_proveedores NO tiene compras en los últimos 6 meses → estatus = "Baja"
-    - Si SÍ tiene compras en los últimos 6 meses → estatus = "Sin modificacion"
-    - Si hay un proveedor nuevo (está en compras pero no en carga_proveedores) → agregarlo con estatus = "Alta"
+    - Alta se mantiene en el mismo mes, cambia a Sin modificacion en mes diferente
+    - Sin modificacion se mantiene en el mismo mes
+    - Baja que vuelve a tener compras → Alta (reactivación)
+    - Baja dos meses seguidos → Eliminado
     
     Returns:
         Dict con estadísticas de la actualización
@@ -3621,6 +3640,11 @@ async def actualizar_estatus_carga_proveedores_por_compras(
     proveedores_sin_modificacion = 0
     proveedores_nuevos = 0
     proveedores_omitidos_mx = 0
+    proveedores_eliminados = 0
+    proveedores_sin_cambios = 0
+    
+    # Fecha de hoy para comparación de mes calendario
+    hoy = date.today()
     
     try:
         # Fecha límite para compras (últimos 6 meses)
@@ -3654,6 +3678,9 @@ async def actualizar_estatus_carga_proveedores_por_compras(
         
         codigos_en_carga = set(cp.codigo_proveedor for cp in carga_proveedores_existentes)
         
+        # Lista para almacenar proveedores a eliminar
+        proveedores_a_eliminar = []
+        
         # 4. Actualizar estatus de proveedores existentes (solo extranjeros)
         for carga_prov in carga_proveedores_existentes:
             try:
@@ -3663,53 +3690,155 @@ async def actualizar_estatus_carga_proveedores_por_compras(
                     continue  # Omitir proveedores mexicanos
                 
                 estatus_anterior = carga_prov.estatus
-                nuevo_estatus = None
-                motivo = None
                 
                 if carga_prov.codigo_proveedor in proveedores_con_compras_recientes:
                     # Tiene compras en los últimos 6 meses
-                    if carga_prov.estatus != "Sin modificacion":
-                        nuevo_estatus = "Sin modificacion"
-                        motivo = "Tiene compras en los últimos 6 meses"
-                        carga_prov.estatus = nuevo_estatus
-                        proveedores_sin_modificacion += 1
+                    
+                    if estatus_anterior == "Alta":
+                        # Es Alta, verificar si fue en el mismo mes
+                        fecha_ultimo_alta = await obtener_fecha_ultimo_cambio_estatus_proveedor(db, carga_prov.codigo_proveedor, "Alta")
+                        
+                        if fecha_ultimo_alta and es_mismo_mes(fecha_ultimo_alta, hoy):
+                            # Mismo mes del Alta, mantener como Alta
+                            proveedores_sin_cambios += 1
+                            continue
+                        else:
+                            # Mes diferente, cambiar a Sin modificacion
+                            carga_prov.estatus = "Sin modificacion"
+                            historial = CargaProveedorHistorial(
+                                carga_proveedor_id=carga_prov.id,
+                                codigo_proveedor=carga_prov.codigo_proveedor,
+                                operacion=CargaProveedorOperacion.UPDATE,
+                                estatus_anterior=estatus_anterior,
+                                estatus_nuevo="Sin modificacion",
+                                motivo="Actualización automática: proveedor con compras, cambio de Alta a Sin modificacion (mes diferente)"
+                            )
+                            db.add(historial)
+                            proveedores_sin_modificacion += 1
+                    
+                    elif estatus_anterior == "Sin modificacion":
+                        # Ya tiene Sin modificacion, verificar si ya se registró este mes
+                        fecha_ultimo_cambio = await obtener_fecha_ultimo_cambio_estatus_proveedor(db, carga_prov.codigo_proveedor, "Sin modificacion")
+                        
+                        if fecha_ultimo_cambio and es_mismo_mes(fecha_ultimo_cambio, hoy):
+                            # Ya se registró este mes, no hacer nada
+                            proveedores_sin_cambios += 1
+                            continue
+                        else:
+                            # Mes diferente, registrar nuevo Sin modificacion
+                            historial = CargaProveedorHistorial(
+                                carga_proveedor_id=carga_prov.id,
+                                codigo_proveedor=carga_prov.codigo_proveedor,
+                                operacion=CargaProveedorOperacion.UPDATE,
+                                estatus_anterior=estatus_anterior,
+                                estatus_nuevo="Sin modificacion",
+                                motivo="Actualización automática: proveedor con compras en últimos 6 meses"
+                            )
+                            db.add(historial)
+                            proveedores_sin_modificacion += 1
+                    
+                    elif estatus_anterior == "Baja":
+                        # Estaba en Baja y ahora tiene compras → Alta (reactivación)
+                        carga_prov.estatus = "Alta"
+                        historial = CargaProveedorHistorial(
+                            carga_proveedor_id=carga_prov.id,
+                            codigo_proveedor=carga_prov.codigo_proveedor,
+                            operacion=CargaProveedorOperacion.UPDATE,
+                            estatus_anterior=estatus_anterior,
+                            estatus_nuevo="Alta",
+                            motivo="Actualización automática: proveedor reactivado con compras detectadas"
+                        )
+                        db.add(historial)
+                        proveedores_nuevos += 1
+                    
+                    else:
+                        # Otro estatus, cambiar a Alta
+                        carga_prov.estatus = "Alta"
+                        historial = CargaProveedorHistorial(
+                            carga_proveedor_id=carga_prov.id,
+                            codigo_proveedor=carga_prov.codigo_proveedor,
+                            operacion=CargaProveedorOperacion.UPDATE,
+                            estatus_anterior=estatus_anterior,
+                            estatus_nuevo="Alta",
+                            motivo="Actualización automática: proveedor reactivado con compras detectadas"
+                        )
+                        db.add(historial)
+                        proveedores_nuevos += 1
+                
                 else:
                     # No tiene compras en los últimos 6 meses
-                    if carga_prov.estatus != "Baja":
-                        nuevo_estatus = "Baja"
-                        motivo = "Sin compras en los últimos 6 meses"
-                        carga_prov.estatus = nuevo_estatus
+                    
+                    if estatus_anterior == "Baja":
+                        # Ya estaba en Baja, verificar si fue en un mes diferente
+                        fecha_ultima_baja = await obtener_fecha_ultimo_cambio_estatus_proveedor(db, carga_prov.codigo_proveedor, "Baja")
+                        
+                        if fecha_ultima_baja:
+                            if es_mismo_mes(fecha_ultima_baja, hoy):
+                                # Mismo mes, no hacer nada
+                                proveedores_sin_cambios += 1
+                                continue
+                            else:
+                                # Baja en mes diferente → Eliminar
+                                proveedores_a_eliminar.append((carga_prov, fecha_ultima_baja))
+                        else:
+                            # No hay historial de baja, registrar como nueva baja
+                            historial = CargaProveedorHistorial(
+                                carga_proveedor_id=carga_prov.id,
+                                codigo_proveedor=carga_prov.codigo_proveedor,
+                                operacion=CargaProveedorOperacion.UPDATE,
+                                estatus_anterior=estatus_anterior,
+                                estatus_nuevo="Baja",
+                                motivo="Actualización automática: proveedor sin compras en últimos 6 meses"
+                            )
+                            db.add(historial)
+                            proveedores_marcados_baja += 1
+                    else:
+                        # Primera vez sin compras → Baja
+                        carga_prov.estatus = "Baja"
+                        historial = CargaProveedorHistorial(
+                            carga_proveedor_id=carga_prov.id,
+                            codigo_proveedor=carga_prov.codigo_proveedor,
+                            operacion=CargaProveedorOperacion.UPDATE,
+                            estatus_anterior=estatus_anterior,
+                            estatus_nuevo="Baja",
+                            motivo="Actualización automática: proveedor sin compras en últimos 6 meses"
+                        )
+                        db.add(historial)
                         proveedores_marcados_baja += 1
-                
-                # Registrar en historial si hubo cambio
-                if nuevo_estatus and estatus_anterior != nuevo_estatus:
-                    historial = CargaProveedorHistorial(
-                        carga_proveedor_id=carga_prov.id,
-                        codigo_proveedor=carga_prov.codigo_proveedor,
-                        operacion=CargaProveedorOperacion.UPDATE,
-                        estatus_anterior=estatus_anterior,
-                        estatus_nuevo=nuevo_estatus,
-                        datos_antes={
-                            "id": carga_prov.id,
-                            "codigo_proveedor": carga_prov.codigo_proveedor,
-                            "nombre": carga_prov.nombre,
-                            "pais": carga_prov.pais,
-                            "estatus": estatus_anterior
-                        },
-                        datos_despues={
-                            "id": carga_prov.id,
-                            "codigo_proveedor": carga_prov.codigo_proveedor,
-                            "nombre": carga_prov.nombre,
-                            "pais": carga_prov.pais,
-                            "estatus": nuevo_estatus
-                        },
-                        motivo=motivo
-                    )
-                    db.add(historial)
+                        
             except Exception as e:
                 errores.append(f"Error actualizando proveedor {carga_prov.codigo_proveedor}: {str(e)}")
         
-        # 5. Agregar proveedores nuevos (están en compras recientes pero no en carga_proveedores)
+        # 5. Eliminar proveedores que estuvieron en Baja dos meses seguidos
+        for carga_prov, fecha_baja_anterior in proveedores_a_eliminar:
+            try:
+                # Registrar en historial antes de eliminar
+                historial = CargaProveedorHistorial(
+                    carga_proveedor_id=carga_prov.id,
+                    codigo_proveedor=carga_prov.codigo_proveedor,
+                    operacion=CargaProveedorOperacion.DELETE,
+                    estatus_anterior="Baja",
+                    estatus_nuevo=None,
+                    datos_antes={
+                        "id": carga_prov.id,
+                        "codigo_proveedor": carga_prov.codigo_proveedor,
+                        "nombre": carga_prov.nombre,
+                        "pais": carga_prov.pais,
+                        "domicilio": carga_prov.domicilio,
+                        "cliente_proveedor": carga_prov.cliente_proveedor,
+                        "estatus": carga_prov.estatus
+                    },
+                    motivo=f"Eliminación automática: proveedor con Baja dos meses seguidos (Baja anterior: {fecha_baja_anterior.strftime('%m/%Y')})"
+                )
+                db.add(historial)
+                
+                # Eliminar el proveedor
+                await db.delete(carga_prov)
+                proveedores_eliminados += 1
+            except Exception as e:
+                errores.append(f"Error eliminando proveedor {carga_prov.codigo_proveedor}: {str(e)}")
+        
+        # 6. Agregar proveedores nuevos (están en compras recientes pero no en carga_proveedores)
         # Solo proveedores extranjeros
         proveedores_nuevos_codigos = proveedores_con_compras_recientes - codigos_en_carga
         
@@ -3798,7 +3927,9 @@ async def actualizar_estatus_carga_proveedores_por_compras(
             "proveedores_sin_modificacion": proveedores_sin_modificacion,
             "proveedores_nuevos": proveedores_nuevos,
             "proveedores_omitidos_mx": proveedores_omitidos_mx,
-            "total_procesados": proveedores_marcados_baja + proveedores_sin_modificacion + proveedores_nuevos,
+            "proveedores_eliminados": proveedores_eliminados,
+            "proveedores_sin_cambios": proveedores_sin_cambios,
+            "total_procesados": proveedores_marcados_baja + proveedores_sin_modificacion + proveedores_nuevos + proveedores_eliminados,
             "errores": errores if errores else None
         }
         
@@ -3810,7 +3941,9 @@ async def actualizar_estatus_carga_proveedores_por_compras(
             "proveedores_marcados_baja": proveedores_marcados_baja,
             "proveedores_sin_modificacion": proveedores_sin_modificacion,
             "proveedores_nuevos": proveedores_nuevos,
-            "proveedores_omitidos_mx": proveedores_omitidos_mx
+            "proveedores_omitidos_mx": proveedores_omitidos_mx,
+            "proveedores_eliminados": proveedores_eliminados,
+            "proveedores_sin_cambios": proveedores_sin_cambios
         }
 
 
@@ -4149,12 +4282,40 @@ async def get_todos_codigos_clientes_carga(db: AsyncSession) -> Dict[int, CargaC
     return {c.codigo_cliente: c for c in clientes}
 
 
+async def obtener_fecha_ultimo_cambio_estatus(db: AsyncSession, codigo_cliente: int, estatus: str) -> Optional[date]:
+    """
+    Obtiene la fecha del último registro en el historial donde el cliente
+    cambió a un estatus específico. Retorna None si no hay registro.
+    """
+    query = select(CargaClienteHistorial).where(
+        CargaClienteHistorial.codigo_cliente == codigo_cliente,
+        CargaClienteHistorial.estatus_nuevo == estatus
+    ).order_by(desc(CargaClienteHistorial.created_at)).limit(1)
+    
+    result = await db.execute(query)
+    historial = result.scalar_one_or_none()
+    
+    if historial and historial.created_at:
+        return historial.created_at.date()
+    return None
+
+
+def es_mismo_mes(fecha1: date, fecha2: date) -> bool:
+    """Verifica si dos fechas están en el mismo mes calendario."""
+    return fecha1.month == fecha2.month and fecha1.year == fecha2.year
+
+
 async def actualizar_carga_clientes_desde_ventas(db: AsyncSession) -> Dict[str, Any]:
     """
     Actualiza la tabla carga_clientes basándose en las ventas:
     - Si el cliente existe pero NO tiene ventas en últimos 6 meses → Baja
     - Si el cliente existe y SÍ tiene ventas en últimos 6 meses → Sin modificacion
     - Si el cliente NO existe y tiene ventas → Alta (crear nuevo)
+    - Si el cliente ya estaba en Baja en un MES DIFERENTE y sigue sin ventas → Eliminado
+    
+    IMPORTANTE: Los cambios de estatus solo se registran si ocurren en un mes calendario
+    diferente al último cambio. Si se actualiza varias veces en el mismo mes con el mismo
+    resultado, NO se registra duplicado en el historial.
     
     Retorna un resumen de los cambios realizados.
     """
@@ -4164,10 +4325,15 @@ async def actualizar_carga_clientes_desde_ventas(db: AsyncSession) -> Dict[str, 
     resumen = {
         "altas": 0,
         "bajas": 0,
+        "eliminados": 0,
         "sin_modificacion": 0,
+        "sin_cambios": 0,  # Clientes que ya tenían el estatus correcto este mes
         "errores": 0,
         "detalles": []
     }
+    
+    # Obtener fecha actual para comparación
+    hoy = date.today()
     
     # 1. Obtener clientes con ventas internacionales en últimos 6 meses
     clientes_con_ventas = await get_clientes_con_ventas_ultimos_6_meses(db)
@@ -4176,37 +4342,132 @@ async def actualizar_carga_clientes_desde_ventas(db: AsyncSession) -> Dict[str, 
     # 2. Obtener todos los clientes actuales en carga_clientes
     clientes_actuales = await get_todos_codigos_clientes_carga(db)
     
+    # Lista para almacenar clientes a eliminar (no podemos modificar el dict mientras iteramos)
+    clientes_a_eliminar = []
+    
     # 3. Procesar clientes existentes
     for codigo_cliente, cliente_carga in clientes_actuales.items():
         estatus_anterior = cliente_carga.estatus
         
         if codigo_cliente in codigos_con_ventas:
-            # Cliente tiene ventas en últimos 6 meses → Sin modificacion
-            nuevo_estatus = "Sin modificacion"
-            if estatus_anterior != nuevo_estatus:
+            # Cliente tiene ventas en últimos 6 meses
+            
+            if estatus_anterior == "Alta":
+                # Es Alta, verificar si el Alta fue en el mismo mes
+                fecha_ultimo_alta = await obtener_fecha_ultimo_cambio_estatus(db, codigo_cliente, "Alta")
+                
+                if fecha_ultimo_alta and es_mismo_mes(fecha_ultimo_alta, hoy):
+                    # Mismo mes del Alta, mantener como Alta
+                    resumen["sin_cambios"] += 1
+                    continue
+                else:
+                    # Mes diferente, cambiar a Sin modificacion
+                    nuevo_estatus = "Sin modificacion"
+                    cliente_carga.estatus = nuevo_estatus
+                    
+                    historial = CargaClienteHistorial(
+                        carga_cliente_id=cliente_carga.id,
+                        codigo_cliente=codigo_cliente,
+                        operacion=CargaClienteOperacion.UPDATE,
+                        estatus_anterior=estatus_anterior,
+                        estatus_nuevo=nuevo_estatus,
+                        motivo="Actualización automática: cliente con ventas, cambio de Alta a Sin modificacion (mes diferente)"
+                    )
+                    db.add(historial)
+                    
+                    resumen["sin_modificacion"] += 1
+                    resumen["detalles"].append({
+                        "codigo_cliente": codigo_cliente,
+                        "accion": "Sin modificacion",
+                        "estatus_anterior": estatus_anterior
+                    })
+            
+            elif estatus_anterior == "Sin modificacion":
+                # Ya tiene Sin modificacion, verificar si ya se registró este mes
+                fecha_ultimo_cambio = await obtener_fecha_ultimo_cambio_estatus(db, codigo_cliente, "Sin modificacion")
+                
+                if fecha_ultimo_cambio and es_mismo_mes(fecha_ultimo_cambio, hoy):
+                    # Ya se registró este mes, no hacer nada
+                    resumen["sin_cambios"] += 1
+                    continue
+                else:
+                    # Mes diferente, registrar nuevo Sin modificacion
+                    nuevo_estatus = "Sin modificacion"
+                    
+                    historial = CargaClienteHistorial(
+                        carga_cliente_id=cliente_carga.id,
+                        codigo_cliente=codigo_cliente,
+                        operacion=CargaClienteOperacion.UPDATE,
+                        estatus_anterior=estatus_anterior,
+                        estatus_nuevo=nuevo_estatus,
+                        motivo="Actualización automática: cliente con ventas en últimos 6 meses"
+                    )
+                    db.add(historial)
+                    
+                    resumen["sin_modificacion"] += 1
+                    resumen["detalles"].append({
+                        "codigo_cliente": codigo_cliente,
+                        "accion": "Sin modificacion",
+                        "estatus_anterior": estatus_anterior
+                    })
+            
+            else:
+                # Otro estatus (ej: Baja), cambiar a Alta (reactivación del cliente)
+                nuevo_estatus = "Alta"
                 cliente_carga.estatus = nuevo_estatus
                 
-                # Registrar en historial
                 historial = CargaClienteHistorial(
                     carga_cliente_id=cliente_carga.id,
                     codigo_cliente=codigo_cliente,
                     operacion=CargaClienteOperacion.UPDATE,
                     estatus_anterior=estatus_anterior,
                     estatus_nuevo=nuevo_estatus,
-                    motivo="Actualización automática: cliente con ventas en últimos 6 meses"
+                    motivo="Actualización automática: cliente reactivado con ventas detectadas"
                 )
                 db.add(historial)
                 
-                resumen["sin_modificacion"] += 1
+                resumen["altas"] += 1
                 resumen["detalles"].append({
                     "codigo_cliente": codigo_cliente,
-                    "accion": "Sin modificacion",
+                    "accion": "Alta",
                     "estatus_anterior": estatus_anterior
                 })
         else:
             # Cliente NO tiene ventas en últimos 6 meses → Baja
             nuevo_estatus = "Baja"
-            if estatus_anterior != nuevo_estatus:
+            
+            if estatus_anterior == "Baja":
+                # Ya estaba en Baja → Verificar si la baja fue en un mes diferente
+                fecha_ultima_baja = await obtener_fecha_ultimo_cambio_estatus(db, codigo_cliente, "Baja")
+                
+                if fecha_ultima_baja:
+                    if es_mismo_mes(fecha_ultima_baja, hoy):
+                        # Mismo mes, no hacer nada
+                        resumen["sin_cambios"] += 1
+                        continue
+                    else:
+                        # Baja en mes diferente → Eliminar
+                        clientes_a_eliminar.append((codigo_cliente, cliente_carga, fecha_ultima_baja))
+                else:
+                    # No hay historial de baja, registrar como nueva baja
+                    historial = CargaClienteHistorial(
+                        carga_cliente_id=cliente_carga.id,
+                        codigo_cliente=codigo_cliente,
+                        operacion=CargaClienteOperacion.UPDATE,
+                        estatus_anterior=estatus_anterior,
+                        estatus_nuevo=nuevo_estatus,
+                        motivo="Actualización automática: cliente sin ventas en últimos 6 meses"
+                    )
+                    db.add(historial)
+                    
+                    resumen["bajas"] += 1
+                    resumen["detalles"].append({
+                        "codigo_cliente": codigo_cliente,
+                        "accion": "Baja",
+                        "estatus_anterior": estatus_anterior
+                    })
+            else:
+                # Cambio de otro estatus a Baja
                 cliente_carga.estatus = nuevo_estatus
                 
                 # Registrar en historial
@@ -4226,6 +4487,39 @@ async def actualizar_carga_clientes_desde_ventas(db: AsyncSession) -> Dict[str, 
                     "accion": "Baja",
                     "estatus_anterior": estatus_anterior
                 })
+    
+    # 4. Eliminar clientes que estuvieron en Baja dos meses seguidos
+    for codigo_cliente, cliente_carga, fecha_baja_anterior in clientes_a_eliminar:
+        # Registrar en historial antes de eliminar
+        historial = CargaClienteHistorial(
+            carga_cliente_id=cliente_carga.id,
+            codigo_cliente=codigo_cliente,
+            operacion=CargaClienteOperacion.DELETE,
+            estatus_anterior="Baja",
+            estatus_nuevo=None,
+            datos_antes={
+                "id": cliente_carga.id,
+                "codigo_cliente": cliente_carga.codigo_cliente,
+                "nombre": cliente_carga.nombre,
+                "pais": cliente_carga.pais,
+                "domicilio": cliente_carga.domicilio,
+                "cliente_proveedor": cliente_carga.cliente_proveedor,
+                "estatus": cliente_carga.estatus
+            },
+            motivo=f"Eliminación automática: cliente con Baja dos meses seguidos (Baja anterior: {fecha_baja_anterior.strftime('%m/%Y')})"
+        )
+        db.add(historial)
+        
+        # Eliminar el cliente
+        await db.delete(cliente_carga)
+        
+        resumen["eliminados"] += 1
+        resumen["detalles"].append({
+            "codigo_cliente": codigo_cliente,
+            "accion": "Eliminado",
+            "estatus_anterior": "Baja",
+            "motivo": f"Baja en {fecha_baja_anterior.strftime('%m/%Y')} y {hoy.strftime('%m/%Y')}"
+        })
     
     # 4. Crear nuevos clientes (los que tienen ventas pero no están en carga_clientes)
     for cliente_venta in clientes_con_ventas:

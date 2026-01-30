@@ -449,49 +449,71 @@
         <p id="modal-message" class="text-sm text-gray-600 mb-4"></p>
         
         <!-- Estadísticas -->
-        <div id="modal-stats" class="grid grid-cols-2 gap-4">
+        <div id="modal-stats" class="grid grid-cols-2 gap-3">
           <!-- Proveedores Nuevos -->
-          <div class="rounded-lg bg-green-50 p-4 border border-green-200">
+          <div class="rounded-lg bg-green-50 p-3 border border-green-200">
             <div class="flex items-center gap-2">
-              <svg class="h-5 w-5 text-green-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <svg class="h-4 w-4 text-green-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
-              <span class="text-sm font-medium text-green-800">Nuevos (Alta)</span>
+              <span class="text-xs font-medium text-green-800">Nuevos (Alta)</span>
             </div>
-            <p id="stat-nuevos" class="mt-2 text-2xl font-bold text-green-600">0</p>
+            <p id="stat-nuevos" class="mt-1 text-xl font-bold text-green-600">0</p>
           </div>
           
           <!-- Sin Modificación -->
-          <div class="rounded-lg bg-blue-50 p-4 border border-blue-200">
+          <div class="rounded-lg bg-blue-50 p-3 border border-blue-200">
             <div class="flex items-center gap-2">
-              <svg class="h-5 w-5 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <svg class="h-4 w-4 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
               </svg>
-              <span class="text-sm font-medium text-blue-800">Sin modificación</span>
+              <span class="text-xs font-medium text-blue-800">Sin modificación</span>
             </div>
-            <p id="stat-sin-modificacion" class="mt-2 text-2xl font-bold text-blue-600">0</p>
+            <p id="stat-sin-modificacion" class="mt-1 text-xl font-bold text-blue-600">0</p>
           </div>
           
           <!-- Dados de Baja -->
-          <div class="rounded-lg bg-red-50 p-4 border border-red-200">
+          <div class="rounded-lg bg-yellow-50 p-3 border border-yellow-200">
             <div class="flex items-center gap-2">
-              <svg class="h-5 w-5 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <svg class="h-4 w-4 text-yellow-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 13.5 12 21m0 0-7.5-7.5M12 21V3" />
               </svg>
-              <span class="text-sm font-medium text-red-800">Dados de Baja</span>
+              <span class="text-xs font-medium text-yellow-800">Dados de Baja</span>
             </div>
-            <p id="stat-baja" class="mt-2 text-2xl font-bold text-red-600">0</p>
+            <p id="stat-baja" class="mt-1 text-xl font-bold text-yellow-600">0</p>
+          </div>
+          
+          <!-- Eliminados -->
+          <div class="rounded-lg bg-red-50 p-3 border border-red-200">
+            <div class="flex items-center gap-2">
+              <svg class="h-4 w-4 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+              </svg>
+              <span class="text-xs font-medium text-red-800">Eliminados</span>
+            </div>
+            <p id="stat-eliminados" class="mt-1 text-xl font-bold text-red-600">0</p>
+          </div>
+          
+          <!-- Ya actualizados -->
+          <div class="rounded-lg bg-gray-50 p-3 border border-gray-200">
+            <div class="flex items-center gap-2">
+              <svg class="h-4 w-4 text-gray-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+              </svg>
+              <span class="text-xs font-medium text-gray-700">Ya actualizados</span>
+            </div>
+            <p id="stat-sin-cambios" class="mt-1 text-xl font-bold text-gray-600">0</p>
           </div>
           
           <!-- Omitidos (MX) -->
-          <div class="rounded-lg bg-gray-50 p-4 border border-gray-200">
+          <div class="rounded-lg bg-gray-50 p-3 border border-gray-200">
             <div class="flex items-center gap-2">
-              <svg class="h-5 w-5 text-gray-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+              <svg class="h-4 w-4 text-gray-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 18.364A9 9 0 0 0 5.636 5.636m12.728 12.728A9 9 0 0 1 5.636 5.636m12.728 12.728L5.636 5.636" />
               </svg>
-              <span class="text-sm font-medium text-gray-700">Omitidos (MX)</span>
+              <span class="text-xs font-medium text-gray-600">Omitidos (MX)</span>
             </div>
-            <p id="stat-omitidos" class="mt-2 text-2xl font-bold text-gray-600">0</p>
+            <p id="stat-omitidos" class="mt-1 text-xl font-bold text-gray-500">0</p>
           </div>
         </div>
         
@@ -562,6 +584,8 @@ function mostrarModal(data) {
   document.getElementById('stat-nuevos').textContent = data.data?.proveedores_nuevos || 0;
   document.getElementById('stat-sin-modificacion').textContent = data.data?.proveedores_sin_modificacion || 0;
   document.getElementById('stat-baja').textContent = data.data?.proveedores_marcados_baja || 0;
+  document.getElementById('stat-eliminados').textContent = data.data?.proveedores_eliminados || 0;
+  document.getElementById('stat-sin-cambios').textContent = data.data?.proveedores_sin_cambios || 0;
   document.getElementById('stat-omitidos').textContent = data.data?.proveedores_omitidos_mx || 0;
   document.getElementById('stat-total').textContent = data.data?.total_procesados || 0;
   

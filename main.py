@@ -833,7 +833,7 @@ async def actualizar_carga_clientes(
         
         return {
             "success": True,
-            "message": f"Actualización completada: {resumen['altas']} altas, {resumen['bajas']} bajas, {resumen['sin_modificacion']} sin modificación",
+            "message": f"Actualización completada: {resumen['altas']} altas, {resumen['bajas']} bajas, {resumen['sin_modificacion']} sin modificación, {resumen['eliminados']} eliminados, {resumen['sin_cambios']} ya actualizados este mes",
             "resumen": resumen
         }
     except Exception as e:
