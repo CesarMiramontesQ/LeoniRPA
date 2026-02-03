@@ -4613,6 +4613,47 @@ async def get_todos_codigos_clientes_carga(db: AsyncSession) -> Dict[int, CargaC
     return {c.codigo_cliente: c for c in clientes}
 
 
+async def ensure_sequence_is_synced(
+    db: AsyncSession,
+    *,
+    table_name: str,
+    column_attr
+) -> None:
+    """
+    Garantiza que la secuencia autoincremental asociada a una tabla no se
+    quede detrás del valor máximo existente en la columna dada.
+    Esto evita errores de clave duplicada cuando la tabla se pobló mediante
+    cargas manuales que no actualizaron la secuencia.
+    """
+    seq_result = await db.execute(
+        text("SELECT pg_get_serial_sequence(:table_name, :column_name)"),
+        {"table_name": table_name, "column_name": column_attr.key}
+    )
+    seq_name = seq_result.scalar()
+    if not seq_name:
+        return
+    
+    # Obtener el estado actual de la secuencia
+    seq_state_result = await db.execute(
+        text(f"SELECT last_value, is_called FROM {seq_name}")
+    )
+    seq_state = seq_state_result.first()
+    if not seq_state:
+        return
+    
+    max_id_result = await db.execute(select(func.max(column_attr)))
+    max_id = max_id_result.scalar() or 0
+    if max_id == 0:
+        return
+    
+    current_value = seq_state.last_value if seq_state.is_called else 0
+    if max_id > current_value:
+        await db.execute(
+            text("SELECT setval(:seq_name, :max_id, true)"),
+            {"seq_name": seq_name, "max_id": max_id}
+        )
+
+
 async def obtener_fecha_ultimo_cambio_estatus(db: AsyncSession, codigo_cliente: int, estatus: str) -> Optional[date]:
     """
     Obtiene la fecha del último registro en el historial donde el cliente
@@ -4675,6 +4716,7 @@ async def actualizar_carga_clientes_desde_ventas(db: AsyncSession) -> Dict[str, 
     
     # Lista para almacenar clientes a eliminar (no podemos modificar el dict mientras iteramos)
     clientes_a_eliminar = []
+    secuencia_carga_clientes_sincronizada = False
     
     # 3. Procesar clientes existentes
     for codigo_cliente, cliente_carga in clientes_actuales.items():
@@ -4856,6 +4898,13 @@ async def actualizar_carga_clientes_desde_ventas(db: AsyncSession) -> Dict[str, 
     for cliente_venta in clientes_con_ventas:
         codigo = cliente_venta["codigo_cliente"]
         if codigo not in clientes_actuales:
+            if not secuencia_carga_clientes_sincronizada:
+                await ensure_sequence_is_synced(
+                    db,
+                    table_name="carga_clientes",
+                    column_attr=CargaCliente.id
+                )
+                secuencia_carga_clientes_sincronizada = True
             # Crear nuevo cliente con estatus Alta
             nuevo_cliente = CargaCliente(
                 codigo_cliente=codigo,
@@ -4865,6 +4914,7 @@ async def actualizar_carga_clientes_desde_ventas(db: AsyncSession) -> Dict[str, 
             )
             db.add(nuevo_cliente)
             await db.flush()  # Para obtener el ID
+            clientes_actuales[codigo] = nuevo_cliente
             
             # Registrar en historial
             historial = CargaClienteHistorial(
@@ -5643,10 +5693,12 @@ async def actualizar_master_virtuales_desde_compras(
     mes_actual_de_captura = mes en que se ejecuta la actualización (formato YYYY-MM).
     No duplica registros para el mismo proveedor_cliente en el mismo periodo.
     """
+    MESES_ES = ("Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+                "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre")
     ahora = datetime.now(timezone.utc)
     año_captura = ahora.year
     mes_captura = ahora.month
-    mes_captura_str = f"{año_captura:04d}-{mes_captura:02d}"
+    mes_captura_str = MESES_ES[mes_captura - 1]
 
     # Periodo de análisis: mes anterior
     if mes_captura == 1:
@@ -5657,7 +5709,7 @@ async def actualizar_master_virtuales_desde_compras(
         mes_analisis = mes_captura - 1
 
     resumen = {
-        "periodo_analisis": f"{año_analisis:04d}-{mes_analisis:02d}",
+        "periodo_analisis": f"{MESES_ES[mes_analisis - 1]} {año_analisis}",
         "mes_captura": mes_captura_str,
         "existentes_en_captura": 0,
         "existentes_sin_operacion": 0,

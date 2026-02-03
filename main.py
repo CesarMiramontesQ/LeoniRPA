@@ -3053,6 +3053,8 @@ async def procesar_archivos_ventas(
     import pandas as pd
     import traceback
     
+    execution = None
+    ahora_utc = None
     try:
         # Validar que sea un archivo Excel
         extensiones_permitidas = ['.xlsx', '.xls']
@@ -3122,6 +3124,25 @@ async def procesar_archivos_ventas(
                         "error": f"El archivo Excel debe tener al menos 3 filas para poder procesarse correctamente. El archivo actual tiene {len(df)} fila(s)."
                     }
                 )
+            
+            # Registrar evento en historial de ejecuciones
+            from datetime import timezone as tz
+            ahora_utc = datetime.now(tz.utc)
+            execution = await crud.create_sales_execution(
+                db=db,
+                user_id=current_user.id,
+                fecha_inicio_periodo=ahora_utc,
+                fecha_fin_periodo=ahora_utc,
+                sistema_sap="Carga manual",
+                transaccion="Procesar archivo",
+                maquina=socket.gethostname() if hasattr(socket, 'gethostname') else (platform.node() or "unknown")
+            )
+            await crud.update_sales_execution_status(
+                db=db,
+                execution_id=execution.id,
+                estado=ExecutionStatus.RUNNING,
+                archivo_nombre=nombre_archivo_ventas
+            )
             
             # Valores a buscar en el segundo renglón (índice 1)
             valores_a_buscar = ['OE', 'Budget', 'Act-Budget', 'incl. srap', '2005246']
@@ -4002,6 +4023,18 @@ async def procesar_archivos_ventas(
             # Determinar si fue exitoso (al menos algunos registros se insertaron o había duplicados)
             success = registros_insertados > 0 or (registros_duplicados > 0 and len(errores) == 0)
             
+            # Actualizar historial con resultado exitoso
+            fin_utc = datetime.now(tz.utc)
+            duracion = int((fin_utc - ahora_utc).total_seconds())
+            await crud.update_sales_execution_status(
+                db=db,
+                execution_id=execution.id,
+                estado=ExecutionStatus.SUCCESS,
+                fecha_inicio_ejecucion=ahora_utc,
+                fecha_fin_ejecucion=fin_utc,
+                duracion_segundos=duracion
+            )
+            
             return JSONResponse(
                 status_code=200 if success else 207,  # 207 = Multi-Status si hay errores pero también éxitos
                 content={
@@ -4018,6 +4051,19 @@ async def procesar_archivos_ventas(
         import traceback
         error_traceback = traceback.format_exc()
         error_message = str(e)
+        
+        # Si se creó el registro de ejecución, actualizarlo a FAILED
+        try:
+            if execution is not None:
+                await crud.update_sales_execution_status(
+                    db=db,
+                    execution_id=execution.id,
+                    estado=ExecutionStatus.FAILED,
+                    mensaje_error=str(e),
+                    stack_trace=error_traceback
+                )
+        except Exception:
+            pass  # No fallar si no se puede actualizar el historial
         
         # Mensaje de error más descriptivo en español
         mensaje_error = f"Error al procesar el archivo de ventas: {error_message}"
