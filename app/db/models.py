@@ -941,6 +941,30 @@ class CargaClienteHistorial(Base):
         return f"<CargaClienteHistorial(id={self.id}, codigo_cliente={self.codigo_cliente}, operacion={self.operacion.value}, created_at={self.created_at})>"
 
 
+class Cliente(Base):
+    """Modelo para clientes."""
+    __tablename__ = "clientes"
+    
+    # Código del cliente (clave primaria)
+    codigo_cliente = Column(BigInteger, primary_key=True, index=True)
+    
+    # Nombre del cliente
+    nombre = Column(String, nullable=False, index=True)
+    
+    # Domicilio
+    domicilio = Column(Text, nullable=True)
+    
+    # País
+    pais = Column(String, nullable=True, index=True)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    
+    def __repr__(self):
+        return f"<Cliente(codigo_cliente={self.codigo_cliente}, nombre={self.nombre})>"
+
+
 class MasterUnificadoVirtuales(Base):
     """Modelo para master unificado de virtuales. Identificador: numero."""
     __tablename__ = "master_unificado_virtuales"

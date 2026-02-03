@@ -199,6 +199,42 @@ async def api_ventas(
     })
 
 
+@app.get("/clientes")
+async def clientes(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Página de clientes - requiere autenticación."""
+    # Cargar los clientes desde la base de datos
+    clientes_data = await crud.list_clientes(db, limit=5000)
+    
+    # Calcular estadísticas
+    total_clientes = await crud.count_clientes(db)
+    
+    # Obtener países únicos para filtros
+    paises = await crud.get_paises_clientes(db)
+    total_paises = len(paises)
+    
+    # Obtener última actualización
+    if clientes_data:
+        ultima_actualizacion = max([c.updated_at for c in clientes_data if c.updated_at], default=None)
+        if ultima_actualizacion:
+            ultima_actualizacion = ultima_actualizacion.strftime('%d/%m/%Y %H:%M')
+    else:
+        ultima_actualizacion = None
+    
+    return templates.TemplateResponse(
+        "clientes.html",
+        {
+            "request": request,
+            "active_page": "clientes",
+            "current_user": current_user,
+            "clientes": clientes_data,
+            "total_clientes": total_clientes,
+            "paises": paises,
+            "total_paises": total_paises,
+            "ultima_actualizacion": ultima_actualizacion
+        }
+    )
+
+
 @app.get("/grupos-clientes")
 async def grupos_clientes(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Página de grupos de clientes - requiere autenticación."""

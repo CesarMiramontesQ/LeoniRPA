@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta, timezone, date
 from decimal import Decimal
-from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaCliente, MasterUnificadoVirtuales, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion
+from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaCliente, MasterUnificadoVirtuales, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente
 from app.core.security import hash_password
 
 
@@ -4830,3 +4830,78 @@ async def delete_master_unificado_virtuales(db: AsyncSession, numero: int) -> bo
     await db.delete(master)
     await db.commit()
     return True
+
+
+# ==================== CRUD para Clientes ====================
+
+async def list_clientes(
+    db: AsyncSession,
+    pais: Optional[str] = None,
+    search: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0
+) -> List[Cliente]:
+    """Lista clientes con filtros opcionales."""
+    query = select(Cliente)
+    
+    if pais:
+        query = query.where(Cliente.pais == pais)
+    
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                Cliente.nombre.ilike(search_pattern),
+                Cliente.codigo_cliente.cast(String).ilike(search_pattern),
+                Cliente.domicilio.ilike(search_pattern)
+            )
+        )
+    
+    query = query.order_by(Cliente.nombre).limit(limit).offset(offset)
+    
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def count_clientes(
+    db: AsyncSession,
+    pais: Optional[str] = None,
+    search: Optional[str] = None
+) -> int:
+    """Cuenta el total de clientes con filtros opcionales."""
+    query = select(func.count(Cliente.codigo_cliente))
+    
+    if pais:
+        query = query.where(Cliente.pais == pais)
+    
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                Cliente.nombre.ilike(search_pattern),
+                Cliente.codigo_cliente.cast(String).ilike(search_pattern),
+                Cliente.domicilio.ilike(search_pattern)
+            )
+        )
+    
+    result = await db.execute(query)
+    return result.scalar() or 0
+
+
+async def get_cliente_by_codigo(db: AsyncSession, codigo_cliente: int) -> Optional[Cliente]:
+    """Obtiene un cliente por su código."""
+    result = await db.execute(
+        select(Cliente).where(Cliente.codigo_cliente == codigo_cliente)
+    )
+    return result.scalar_one_or_none()
+
+
+async def get_paises_clientes(db: AsyncSession) -> List[str]:
+    """Obtiene la lista de países únicos de los clientes."""
+    result = await db.execute(
+        select(Cliente.pais)
+        .where(Cliente.pais.isnot(None))
+        .distinct()
+        .order_by(Cliente.pais)
+    )
+    return [row[0] for row in result.all() if row[0]]
