@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta, timezone, date
 from decimal import Decimal
-from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaProveedoresNacional, CargaProveedoresNacionalHistorial, CargaCliente, MasterUnificadoVirtuales, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente
+from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaProveedoresNacional, CargaProveedoresNacionalHistorial, CargaCliente, MasterUnificadoVirtuales, MasterUnificadoVirtualHistorial, MasterUnificadoVirtualOperacion, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente
 from app.core.security import hash_password
 
 
@@ -4894,6 +4894,69 @@ async def actualizar_carga_clientes_desde_ventas(db: AsyncSession) -> Dict[str, 
 # CRUD para MasterUnificadoVirtuales
 # ============================================================================
 
+def master_unificado_virtual_to_dict(master: Optional[MasterUnificadoVirtuales]) -> Dict[str, Any]:
+    """Convierte un registro de virtuales a diccionario para historial."""
+    if not master:
+        return {}
+    return {
+        "id": master.id,
+        "numero": master.numero,
+        "solicitud_previo": master.solicitud_previo,
+        "agente": master.agente,
+        "pedimento": master.pedimento,
+        "aduana": master.aduana,
+        "patente": master.patente,
+        "destino": master.destino,
+        "cliente_space": master.cliente_space,
+        "impo_expo": master.impo_expo,
+        "proveedor_cliente": master.proveedor_cliente,
+        "mes": master.mes,
+        "complemento": master.complemento,
+        "tipo_immex": master.tipo_immex,
+        "factura": master.factura,
+        "fecha_pago": master.fecha_pago.isoformat() if master.fecha_pago else None,
+        "informacion": master.informacion,
+        "estatus": master.estatus,
+        "op_regular": master.op_regular,
+        "tipo": master.tipo,
+        "carretes": master.carretes,
+        "servicio_cliente": master.servicio_cliente,
+        "plazo": master.plazo,
+        "firma": master.firma,
+        "incoterm": master.incoterm,
+        "tipo_exportacion": master.tipo_exportacion,
+        "created_at": master.created_at.isoformat() if master.created_at else None,
+        "updated_at": master.updated_at.isoformat() if master.updated_at else None,
+    }
+
+
+async def create_master_unificado_virtual_historial(
+    db: AsyncSession,
+    *,
+    numero: Optional[int],
+    operacion: MasterUnificadoVirtualOperacion,
+    user_id: int,
+    datos_antes: Optional[Dict[str, Any]] = None,
+    datos_despues: Optional[Dict[str, Any]] = None,
+    campos_modificados: Optional[List[str]] = None,
+    comentario: Optional[str] = None,
+) -> MasterUnificadoVirtualHistorial:
+    """Registra una entrada en el historial de virtuales."""
+    historial = MasterUnificadoVirtualHistorial(
+        numero=numero,
+        operacion=operacion,
+        user_id=user_id,
+        datos_antes=datos_antes,
+        datos_despues=datos_despues,
+        campos_modificados=campos_modificados,
+        comentario=comentario,
+    )
+    db.add(historial)
+    await db.commit()
+    await db.refresh(historial)
+    return historial
+
+
 async def create_master_unificado_virtuales(
     db: AsyncSession,
     solicitud_previo: Optional[bool] = None,
@@ -4918,7 +4981,9 @@ async def create_master_unificado_virtuales(
     carretes: Optional[bool] = None,
     servicio_cliente: Optional[str] = None,
     plazo: Optional[str] = None,
-    firma: Optional[str] = None
+    firma: Optional[str] = None,
+    incoterm: Optional[str] = None,
+    tipo_exportacion: Optional[str] = None
 ) -> MasterUnificadoVirtuales:
     """Crea un nuevo registro de master unificado virtuales."""
     master = MasterUnificadoVirtuales(
@@ -4944,7 +5009,9 @@ async def create_master_unificado_virtuales(
         carretes=carretes,
         servicio_cliente=servicio_cliente,
         plazo=plazo,
-        firma=firma
+        firma=firma,
+        incoterm=incoterm,
+        tipo_exportacion=tipo_exportacion
     )
     db.add(master)
     await db.commit()

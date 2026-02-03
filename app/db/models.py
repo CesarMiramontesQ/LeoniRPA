@@ -1095,3 +1095,33 @@ class MasterUnificadoVirtuales(Base):
     def __repr__(self):
         return f"<MasterUnificadoVirtuales(id={self.id}, pedimento={self.pedimento}, numero={self.numero})>"
 
+
+class MasterUnificadoVirtualOperacion(PyEnum):
+    """Tipos de operaciones registradas en el historial de virtuales."""
+    CREATE = "CREATE"
+    UPDATE = "UPDATE"
+    DELETE = "DELETE"
+
+
+class MasterUnificadoVirtualHistorial(Base):
+    """Historial de cambios del master unificado de virtuales."""
+    __tablename__ = "master_unificado_virtuales_historial"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    numero = Column(BigInteger, nullable=True, index=True)
+    operacion = Column(
+        SQLEnum(MasterUnificadoVirtualOperacion, name="master_virtual_operacion_enum"),
+        nullable=False,
+        index=True
+    )
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user = relationship("User", backref="virtuales_historial")
+    datos_antes = Column(JSONB, nullable=True)
+    datos_despues = Column(JSONB, nullable=True)
+    campos_modificados = Column(JSONB, nullable=True)
+    comentario = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    
+    def __repr__(self):
+        return f"<MasterUnificadoVirtualHistorial(id={self.id}, numero={self.numero}, operacion={self.operacion.value})>"
+

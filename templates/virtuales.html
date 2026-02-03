@@ -8,6 +8,18 @@
         Master unificado de virtuales – consulta de registros
       </p>
     </div>
+    <div class="flex items-center gap-2">
+      <button
+        id="btn-agregar-virtual"
+        type="button"
+        class="inline-flex items-center rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#002d66] focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
+      >
+        <svg class="mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m6-6H6" />
+        </svg>
+        Nuevo registro
+      </button>
+    </div>
   </div>
 
   <!-- Tarjetas informativas -->
@@ -417,13 +429,18 @@
         </div>
         
         <!-- Footer del modal -->
-        <div class="bg-gray-50 px-6 py-3 flex justify-end gap-3">
-          <button id="btn-cerrar-modal-footer" type="button" class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2">
-            Cancelar
+        <div class="bg-gray-50 px-6 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <button id="btn-eliminar-modal" type="button" class="hidden rounded-md border border-red-600 bg-white px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2">
+            Eliminar
           </button>
-          <button id="btn-guardar-modal" type="submit" class="rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white hover:bg-[#002d66] focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2">
-            Guardar cambios
-          </button>
+          <div class="flex justify-end gap-3">
+            <button id="btn-cerrar-modal-footer" type="button" class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2">
+              Cancelar
+            </button>
+            <button id="btn-guardar-modal" type="submit" class="rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white hover:bg-[#002d66] focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2">
+              Guardar cambios
+            </button>
+          </div>
         </div>
       </form>
     </div>
@@ -438,6 +455,9 @@
   let porPagina = 25;
   let sortCol = 'numero';
   let sortAsc = true;
+  let modoModal = 'edit';
+  let registroActual = null;
+  const esAdmin = {{ 'true' if current_user.rol|default('')|lower == 'admin' else 'false' }};
 
   function esc(s) {
     const d = document.createElement('div');
@@ -567,17 +587,69 @@
     document.querySelectorAll('.btn-ver').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const index = parseInt(e.currentTarget.dataset.index, 10);
-        abrirModal(filtrados[index]);
+        abrirModal(filtrados[index], 'edit');
       });
     });
   }
   
-  function abrirModal(v) {
+  function abrirModal(datos = null, modo = 'edit') {
+    modoModal = modo;
+    const esCreacion = modo === 'create';
     const modal = document.getElementById('modal-detalle');
+    const formulario = document.getElementById('form-editar-virtual');
+    const titulo = document.getElementById('modal-title');
+    const btnGuardar = document.getElementById('btn-guardar-modal');
+    const btnEliminar = document.getElementById('btn-eliminar-modal');
+    const numeroInput = document.getElementById('modal-numero');
+    const vacio = {
+      id: '',
+      numero: '',
+      proveedorCliente: '',
+      impoExpo: '',
+      agente: '',
+      mes: '',
+      estatus: '',
+      tipo: '',
+      incoterm: '',
+      tipoExportacion: '',
+      plazo: '',
+      solicitudPrevio: '',
+      pedimento: '',
+      aduana: '',
+      patente: '',
+      destino: '',
+      clienteSpace: '',
+      complemento: '',
+      tipoImmex: '',
+      factura: '',
+      fechaPago: '',
+      informacion: '',
+      opRegular: '',
+      carretes: '',
+      servicioCliente: '',
+      firma: ''
+    };
+    const v = datos || vacio;
+    registroActual = esCreacion ? null : datos;
+    
+    if (esCreacion && formulario) formulario.reset();
+    
+    if (titulo) titulo.textContent = esCreacion ? 'Nuevo registro' : 'Detalle del Registro';
+    if (btnGuardar) btnGuardar.textContent = esCreacion ? 'Crear registro' : 'Guardar cambios';
+    if (btnEliminar) {
+      if (esAdmin && !esCreacion) btnEliminar.classList.remove('hidden');
+      else btnEliminar.classList.add('hidden');
+    }
+    
+    if (numeroInput) {
+      numeroInput.readOnly = !esCreacion;
+      numeroInput.classList.toggle('bg-gray-100', !esCreacion);
+      numeroInput.classList.toggle('bg-white', esCreacion);
+      numeroInput.value = v.numero || '';
+    }
     
     // Llenar los datos del modal (inputs)
     document.getElementById('modal-id').value = v.id || '';
-    document.getElementById('modal-numero').value = v.numero || '';
     document.getElementById('modal-proveedor-cliente').value = v.proveedorCliente || '';
     document.getElementById('modal-impo-expo').value = v.impoExpo || '';
     document.getElementById('modal-agente').value = v.agente || '';
@@ -614,6 +686,8 @@
     const modal = document.getElementById('modal-detalle');
     modal.classList.add('hidden');
     document.body.style.overflow = '';
+    modoModal = 'edit';
+    registroActual = null;
   }
 
   function irPagina(n) {
@@ -634,8 +708,66 @@
     });
   }
 
+  async function eliminarRegistro() {
+    if (!esAdmin || modoModal !== 'edit') return;
+    const numeroValor = (document.getElementById('modal-numero').value || '').trim();
+    const numeroInt = parseInt(numeroValor, 10);
+    if (!numeroValor || Number.isNaN(numeroInt)) {
+      alert('No se puede eliminar: número inválido');
+      return;
+    }
+    
+    const detalle = prompt(`Describe el motivo para eliminar el registro ${numeroInt} (obligatorio):`);
+    if (!detalle || !detalle.trim()) {
+      alert('Debes proporcionar un detalle para continuar.');
+      return;
+    }
+    
+    const confirmar = confirm(`¿Eliminar el registro ${numeroInt}? Esta acción no se puede deshacer.`);
+    if (!confirmar) return;
+    
+    const btnEliminar = document.getElementById('btn-eliminar-modal');
+    const textoOriginal = btnEliminar.textContent;
+    btnEliminar.disabled = true;
+    btnEliminar.textContent = 'Eliminando...';
+    
+    try {
+      const response = await fetch(`/api/virtuales/${numeroInt}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ detalle: detalle.trim() })
+      });
+      let result = {};
+      try {
+        result = await response.json();
+      } catch (_) {
+        result = {};
+      }
+      if (response.ok && result.success) {
+        alert('Registro eliminado correctamente');
+        window.location.reload();
+      } else {
+        alert('Error: ' + (result.error || result.message || 'No se pudo eliminar el registro'));
+      }
+    } catch (error) {
+      console.error('Error al eliminar:', error);
+      alert('Error al conectar con el servidor');
+    } finally {
+      btnEliminar.disabled = false;
+      btnEliminar.textContent = textoOriginal;
+    }
+  }
+
   function init() {
     extraer();
+    const btnAgregar = document.getElementById('btn-agregar-virtual');
+    if (btnAgregar) {
+      btnAgregar.addEventListener('click', () => abrirModal(null, 'create'));
+    }
+    const btnEliminar = document.getElementById('btn-eliminar-modal');
+    if (btnEliminar) {
+      btnEliminar.addEventListener('click', eliminarRegistro);
+    }
     document.getElementById('busqueda-virtuales').addEventListener('input', aplicarFiltros);
     document.getElementById('btn-limpiar-virtuales').addEventListener('click', () => {
       document.getElementById('busqueda-virtuales').value = '';
@@ -676,12 +808,19 @@
     document.getElementById('form-editar-virtual').addEventListener('submit', async (e) => {
       e.preventDefault();
       
-      const numero = document.getElementById('modal-numero').value;
-      if (!numero) {
+      const numeroValor = (document.getElementById('modal-numero').value || '').trim();
+      if (!numeroValor) {
         alert('No se puede guardar: el número es requerido');
         return;
       }
       
+      const numeroInt = parseInt(numeroValor, 10);
+      if (Number.isNaN(numeroInt)) {
+        alert('No se puede guardar: el número debe ser numérico');
+        return;
+      }
+      
+      const esCreacion = modoModal === 'create';
       const btnGuardar = document.getElementById('btn-guardar-modal');
       const textoOriginal = btnGuardar.textContent;
       btnGuardar.disabled = true;
@@ -714,24 +853,32 @@
         op_regular: document.getElementById('modal-op-regular').value,
         carretes: document.getElementById('modal-carretes').value
       };
+      if (esCreacion) {
+        datos.numero = numeroInt;
+      }
       
       try {
-        const response = await fetch(`/api/virtuales/${numero}`, {
-          method: 'PUT',
+        const response = await fetch(esCreacion ? '/api/virtuales' : `/api/virtuales/${numeroInt}`, {
+          method: esCreacion ? 'POST' : 'PUT',
           headers: {
             'Content-Type': 'application/json'
           },
           body: JSON.stringify(datos)
         });
         
-        const result = await response.json();
+        let result = {};
+        try {
+          result = await response.json();
+        } catch (_) {
+          result = {};
+        }
         
         if (response.ok && result.success) {
-          alert('Registro actualizado correctamente');
+          alert(esCreacion ? 'Registro creado correctamente' : 'Registro actualizado correctamente');
           // Recargar la página para reflejar los cambios
           window.location.reload();
         } else {
-          alert('Error: ' + (result.error || 'No se pudo actualizar el registro'));
+          alert('Error: ' + (result.error || result.message || 'No se pudo procesar el registro'));
         }
       } catch (error) {
         console.error('Error al guardar:', error);

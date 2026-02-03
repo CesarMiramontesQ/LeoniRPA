@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.router import router as auth_router, get_current_user, AuthenticationError
 from app.db.init_db import init_db
 from app.db.base import get_db
-from app.db.models import User, ExecutionStatus
+from app.db.models import User, ExecutionStatus, MasterUnificadoVirtualOperacion
 from app.db import crud
 import threading
 import sys
@@ -982,6 +982,186 @@ async def virtuales(request: Request, current_user: User = Depends(get_current_u
             "virtuales": virtuales_data,
             "total_virtuales": total_virtuales,
             "estatus_counts": estatus_counts,
+        }
+    )
+
+
+@app.post("/api/virtuales")
+async def crear_virtual(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Crea un nuevo registro de virtuales."""
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "No se pudo leer el cuerpo de la solicitud"}
+        )
+    
+    numero_raw = data.get("numero")
+    if numero_raw in (None, "", "null"):
+        return JSONResponse(
+            status_code=400,
+            content={"error": "El campo 'numero' es requerido"}
+        )
+    
+    try:
+        numero = int(numero_raw)
+    except (ValueError, TypeError):
+        return JSONResponse(
+            status_code=400,
+            content={"error": "El campo 'numero' debe ser numérico"}
+        )
+    
+    existente = await crud.get_master_unificado_virtuales_by_numero(db, numero)
+    if existente:
+        return JSONResponse(
+            status_code=409,
+            content={"error": f"Ya existe un registro con el número {numero}"}
+        )
+    
+    def parse_bool(value):
+        if value is None or str(value).strip() == "":
+            return None
+        if isinstance(value, bool):
+            return value
+        valor_normalizado = str(value).strip().lower()
+        if valor_normalizado in {"si", "sí", "true", "1"}:
+            return True
+        if valor_normalizado in {"no", "false", "0"}:
+            return False
+        return None
+    
+    def parse_int(value):
+        if value is None or str(value).strip() == "":
+            return None
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return None
+    
+    def parse_str(value):
+        if value is None:
+            return None
+        valor = str(value).strip()
+        return valor or None
+    
+    fecha_pago = None
+    fecha_pago_raw = data.get("fecha_pago")
+    if isinstance(fecha_pago_raw, str) and fecha_pago_raw.strip():
+        for formato in ("%d/%m/%Y", "%Y-%m-%d"):
+            try:
+                fecha_pago = datetime.strptime(fecha_pago_raw.strip(), formato).date()
+                break
+            except ValueError:
+                continue
+    
+    try:
+        nuevo = await crud.create_master_unificado_virtuales(
+            db=db,
+            solicitud_previo=parse_bool(data.get("solicitud_previo")),
+            agente=parse_str(data.get("agente")),
+            pedimento=parse_int(data.get("pedimento")),
+            aduana=parse_int(data.get("aduana")),
+            patente=parse_int(data.get("patente")),
+            destino=parse_int(data.get("destino")),
+            cliente_space=parse_str(data.get("cliente_space")),
+            impo_expo=parse_str(data.get("impo_expo")),
+            proveedor_cliente=parse_str(data.get("proveedor_cliente")),
+            mes=parse_str(data.get("mes")),
+            complemento=parse_str(data.get("complemento")),
+            tipo_immex=parse_str(data.get("tipo_immex")),
+            factura=parse_str(data.get("factura")),
+            fecha_pago=fecha_pago,
+            informacion=parse_str(data.get("informacion")),
+            estatus=parse_str(data.get("estatus")),
+            op_regular=parse_bool(data.get("op_regular")),
+            tipo=parse_str(data.get("tipo")),
+            numero=numero,
+            carretes=parse_bool(data.get("carretes")),
+            servicio_cliente=parse_str(data.get("servicio_cliente")),
+            plazo=parse_str(data.get("plazo")),
+            firma=parse_str(data.get("firma")),
+            incoterm=parse_str(data.get("incoterm")),
+            tipo_exportacion=parse_str(data.get("tipo_exportacion"))
+        )
+    except Exception as exc:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Error al crear el registro: {str(exc)}"}
+        )
+    
+    return JSONResponse(
+        status_code=201,
+        content={
+            "success": True,
+            "message": "Registro creado correctamente",
+            "numero": nuevo.numero
+        }
+    )
+
+
+@app.delete("/api/virtuales/{numero}")
+async def eliminar_virtual(
+    numero: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Elimina un registro de virtuales. Solo admin y solicitando detalle."""
+    if (current_user.rol or "").lower() != "admin":
+        return JSONResponse(
+            status_code=403,
+            content={"error": "Solo los usuarios administradores pueden eliminar registros"}
+        )
+    
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    
+    detalle = (payload.get("detalle") or payload.get("comentario") or payload.get("motivo") or "").strip()
+    if not detalle:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "El detalle de eliminación es obligatorio"}
+        )
+    
+    registro = await crud.get_master_unificado_virtuales_by_numero(db, numero)
+    if not registro:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"No se encontró el registro con número {numero}"}
+        )
+    
+    datos_antes = crud.master_unificado_virtual_to_dict(registro)
+    eliminado = await crud.delete_master_unificado_virtuales(db, numero)
+    if not eliminado:
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"No se encontró el registro con número {numero}"}
+        )
+    
+    await crud.create_master_unificado_virtual_historial(
+        db,
+        numero=numero,
+        operacion=MasterUnificadoVirtualOperacion.DELETE,
+        user_id=current_user.id,
+        datos_antes=datos_antes,
+        datos_despues=None,
+        campos_modificados=None,
+        comentario=detalle
+    )
+    
+    return JSONResponse(
+        status_code=200,
+        content={
+            "success": True,
+            "message": "Registro eliminado correctamente",
+            "numero": numero
         }
     )
 
