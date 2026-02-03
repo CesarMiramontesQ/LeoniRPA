@@ -7,7 +7,7 @@ from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta, timezone, date
 from decimal import Decimal
-from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaCliente, MasterUnificadoVirtuales, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente
+from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaProveedoresNacional, CargaProveedoresNacionalHistorial, CargaCliente, MasterUnificadoVirtuales, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente
 from app.core.security import hash_password
 
 
@@ -3947,6 +3947,237 @@ async def actualizar_estatus_carga_proveedores_por_compras(
         }
 
 
+async def obtener_fecha_ultimo_cambio_estatus_proveedor_nacional(db: AsyncSession, codigo_proveedor: str, estatus: str) -> Optional[date]:
+    """Obtiene la fecha del último registro en el historial nacional donde el proveedor cambió al estatus dado."""
+    query = select(CargaProveedoresNacionalHistorial).where(
+        CargaProveedoresNacionalHistorial.codigo_proveedor == codigo_proveedor,
+        CargaProveedoresNacionalHistorial.estatus_nuevo == estatus
+    ).order_by(desc(CargaProveedoresNacionalHistorial.created_at)).limit(1)
+    result = await db.execute(query)
+    historial = result.scalar_one_or_none()
+    if historial and historial.created_at:
+        return historial.created_at.date()
+    return None
+
+
+async def actualizar_estatus_carga_proveedores_nacional_por_compras(db: AsyncSession) -> Dict[str, Any]:
+    """
+    Actualiza los estatus de carga_proveedores_nacional basándose en compras de los últimos 6 meses.
+    Solo considera proveedores con país = "MX" (México).
+    Mismas reglas que actualizar_estatus_carga_proveedores_por_compras pero filtro inverso (solo MX).
+    """
+    proveedores_marcados_baja = 0
+    proveedores_sin_modificacion = 0
+    proveedores_nuevos = 0
+    proveedores_eliminados = 0
+    proveedores_sin_cambios = 0
+    hoy = date.today()
+    errores = []
+    proveedores_a_eliminar = []
+
+    try:
+        fecha_limite_compras = datetime.now(timezone.utc) - timedelta(days=180)
+
+        # 1. Solo proveedores MX
+        query_proveedores_mx = select(Proveedor.codigo_proveedor).where(
+            Proveedor.pais.isnot(None),
+            func.upper(Proveedor.pais) == "MX"
+        )
+        result_mx = await db.execute(query_proveedores_mx)
+        proveedores_mx = set(row[0] for row in result_mx.fetchall() if row[0])
+
+        # 2. De esos MX, cuáles tienen compras en últimos 6 meses
+        query_con_compras = select(Compra.codigo_proveedor).where(
+            Compra.codigo_proveedor.isnot(None),
+            Compra.posting_date.isnot(None),
+            Compra.posting_date >= fecha_limite_compras,
+            Compra.codigo_proveedor.in_(proveedores_mx)
+        ).distinct()
+        result_compras = await db.execute(query_con_compras)
+        proveedores_con_compras_recientes = set(row[0] for row in result_compras.fetchall() if row[0])
+
+        # 3. Registros actuales en carga_proveedores_nacional
+        query_carga = select(CargaProveedoresNacional)
+        result_carga = await db.execute(query_carga)
+        carga_existentes = result_carga.scalars().all()
+        codigos_en_carga = set(cp.codigo_proveedor for cp in carga_existentes if cp.codigo_proveedor)
+
+        for carga_prov in carga_existentes:
+            try:
+                if not carga_prov.pais or carga_prov.pais.upper() != "MX":
+                    continue
+                estatus_anterior = carga_prov.estatus
+
+                if carga_prov.codigo_proveedor in proveedores_con_compras_recientes:
+                    if estatus_anterior == "Alta":
+                        fecha_ultimo_alta = await obtener_fecha_ultimo_cambio_estatus_proveedor_nacional(db, carga_prov.codigo_proveedor, "Alta")
+                        if fecha_ultimo_alta and es_mismo_mes(fecha_ultimo_alta, hoy):
+                            proveedores_sin_cambios += 1
+                            continue
+                        carga_prov.estatus = "Sin modificacion"
+                        carga_prov.operacion = "UPDATE"
+                        db.add(CargaProveedoresNacionalHistorial(
+                            carga_proveedores_nacional_id=carga_prov.id,
+                            codigo_proveedor=carga_prov.codigo_proveedor,
+                            operacion="UPDATE",
+                            estatus_anterior=estatus_anterior,
+                            estatus_nuevo="Sin modificacion",
+                            motivo="Actualización automática: proveedor con compras, cambio de Alta a Sin modificacion (mes diferente)"
+                        ))
+                        proveedores_sin_modificacion += 1
+                    elif estatus_anterior == "Sin modificacion":
+                        fecha_ultimo = await obtener_fecha_ultimo_cambio_estatus_proveedor_nacional(db, carga_prov.codigo_proveedor, "Sin modificacion")
+                        if fecha_ultimo and es_mismo_mes(fecha_ultimo, hoy):
+                            proveedores_sin_cambios += 1
+                            continue
+                        db.add(CargaProveedoresNacionalHistorial(
+                            carga_proveedores_nacional_id=carga_prov.id,
+                            codigo_proveedor=carga_prov.codigo_proveedor,
+                            operacion="UPDATE",
+                            estatus_anterior=estatus_anterior,
+                            estatus_nuevo="Sin modificacion",
+                            motivo="Actualización automática: proveedor con compras en últimos 6 meses"
+                        ))
+                        proveedores_sin_modificacion += 1
+                    elif estatus_anterior == "Baja":
+                        carga_prov.estatus = "Alta"
+                        carga_prov.operacion = "UPDATE"
+                        db.add(CargaProveedoresNacionalHistorial(
+                            carga_proveedores_nacional_id=carga_prov.id,
+                            codigo_proveedor=carga_prov.codigo_proveedor,
+                            operacion="UPDATE",
+                            estatus_anterior=estatus_anterior,
+                            estatus_nuevo="Alta",
+                            motivo="Actualización automática: proveedor reactivado con compras detectadas"
+                        ))
+                        proveedores_nuevos += 1
+                    else:
+                        carga_prov.estatus = "Alta"
+                        carga_prov.operacion = "UPDATE"
+                        db.add(CargaProveedoresNacionalHistorial(
+                            carga_proveedores_nacional_id=carga_prov.id,
+                            codigo_proveedor=carga_prov.codigo_proveedor,
+                            operacion="UPDATE",
+                            estatus_anterior=estatus_anterior,
+                            estatus_nuevo="Alta",
+                            motivo="Actualización automática: proveedor reactivado con compras detectadas"
+                        ))
+                        proveedores_nuevos += 1
+                else:
+                    if estatus_anterior == "Baja":
+                        fecha_ultima_baja = await obtener_fecha_ultimo_cambio_estatus_proveedor_nacional(db, carga_prov.codigo_proveedor, "Baja")
+                        if fecha_ultima_baja:
+                            if es_mismo_mes(fecha_ultima_baja, hoy):
+                                proveedores_sin_cambios += 1
+                                continue
+                            proveedores_a_eliminar.append((carga_prov, fecha_ultima_baja))
+                        else:
+                            db.add(CargaProveedoresNacionalHistorial(
+                                carga_proveedores_nacional_id=carga_prov.id,
+                                codigo_proveedor=carga_prov.codigo_proveedor,
+                                operacion="UPDATE",
+                                estatus_anterior=estatus_anterior,
+                                estatus_nuevo="Baja",
+                                motivo="Actualización automática: proveedor sin compras en últimos 6 meses"
+                            ))
+                            proveedores_marcados_baja += 1
+                    else:
+                        carga_prov.estatus = "Baja"
+                        carga_prov.operacion = "UPDATE"
+                        db.add(CargaProveedoresNacionalHistorial(
+                            carga_proveedores_nacional_id=carga_prov.id,
+                            codigo_proveedor=carga_prov.codigo_proveedor,
+                            operacion="UPDATE",
+                            estatus_anterior=estatus_anterior,
+                            estatus_nuevo="Baja",
+                            motivo="Actualización automática: proveedor sin compras en últimos 6 meses"
+                        ))
+                        proveedores_marcados_baja += 1
+            except Exception as e:
+                errores.append(f"Error actualizando proveedor nacional {getattr(carga_prov, 'codigo_proveedor', '?')}: {str(e)}")
+
+        for carga_prov, fecha_baja_anterior in proveedores_a_eliminar:
+            try:
+                db.add(CargaProveedoresNacionalHistorial(
+                    carga_proveedores_nacional_id=carga_prov.id,
+                    codigo_proveedor=carga_prov.codigo_proveedor,
+                    operacion="DELETE",
+                    estatus_anterior="Baja",
+                    estatus_nuevo=None,
+                    motivo=f"Eliminación automática: proveedor con Baja dos meses seguidos (Baja anterior: {fecha_baja_anterior.strftime('%m/%Y')})"
+                ))
+                await db.delete(carga_prov)
+                proveedores_eliminados += 1
+            except Exception as e:
+                errores.append(f"Error eliminando proveedor nacional {getattr(carga_prov, 'codigo_proveedor', '?')}: {str(e)}")
+
+        # Nuevos: en compras recientes MX y no en carga_proveedores_nacional
+        proveedores_nuevos_codigos = proveedores_con_compras_recientes - codigos_en_carga
+        for codigo_proveedor in proveedores_nuevos_codigos:
+            try:
+                result_existe = await db.execute(select(func.count(CargaProveedoresNacional.id)).where(CargaProveedoresNacional.codigo_proveedor == codigo_proveedor))
+                if (result_existe.scalar() or 0) > 0:
+                    continue
+                result_prov = await db.execute(select(Proveedor).where(Proveedor.codigo_proveedor == codigo_proveedor))
+                proveedor_info = result_prov.scalar_one_or_none()
+                if proveedor_info and proveedor_info.pais and proveedor_info.pais.upper() != "MX":
+                    continue
+                nombre = domicilio = rfc = None
+                pais = "MX"
+                if proveedor_info:
+                    nombre = proveedor_info.nombre
+                    domicilio = proveedor_info.domicilio
+                else:
+                    row_nombre = await db.execute(select(Compra.nombre_proveedor).where(Compra.codigo_proveedor == codigo_proveedor, Compra.nombre_proveedor.isnot(None)).limit(1))
+                    nombre = (row_nombre.fetchone() or (None,))[0]
+                nuevo = CargaProveedoresNacional(
+                    codigo_proveedor=codigo_proveedor,
+                    nombre=nombre,
+                    pais=pais,
+                    domicilio=domicilio,
+                    rfc=rfc,
+                    cliente_proveedor="Proveedor",
+                    estatus="Alta",
+                    operacion="CREATE"
+                )
+                db.add(nuevo)
+                await db.flush()
+                db.add(CargaProveedoresNacionalHistorial(
+                    carga_proveedores_nacional_id=nuevo.id,
+                    codigo_proveedor=codigo_proveedor,
+                    operacion="CREATE",
+                    estatus_anterior=None,
+                    estatus_nuevo="Alta",
+                    motivo="Proveedor nuevo (MX) con compras en los últimos 6 meses"
+                ))
+                proveedores_nuevos += 1
+            except Exception as e:
+                errores.append(f"Error creando proveedor nacional {codigo_proveedor}: {str(e)}")
+
+        await db.commit()
+        return {
+            "exitoso": True,
+            "proveedores_marcados_baja": proveedores_marcados_baja,
+            "proveedores_sin_modificacion": proveedores_sin_modificacion,
+            "proveedores_nuevos": proveedores_nuevos,
+            "proveedores_eliminados": proveedores_eliminados,
+            "proveedores_sin_cambios": proveedores_sin_cambios,
+            "total_procesados": proveedores_marcados_baja + proveedores_sin_modificacion + proveedores_nuevos + proveedores_eliminados,
+            "errores": errores if errores else None
+        }
+    except Exception as e:
+        await db.rollback()
+        return {
+            "exitoso": False,
+            "error": str(e),
+            "proveedores_marcados_baja": proveedores_marcados_baja,
+            "proveedores_sin_modificacion": proveedores_sin_modificacion,
+            "proveedores_nuevos": proveedores_nuevos,
+            "proveedores_eliminados": proveedores_eliminados,
+            "proveedores_sin_cambios": proveedores_sin_cambios,
+        }
+
+
 # ============================================================================
 # CRUD para CargaProveedorHistorial
 # ============================================================================
@@ -4003,6 +4234,82 @@ async def get_historial_por_proveedor(
     
     result = await db.execute(query)
     return list(result.scalars().all())
+
+
+# ============================================================================
+# CRUD para CargaProveedoresNacional
+# ============================================================================
+
+async def list_carga_proveedores_nacional(
+    db: AsyncSession,
+    limit: int = 100,
+    offset: int = 0,
+    codigo_proveedor: Optional[str] = None,
+    estatus: Optional[str] = None,
+    operacion: Optional[str] = None
+) -> List[CargaProveedoresNacional]:
+    """Lista registros de carga de proveedores nacionales con filtros opcionales."""
+    query = select(CargaProveedoresNacional)
+    if codigo_proveedor:
+        query = query.where(CargaProveedoresNacional.codigo_proveedor.ilike(f"%{codigo_proveedor}%"))
+    if estatus:
+        query = query.where(CargaProveedoresNacional.estatus == estatus)
+    if operacion:
+        query = query.where(CargaProveedoresNacional.operacion == operacion)
+    query = query.order_by(desc(CargaProveedoresNacional.created_at)).limit(limit).offset(offset)
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def count_carga_proveedores_nacional(
+    db: AsyncSession,
+    codigo_proveedor: Optional[str] = None,
+    estatus: Optional[str] = None,
+    operacion: Optional[str] = None
+) -> int:
+    """Cuenta el total de registros de carga de proveedores nacionales con filtros opcionales."""
+    query = select(func.count(CargaProveedoresNacional.id))
+    if codigo_proveedor:
+        query = query.where(CargaProveedoresNacional.codigo_proveedor.ilike(f"%{codigo_proveedor}%"))
+    if estatus:
+        query = query.where(CargaProveedoresNacional.estatus == estatus)
+    if operacion:
+        query = query.where(CargaProveedoresNacional.operacion == operacion)
+    result = await db.execute(query)
+    return result.scalar() or 0
+
+
+async def list_carga_proveedores_nacional_historial(
+    db: AsyncSession,
+    limit: int = 50,
+    offset: int = 0,
+    codigo_proveedor: Optional[str] = None,
+    operacion: Optional[str] = None
+) -> List[CargaProveedoresNacionalHistorial]:
+    """Lista el historial de cambios en carga_proveedores_nacional."""
+    query = select(CargaProveedoresNacionalHistorial)
+    if codigo_proveedor:
+        query = query.where(CargaProveedoresNacionalHistorial.codigo_proveedor.ilike(f"%{codigo_proveedor}%"))
+    if operacion:
+        query = query.where(CargaProveedoresNacionalHistorial.operacion == operacion)
+    query = query.order_by(desc(CargaProveedoresNacionalHistorial.created_at)).limit(limit).offset(offset)
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def count_carga_proveedores_nacional_historial(
+    db: AsyncSession,
+    codigo_proveedor: Optional[str] = None,
+    operacion: Optional[str] = None
+) -> int:
+    """Cuenta el total de registros en el historial de carga proveedores nacionales."""
+    query = select(func.count(CargaProveedoresNacionalHistorial.id))
+    if codigo_proveedor:
+        query = query.where(CargaProveedoresNacionalHistorial.codigo_proveedor.ilike(f"%{codigo_proveedor}%"))
+    if operacion:
+        query = query.where(CargaProveedoresNacionalHistorial.operacion == operacion)
+    result = await db.execute(query)
+    return result.scalar() or 0
 
 
 # ============================================================================

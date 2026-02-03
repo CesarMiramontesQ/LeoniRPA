@@ -1,0 +1,461 @@
+{% extends "base.html" %} {% block content %}
+<div class="space-y-6">
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold text-gray-900">Carga Proveedores Nacionales</h1>
+      <p class="mt-1 text-sm text-gray-600">
+        Registros de proveedores nacionales (MX) para aduanas
+      </p>
+    </div>
+    <div class="flex items-center gap-3">
+      <span class="inline-flex items-center rounded-full bg-blue-100 px-3 py-1 text-sm font-medium text-blue-800">
+        {{ total }} registros
+      </span>
+      <button
+        id="btn-actualizar"
+        onclick="actualizarNacional()"
+        class="inline-flex items-center rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        <svg id="icon-actualizar" class="mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+        </svg>
+        <svg id="icon-loading" class="mr-2 h-4 w-4 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <span id="btn-text">Actualizar</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Tarjetas de Resumen -->
+  <div>
+    <h3 class="text-base font-semibold text-gray-900">Resumen de Proveedores Nacionales</h3>
+    <dl class="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+      <a href="/carga-proveedores-nacional" class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6 hover:shadow-md transition-shadow border-l-4 border-indigo-500">
+        <dt class="truncate text-sm font-medium text-gray-500">Total</dt>
+        <dd class="mt-1 text-3xl font-semibold tracking-tight text-indigo-600">{{ count_total }}</dd>
+      </a>
+      <a href="/carga-proveedores-nacional?estatus=Sin+modificacion" class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6 hover:shadow-md transition-shadow border-l-4 border-blue-500">
+        <dt class="truncate text-sm font-medium text-gray-500">Sin Modificación</dt>
+        <dd class="mt-1 text-3xl font-semibold tracking-tight text-blue-600">{{ count_sin_modificacion }}</dd>
+      </a>
+      <a href="/carga-proveedores-nacional?estatus=Alta" class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6 hover:shadow-md transition-shadow border-l-4 border-green-500">
+        <dt class="truncate text-sm font-medium text-gray-500">Alta</dt>
+        <dd class="mt-1 text-3xl font-semibold tracking-tight text-green-600">{{ count_alta }}</dd>
+      </a>
+      <a href="/carga-proveedores-nacional?estatus=Baja" class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6 hover:shadow-md transition-shadow border-l-4 border-red-500">
+        <dt class="truncate text-sm font-medium text-gray-500">Baja</dt>
+        <dd class="mt-1 text-3xl font-semibold tracking-tight text-red-600">{{ count_baja }}</dd>
+      </a>
+    </dl>
+  </div>
+
+  <!-- Filtros -->
+  <div class="rounded-lg bg-white shadow-sm">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <form method="GET" action="/carga-proveedores-nacional" class="flex flex-wrap items-end gap-4">
+        <div class="flex-1 min-w-[180px]">
+          <label for="search" class="block text-sm font-medium text-gray-700 mb-1">Código proveedor</label>
+          <input
+            type="text"
+            id="search"
+            name="search"
+            value="{{ search }}"
+            placeholder="Buscar..."
+            class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+        </div>
+        <div class="w-40">
+          <label for="estatus" class="block text-sm font-medium text-gray-700 mb-1">Estatus</label>
+          <select
+            id="estatus"
+            name="estatus"
+            class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="">Todos</option>
+            <option value="Alta" {% if estatus == 'Alta' %}selected{% endif %}>Alta</option>
+            <option value="Baja" {% if estatus == 'Baja' %}selected{% endif %}>Baja</option>
+            <option value="Sin modificacion" {% if estatus == 'Sin modificacion' %}selected{% endif %}>Sin modificación</option>
+          </select>
+        </div>
+        <div class="w-40">
+          <label for="operacion" class="block text-sm font-medium text-gray-700 mb-1">Operación virtual</label>
+          <select
+            id="operacion"
+            name="operacion"
+            class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="">Todas</option>
+            <option value="CREATE" {% if operacion == 'CREATE' %}selected{% endif %}>Alta</option>
+            <option value="UPDATE" {% if operacion == 'UPDATE' %}selected{% endif %}>Modificación</option>
+            <option value="DELETE" {% if operacion == 'DELETE' %}selected{% endif %}>Baja</option>
+          </select>
+        </div>
+        <div>
+          <button
+            type="submit"
+            class="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+          >
+            <svg class="mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+            </svg>
+            Buscar
+          </button>
+        </div>
+        {% if search or estatus or operacion %}
+        <div>
+          <a
+            href="/carga-proveedores-nacional"
+            class="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Limpiar
+          </a>
+        </div>
+        {% endif %}
+      </form>
+    </div>
+  </div>
+
+  <!-- Tabla -->
+  <div class="rounded-lg bg-white shadow-sm overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <h2 class="text-lg font-medium text-gray-900">Registros de proveedores nacionales</h2>
+    </div>
+
+    {% if registros and registros|length > 0 %}
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Código</th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nombre</th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">País</th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Domicilio</th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente/Proveedor</th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estatus</th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">RFC</th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Operación virtual</th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actualizado</th>
+          </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+          {% for r in registros %}
+          <tr class="hover:bg-gray-50">
+            <td class="px-4 py-3 whitespace-nowrap">
+              <span class="text-sm font-medium text-blue-600">{{ r.codigo_proveedor or '-' }}</span>
+            </td>
+            <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{{ r.nombre or '-' }}</td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-800">{{ r.pais or '-' }}</span>
+            </td>
+            <td class="px-4 py-3 max-w-xs">
+              <div class="text-sm text-gray-600 truncate" title="{{ r.domicilio or '' }}">{{ r.domicilio or '-' }}</div>
+            </td>
+            <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{{ r.cliente_proveedor or '-' }}</td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              {% if r.estatus == 'Alta' %}
+              <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">Alta</span>
+              {% elif r.estatus == 'Baja' %}
+              <span class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">Baja</span>
+              {% elif r.estatus == 'Sin modificacion' %}
+              <span class="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">Sin modificación</span>
+              {% else %}
+              <span class="text-sm text-gray-500">{{ r.estatus or '-' }}</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-600">{{ r.rfc or '-' }}</td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              {% if r.operacion %}
+                {% if r.operacion == 'CREATE' %}
+                <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">Alta</span>
+                {% elif r.operacion == 'UPDATE' %}
+                <span class="inline-flex items-center rounded-full bg-yellow-100 px-2.5 py-0.5 text-xs font-medium text-yellow-800">Modificación</span>
+                {% elif r.operacion == 'DELETE' %}
+                <span class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">Baja</span>
+                {% else %}
+                <span class="text-sm text-gray-500">{{ r.operacion }}</span>
+                {% endif %}
+              {% else %}
+              <span class="text-sm text-gray-400">-</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+              {{ r.updated_at.strftime('%d/%m/%Y %H:%M') if r.updated_at else (r.created_at.strftime('%d/%m/%Y %H:%M') if r.created_at else '-') }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% if total_pages > 1 %}
+    <div class="px-6 py-4 border-t border-gray-200 bg-gray-50">
+      <div class="flex items-center justify-between">
+        <div class="text-sm text-gray-700">
+          Página <span class="font-medium">{{ page }}</span> de <span class="font-medium">{{ total_pages }}</span>
+        </div>
+        <div class="flex items-center gap-2">
+          {% if page > 1 %}
+          <a
+            href="/carga-proveedores-nacional?page={{ page - 1 }}{% if search %}&search={{ search }}{% endif %}{% if estatus %}&estatus={{ estatus }}{% endif %}{% if operacion %}&operacion={{ operacion }}{% endif %}"
+            class="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            <svg class="mr-1 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+            Anterior
+          </a>
+          {% endif %}
+          {% if page < total_pages %}
+          <a
+            href="/carga-proveedores-nacional?page={{ page + 1 }}{% if search %}&search={{ search }}{% endif %}{% if estatus %}&estatus={{ estatus }}{% endif %}{% if operacion %}&operacion={{ operacion }}{% endif %}"
+            class="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Siguiente
+            <svg class="ml-1 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+          </a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="px-6 py-12">
+      <div class="text-center">
+        <svg class="mx-auto h-12 w-12 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5m6 4.125l2.25 2.25m0 0l2.25 2.25M12 13.875l2.25-2.25M12 13.875l-2.25 2.25M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
+        </svg>
+        <h3 class="mt-2 text-sm font-semibold text-gray-900">No hay registros</h3>
+        <p class="mt-1 text-sm text-gray-500">
+          {% if search or estatus or operacion %}
+          No se encontraron registros con los filtros seleccionados.
+          {% else %}
+          Aún no hay registros de carga de proveedores nacionales.
+          {% endif %}
+        </p>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Historial de Movimientos -->
+  <div class="rounded-lg bg-white shadow-sm overflow-hidden">
+    <div class="px-6 py-4 border-b border-gray-200">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-medium text-gray-900">Historial de Movimientos</h2>
+        <span class="inline-flex items-center rounded-full bg-gray-100 px-3 py-1 text-sm font-medium text-gray-600">
+          {{ total_historial }} registros
+        </span>
+      </div>
+    </div>
+    {% if historial and historial|length > 0 %}
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Código Proveedor</th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Operación</th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estatus Anterior</th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estatus Nuevo</th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Motivo</th>
+          </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+          {% for h in historial %}
+          <tr class="hover:bg-gray-50">
+            <td class="px-4 py-3 whitespace-nowrap">
+              <span class="text-sm text-gray-600">{{ h.created_at.strftime('%d/%m/%Y %H:%M') if h.created_at else '-' }}</span>
+            </td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              <span class="text-sm font-medium text-blue-600">{{ h.codigo_proveedor or '-' }}</span>
+            </td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              {% if h.operacion == 'CREATE' %}
+              <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">Alta</span>
+              {% elif h.operacion == 'UPDATE' %}
+              <span class="inline-flex items-center rounded-full bg-yellow-100 px-2.5 py-0.5 text-xs font-medium text-yellow-800">Modificación</span>
+              {% elif h.operacion == 'DELETE' %}
+              <span class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">Baja</span>
+              {% else %}
+              <span class="text-sm text-gray-500">{{ h.operacion or '-' }}</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              {% if h.estatus_anterior %}
+              <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700">{{ h.estatus_anterior }}</span>
+              {% else %}
+              <span class="text-sm text-gray-400">-</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3 whitespace-nowrap">
+              {% if h.estatus_nuevo == 'Alta' %}
+              <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">{{ h.estatus_nuevo }}</span>
+              {% elif h.estatus_nuevo == 'Baja' %}
+              <span class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">{{ h.estatus_nuevo }}</span>
+              {% elif h.estatus_nuevo == 'Sin modificacion' %}
+              <span class="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">Sin modificación</span>
+              {% elif h.estatus_nuevo %}
+              <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-700">{{ h.estatus_nuevo }}</span>
+              {% else %}
+              <span class="text-sm text-gray-400">-</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3">
+              <div class="text-sm text-gray-600 max-w-xs truncate" title="{{ h.motivo or '' }}">{{ h.motivo or '-' }}</div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="px-6 py-12">
+      <div class="text-center">
+        <svg class="mx-auto h-12 w-12 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+        </svg>
+        <h3 class="mt-2 text-sm font-semibold text-gray-900">Sin historial</h3>
+        <p class="mt-1 text-sm text-gray-500">Aún no hay movimientos registrados en el historial de proveedores nacionales.</p>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Modal de Resultados -->
+<div id="modal-resultados" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+  <div class="flex min-h-screen items-center justify-center p-4 text-center sm:p-0">
+    <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onclick="cerrarModal()"></div>
+    <div class="relative transform overflow-hidden rounded-lg bg-white text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg">
+      <div class="px-6 py-4 border-b border-gray-200">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <div id="modal-icon" class="flex h-10 w-10 items-center justify-center rounded-full"></div>
+            <h3 id="modal-title" class="text-lg font-semibold text-gray-900">Resultado de Actualización</h3>
+          </div>
+          <button onclick="cerrarModal()" class="text-gray-400 hover:text-gray-500">
+            <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+      </div>
+      <div class="px-6 py-4">
+        <p id="modal-message" class="text-sm text-gray-600 mb-4"></p>
+        <div id="modal-stats" class="grid grid-cols-2 gap-3">
+          <div class="rounded-lg bg-green-50 p-3 border border-green-200">
+            <span class="text-xs font-medium text-green-800">Nuevos (Alta)</span>
+            <p id="stat-nuevos" class="mt-1 text-xl font-bold text-green-600">0</p>
+          </div>
+          <div class="rounded-lg bg-blue-50 p-3 border border-blue-200">
+            <span class="text-xs font-medium text-blue-800">Sin modificación</span>
+            <p id="stat-sin-modificacion" class="mt-1 text-xl font-bold text-blue-600">0</p>
+          </div>
+          <div class="rounded-lg bg-yellow-50 p-3 border border-yellow-200">
+            <span class="text-xs font-medium text-yellow-800">Dados de Baja</span>
+            <p id="stat-baja" class="mt-1 text-xl font-bold text-yellow-600">0</p>
+          </div>
+          <div class="rounded-lg bg-red-50 p-3 border border-red-200">
+            <span class="text-xs font-medium text-red-800">Eliminados</span>
+            <p id="stat-eliminados" class="mt-1 text-xl font-bold text-red-600">0</p>
+          </div>
+          <div class="rounded-lg bg-gray-50 p-3 border border-gray-200 col-span-2">
+            <span class="text-xs font-medium text-gray-700">Ya actualizados</span>
+            <p id="stat-sin-cambios" class="mt-1 text-xl font-bold text-gray-600">0</p>
+          </div>
+        </div>
+        <div class="mt-4 rounded-lg bg-indigo-50 p-4 border border-indigo-200">
+          <span class="text-sm font-medium text-indigo-800">Total Procesados</span>
+          <p id="stat-total" class="text-2xl font-bold text-indigo-600">0</p>
+        </div>
+        <div id="modal-errores" class="mt-4 hidden">
+          <div class="rounded-lg bg-yellow-50 p-4 border border-yellow-200">
+            <span class="text-sm font-medium text-yellow-800">Advertencias</span>
+            <ul id="lista-errores" class="text-sm text-yellow-700 list-disc list-inside max-h-32 overflow-y-auto mt-2"></ul>
+          </div>
+        </div>
+      </div>
+      <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+        <button onclick="cerrarModal()" class="inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cerrar</button>
+        <button onclick="cerrarYRecargar()" class="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+          <svg class="mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
+          Actualizar Página
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast-error" class="fixed top-4 right-4 z-50 hidden">
+  <div class="rounded-lg px-4 py-3 shadow-lg bg-red-100 text-red-800">
+    <span id="toast-error-message" class="text-sm font-medium"></span>
+  </div>
+</div>
+
+<script>
+function mostrarModal(data) {
+  const d = data.data || {};
+  document.getElementById('stat-nuevos').textContent = d.proveedores_nuevos || 0;
+  document.getElementById('stat-sin-modificacion').textContent = d.proveedores_sin_modificacion || 0;
+  document.getElementById('stat-baja').textContent = d.proveedores_marcados_baja || 0;
+  document.getElementById('stat-eliminados').textContent = d.proveedores_eliminados || 0;
+  document.getElementById('stat-sin-cambios').textContent = d.proveedores_sin_cambios || 0;
+  document.getElementById('stat-total').textContent = d.total_procesados || 0;
+  var icon = document.getElementById('modal-icon');
+  var title = document.getElementById('modal-title');
+  var msg = document.getElementById('modal-message');
+  if (data.success) {
+    icon.className = 'flex h-10 w-10 items-center justify-center rounded-full bg-green-100';
+    icon.innerHTML = '<svg class="h-6 w-6 text-green-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" /></svg>';
+    title.textContent = 'Actualización Completada';
+    msg.textContent = 'Se han procesado los proveedores nacionales (MX) según las reglas establecidas.';
+  } else {
+    icon.className = 'flex h-10 w-10 items-center justify-center rounded-full bg-red-100';
+    icon.innerHTML = '<svg class="h-6 w-6 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z" /></svg>';
+    title.textContent = 'Error en Actualización';
+    msg.textContent = data.message || 'Ocurrió un error durante la actualización.';
+  }
+  var errDiv = document.getElementById('modal-errores');
+  var listErr = document.getElementById('lista-errores');
+  if (d.errores && d.errores.length > 0) {
+    listErr.innerHTML = d.errores.map(function(e) { return '<li>' + e + '</li>'; }).join('');
+    errDiv.classList.remove('hidden');
+  } else {
+    errDiv.classList.add('hidden');
+  }
+  document.getElementById('modal-resultados').classList.remove('hidden');
+}
+function cerrarModal() { document.getElementById('modal-resultados').classList.add('hidden'); }
+function cerrarYRecargar() { cerrarModal(); window.location.reload(); }
+function mostrarToastError(message) {
+  document.getElementById('toast-error-message').textContent = message;
+  document.getElementById('toast-error').classList.remove('hidden');
+  setTimeout(function() { document.getElementById('toast-error').classList.add('hidden'); }, 5000);
+}
+async function actualizarNacional() {
+  var btn = document.getElementById('btn-actualizar');
+  var iconA = document.getElementById('icon-actualizar');
+  var iconL = document.getElementById('icon-loading');
+  var txt = document.getElementById('btn-text');
+  btn.disabled = true;
+  iconA.classList.add('hidden');
+  iconL.classList.remove('hidden');
+  txt.textContent = 'Actualizando...';
+  try {
+    var response = await fetch('/carga-proveedores-nacional/actualizar', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+    var data = await response.json();
+    btn.disabled = false;
+    iconA.classList.remove('hidden');
+    iconL.classList.add('hidden');
+    txt.textContent = 'Actualizar';
+    mostrarModal(data);
+  } catch (e) {
+    mostrarToastError('Error de conexión: ' + e.message);
+    btn.disabled = false;
+    iconA.classList.remove('hidden');
+    iconL.classList.add('hidden');
+    txt.textContent = 'Actualizar';
+  }
+}
+</script>
+{% endblock %}

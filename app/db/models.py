@@ -861,6 +861,48 @@ class CargaProveedorHistorial(Base):
         return f"<CargaProveedorHistorial(id={self.id}, codigo_proveedor={self.codigo_proveedor}, operacion={self.operacion.value}, created_at={self.created_at})>"
 
 
+class CargaProveedoresNacional(Base):
+    """Modelo para carga de proveedores nacionales."""
+    __tablename__ = "carga_proveedores_nacional"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    codigo_proveedor = Column(String, nullable=True, index=True)
+    nombre = Column(String, nullable=True)
+    apellido_paterno = Column(String, nullable=True)
+    apellido_materno = Column(String, nullable=True)
+    pais = Column(String, nullable=True, index=True)
+    domicilio = Column(Text, nullable=True)
+    cliente_proveedor = Column(String, nullable=True)
+    estatus = Column(String, nullable=True, index=True)
+    rfc = Column(String, nullable=True, index=True)
+    operacion = Column(String, nullable=True, index=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f"<CargaProveedoresNacional(id={self.id}, codigo_proveedor={self.codigo_proveedor}, operacion={self.operacion})>"
+
+
+class CargaProveedoresNacionalHistorial(Base):
+    """Historial de cambios en carga de proveedores nacionales (solo MX)."""
+    __tablename__ = "carga_proveedores_nacional_historial"
+
+    id = Column(Integer, primary_key=True, index=True)
+    carga_proveedores_nacional_id = Column(Integer, nullable=True, index=True)
+    codigo_proveedor = Column(String, nullable=True, index=True)
+    operacion = Column(String, nullable=False, index=True)  # CREATE, UPDATE, DELETE
+    estatus_anterior = Column(String, nullable=True)
+    estatus_nuevo = Column(String, nullable=True)
+    motivo = Column(String, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    def __repr__(self):
+        return f"<CargaProveedoresNacionalHistorial(id={self.id}, codigo_proveedor={self.codigo_proveedor}, operacion={self.operacion})>"
+
+
 class CargaCliente(Base):
     """Modelo para carga de clientes en aduanas."""
     __tablename__ = "carga_clientes"

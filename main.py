@@ -785,6 +785,93 @@ async def actualizar_carga_proveedores(
         )
 
 
+@app.get("/carga-proveedores-nacional")
+async def carga_proveedores_nacional(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    page: int = 1,
+    search: str = "",
+    estatus: str = "",
+    operacion: str = ""
+):
+    """Vista de carga de proveedores nacionales (Aduanas) - requiere autenticación."""
+    limit = 50
+    offset = (page - 1) * limit
+    registros = await crud.list_carga_proveedores_nacional(
+        db,
+        limit=limit,
+        offset=offset,
+        codigo_proveedor=search if search else None,
+        estatus=estatus if estatus else None,
+        operacion=operacion if operacion else None,
+    )
+    total = await crud.count_carga_proveedores_nacional(
+        db,
+        codigo_proveedor=search if search else None,
+        estatus=estatus if estatus else None,
+        operacion=operacion if operacion else None,
+    )
+    total_pages = max(1, (total + limit - 1) // limit)
+    count_alta = await crud.count_carga_proveedores_nacional(db, estatus="Alta")
+    count_baja = await crud.count_carga_proveedores_nacional(db, estatus="Baja")
+    count_sin_modificacion = await crud.count_carga_proveedores_nacional(db, estatus="Sin modificacion")
+    count_total = await crud.count_carga_proveedores_nacional(db)
+    historial = await crud.list_carga_proveedores_nacional_historial(db, limit=50)
+    total_historial = await crud.count_carga_proveedores_nacional_historial(db)
+    return templates.TemplateResponse(
+        "carga_proveedores_nacional.html",
+        {
+            "request": request,
+            "active_page": "carga_proveedores_nacional",
+            "current_user": current_user,
+            "registros": registros,
+            "total": total,
+            "page": page,
+            "total_pages": total_pages,
+            "search": search,
+            "estatus": estatus,
+            "operacion": operacion,
+            "count_alta": count_alta,
+            "count_baja": count_baja,
+            "count_sin_modificacion": count_sin_modificacion,
+            "count_total": count_total,
+            "historial": historial,
+            "total_historial": total_historial,
+        }
+    )
+
+
+@app.post("/carga-proveedores-nacional/actualizar")
+async def actualizar_carga_proveedores_nacional(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Actualiza los estatus de proveedores nacionales (solo MX) según compras de los últimos 6 meses.
+    Mismas reglas que Carga Proveedor pero filtro de país = MX únicamente.
+    """
+    resultado = await crud.actualizar_estatus_carga_proveedores_nacional_por_compras(db)
+    if resultado.get("exitoso"):
+        return JSONResponse(
+            content={
+                "success": True,
+                "message": f"Actualización completada. Nuevos: {resultado['proveedores_nuevos']}, Sin modificación: {resultado['proveedores_sin_modificacion']}, Baja: {resultado['proveedores_marcados_baja']}, Eliminados: {resultado['proveedores_eliminados']}",
+                "data": resultado
+            },
+            status_code=200
+        )
+    return JSONResponse(
+        content={
+            "success": False,
+            "message": resultado.get("error", "Error desconocido"),
+            "data": resultado
+        },
+        status_code=500
+    )
+
+
 @app.get("/carga-cliente")
 async def carga_cliente(
     request: Request, 
