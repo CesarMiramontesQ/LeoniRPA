@@ -245,18 +245,34 @@
   async function cargarVentas() {
     try {
       const params = new URLSearchParams();
-      params.append('limit', '10000'); // Cargar muchos registros para filtrado del lado del cliente
-      
+      params.append('limit', '50000'); // Límite alto para obtener todos los que coincidan con los filtros
+      const search = document.getElementById('busqueda-general').value.trim();
+      const cliente = document.getElementById('cliente').value.trim();
+      const codigoCliente = document.getElementById('codigo-cliente').value.trim();
+      const periodoInicio = document.getElementById('periodo-inicio').value;
+      const periodoFin = document.getElementById('periodo-fin').value;
+      const producto = document.getElementById('producto').value.trim();
+      const planta = document.getElementById('planta').value.trim();
+      if (search) params.append('search', search);
+      if (cliente) params.append('cliente', cliente);
+      if (codigoCliente) params.append('codigo_cliente', codigoCliente);
+      if (periodoInicio) params.append('periodo_inicio', periodoInicio);
+      if (periodoFin) params.append('periodo_fin', periodoFin);
+      if (producto) params.append('producto', producto);
+      if (planta) params.append('planta', planta);
+
       const response = await fetch(`/api/ventas?${params.toString()}`);
       const data = await response.json();
-      
+
       if (response.ok) {
         todasLasVentas = data.ventas || [];
-        // Actualizar el total real si viene en la respuesta (por si hay más de 10,000 registros)
-        if (data.total !== undefined) {
+        totalVentasReal = data.total !== undefined ? data.total : todasLasVentas.length;
+        // Cuando se usan filtros en la API, los datos ya vienen filtrados; si no hay filtros, total es el del servidor
+        if (!search && !cliente && !codigoCliente && !periodoInicio && !periodoFin && !producto && !planta && data.total !== undefined) {
           totalVentasReal = data.total;
         }
-        aplicarFiltros();
+        ventasFiltradas = todasLasVentas;
+        paginaActual = 1;
         renderizarTabla();
         actualizarContadores();
       } else {
@@ -268,34 +284,20 @@
   }
 
   function configurarEventos() {
-    // Filtros
-    document.getElementById('busqueda-general').addEventListener('input', function() {
+    // Al cambiar cualquier filtro, recargar desde la API con esos filtros (así se obtienen todos los registros que coinciden)
+    function programarRecarga() {
       clearTimeout(timeoutBusqueda);
-      timeoutBusqueda = setTimeout(aplicarFiltros, 300);
-    });
-    
-    document.getElementById('cliente').addEventListener('input', function() {
-      clearTimeout(timeoutBusqueda);
-      timeoutBusqueda = setTimeout(aplicarFiltros, 300);
-    });
-    
-    document.getElementById('codigo-cliente').addEventListener('input', function() {
-      clearTimeout(timeoutBusqueda);
-      timeoutBusqueda = setTimeout(aplicarFiltros, 300);
-    });
-    
-    document.getElementById('periodo-inicio').addEventListener('change', aplicarFiltros);
-    document.getElementById('periodo-fin').addEventListener('change', aplicarFiltros);
-    document.getElementById('producto').addEventListener('input', function() {
-      clearTimeout(timeoutBusqueda);
-      timeoutBusqueda = setTimeout(aplicarFiltros, 300);
-    });
-    document.getElementById('planta').addEventListener('input', function() {
-      clearTimeout(timeoutBusqueda);
-      timeoutBusqueda = setTimeout(aplicarFiltros, 300);
-    });
-    
-    // Limpiar filtros
+      timeoutBusqueda = setTimeout(cargarVentas, 400);
+    }
+    document.getElementById('busqueda-general').addEventListener('input', programarRecarga);
+    document.getElementById('cliente').addEventListener('input', programarRecarga);
+    document.getElementById('codigo-cliente').addEventListener('input', programarRecarga);
+    document.getElementById('periodo-inicio').addEventListener('change', programarRecarga);
+    document.getElementById('periodo-fin').addEventListener('change', programarRecarga);
+    document.getElementById('producto').addEventListener('input', programarRecarga);
+    document.getElementById('planta').addEventListener('input', programarRecarga);
+
+    // Limpiar filtros y recargar
     document.getElementById('btn-limpiar-filtros').addEventListener('click', function() {
       document.getElementById('busqueda-general').value = '';
       document.getElementById('cliente').value = '';
@@ -304,7 +306,7 @@
       document.getElementById('periodo-fin').value = '';
       document.getElementById('producto').value = '';
       document.getElementById('planta').value = '';
-      aplicarFiltros();
+      cargarVentas();
     });
     
     // Registros por página

@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, Depends, Form, UploadFile, File
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import RedirectResponse, JSONResponse, FileResponse
+from fastapi.responses import RedirectResponse, JSONResponse, FileResponse, StreamingResponse
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -961,22 +961,36 @@ async def actualizar_carga_clientes(
         }
 
 
+# Meses en español para filtrar virtuales por mes actual
+MESES_VIRTUALES_ES = (
+    "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+    "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+)
+
+
 @app.get("/virtuales")
 async def virtuales(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Página Virtuales (master unificado) dentro de Aduanas - requiere autenticación."""
+    mes_actual = MESES_VIRTUALES_ES[datetime.now().month - 1]
+
+    # Tabla: todos los registros (sin filtrar por mes)
     virtuales_data = await crud.list_master_unificado_virtuales(db, limit=2000, offset=0)
-    total_virtuales = await crud.count_master_unificado_virtuales(db)
-    
-    # Contar registros por estatus
+
+    # Tarjetas de estadísticas: solo datos del mes actual
+    total_virtuales = await crud.count_master_unificado_virtuales(db, mes=mes_actual)
+    virtuales_mes_actual = await crud.list_master_unificado_virtuales(db, limit=5000, offset=0, mes=mes_actual)
     from collections import Counter
-    estatus_counts = Counter(v.estatus or "Sin estatus" for v in virtuales_data)
-    # Ordenar por cantidad descendente
+    estatus_counts = Counter(v.estatus or "Sin estatus" for v in virtuales_mes_actual)
     estatus_counts = dict(sorted(estatus_counts.items(), key=lambda x: x[1], reverse=True))
 
     # Últimos 10 movimientos del historial
     historial_reciente = await crud.list_master_unificado_virtuales_historial(
         db, limit=10, offset=0
     )
+
+    # Años para el selector de descarga Excel (actual y 5 anteriores)
+    año_actual = datetime.now().year
+    años_disponibles = list(range(año_actual, año_actual - 6, -1))
     
     return templates.TemplateResponse(
         "virtuales.html",
@@ -988,7 +1002,95 @@ async def virtuales(request: Request, current_user: User = Depends(get_current_u
             "total_virtuales": total_virtuales,
             "estatus_counts": estatus_counts,
             "historial_reciente": historial_reciente,
+            "años_disponibles": años_disponibles,
+            "mes_actual_nombre": mes_actual,
         }
+    )
+
+
+@app.get("/virtuales/descargar-excel")
+async def descargar_virtuales_excel(
+    request: Request,
+    mes: str = "",
+    anio: Optional[int] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Descarga los registros de virtuales del mes y año seleccionados en Excel."""
+    import io
+    import pandas as pd
+
+    if not mes or not mes.strip():
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Seleccione un mes para descargar."},
+        )
+    año_actual = datetime.now().year
+    if anio is None or anio < 2000 or anio > año_actual + 1:
+        anio = año_actual
+
+    mes = mes.strip()
+    registros = await crud.list_master_unificado_virtuales(
+        db, limit=50000, offset=0, mes=mes, año=anio
+    )
+
+    def _valor(v):
+        if v is None:
+            return ""
+        if hasattr(v, "strftime"):
+            return v.strftime("%Y-%m-%d") if hasattr(v, "hour") and v.hour == 0 and v.minute == 0 else v.strftime("%Y-%m-%d %H:%M")
+        if isinstance(v, bool):
+            return "Sí" if v else "No"
+        return str(v)
+
+    columnas = [
+        "numero", "proveedor_cliente", "impo_expo", "agente", "mes", "estatus", "tipo",
+        "incoterm", "tipo_exportacion", "escenario", "plazo", "pedimento", "aduana", "patente",
+        "destino", "cliente_space", "complemento", "tipo_immex", "factura", "fecha_pago",
+        "informacion", "servicio_cliente", "firma", "solicitud_previo", "op_regular", "carretes",
+        "created_at",
+    ]
+    filas = []
+    for r in registros:
+        filas.append({
+            "numero": _valor(r.numero),
+            "proveedor_cliente": _valor(r.proveedor_cliente),
+            "impo_expo": _valor(r.impo_expo),
+            "agente": _valor(r.agente),
+            "mes": _valor(r.mes),
+            "estatus": _valor(r.estatus),
+            "tipo": _valor(r.tipo),
+            "incoterm": _valor(r.incoterm),
+            "tipo_exportacion": _valor(r.tipo_exportacion),
+            "escenario": _valor(r.escenario),
+            "plazo": _valor(r.plazo),
+            "pedimento": _valor(r.pedimento),
+            "aduana": _valor(r.aduana),
+            "patente": _valor(r.patente),
+            "destino": _valor(r.destino),
+            "cliente_space": _valor(r.cliente_space),
+            "complemento": _valor(r.complemento),
+            "tipo_immex": _valor(r.tipo_immex),
+            "factura": _valor(r.factura),
+            "fecha_pago": _valor(r.fecha_pago),
+            "informacion": _valor(r.informacion),
+            "servicio_cliente": _valor(r.servicio_cliente),
+            "firma": _valor(r.firma),
+            "solicitud_previo": _valor(r.solicitud_previo),
+            "op_regular": _valor(r.op_regular),
+            "carretes": _valor(r.carretes),
+            "created_at": _valor(r.created_at),
+        })
+
+    df = pd.DataFrame(filas, columns=columnas)
+    buffer = io.BytesIO()
+    df.to_excel(buffer, index=False, engine="openpyxl")
+    buffer.seek(0)
+    nombre_archivo = f"virtuales_{mes}_{anio}.xlsx"
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nombre_archivo}"'},
     )
 
 
@@ -1268,6 +1370,62 @@ async def api_virtuales_historial(
     return JSONResponse(
         status_code=200,
         content={"historial": items, "total": total}
+    )
+
+
+@app.get("/api/virtuales/movimientos")
+async def api_virtuales_movimientos(
+    request: Request,
+    numero: Optional[str] = None,
+    tipo: str = "",
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Devuelve las últimas 5 compras (si tipo=Proveedor) o ventas (si tipo=Cliente) para el numero dado."""
+    if not numero or not tipo:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Se requieren numero y tipo (Proveedor o Cliente)."},
+        )
+    tipo_lower = tipo.strip().lower()
+    if "proveedor" in tipo_lower:
+        compras = await crud.get_ultimas_compras_proveedor(db, str(numero).strip(), limit=5)
+        items = []
+        for c in compras:
+            items.append({
+                "posting_date": c.posting_date.isoformat() if c.posting_date else None,
+                "purchasing_document": c.purchasing_document,
+                "material_document": c.material_document,
+                "numero_material": c.numero_material,
+                "descripcion_material": (c.descripcion_material or "")[:80],
+                "quantity": float(c.quantity) if c.quantity is not None else None,
+                "amount": float(c.amount) if c.amount is not None else None,
+                "currency": c.currency,
+                "nombre_proveedor": c.nombre_proveedor,
+            })
+        return JSONResponse(content={"tipo": "compras", "movimientos": items})
+    if "cliente" in tipo_lower:
+        try:
+            cod_cliente = int(str(numero).strip())
+        except (TypeError, ValueError):
+            cod_cliente = None
+        ventas = await crud.get_ultimas_ventas_cliente(db, cod_cliente, limit=5)
+        items = []
+        for v in ventas:
+            items.append({
+                "periodo": v.periodo.isoformat() if v.periodo else None,
+                "cliente": v.cliente,
+                "codigo_cliente": v.codigo_cliente,
+                "producto": v.producto,
+                "descripcion_producto": (v.descripcion_producto or "")[:80],
+                "sales_total_mts": float(v.sales_total_mts) if v.sales_total_mts is not None else None,
+                "turnover_wo_metal": float(v.turnover_wo_metal) if v.turnover_wo_metal is not None else None,
+                "planta": v.planta,
+            })
+        return JSONResponse(content={"tipo": "ventas", "movimientos": items})
+    return JSONResponse(
+        status_code=400,
+        content={"error": "tipo debe ser Proveedor o Cliente."},
     )
 
 

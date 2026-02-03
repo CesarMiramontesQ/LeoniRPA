@@ -29,6 +29,47 @@
         </svg>
         Actualizar
       </button>
+      <div class="inline-flex flex-wrap items-center gap-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+        <span class="text-sm font-medium text-gray-700">Descargar Excel:</span>
+        <select
+          id="excel-mes-virtuales"
+          class="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+          title="Mes"
+        >
+          <option value="">Mes</option>
+          <option value="Enero">Enero</option>
+          <option value="Febrero">Febrero</option>
+          <option value="Marzo">Marzo</option>
+          <option value="Abril">Abril</option>
+          <option value="Mayo">Mayo</option>
+          <option value="Junio">Junio</option>
+          <option value="Julio">Julio</option>
+          <option value="Agosto">Agosto</option>
+          <option value="Septiembre">Septiembre</option>
+          <option value="Octubre">Octubre</option>
+          <option value="Noviembre">Noviembre</option>
+          <option value="Diciembre">Diciembre</option>
+        </select>
+        <select
+          id="excel-año-virtuales"
+          class="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+          title="Año"
+        >
+          {% for a in años_disponibles %}
+          <option value="{{ a }}" {% if a == años_disponibles[0] %}selected{% endif %}>{{ a }}</option>
+          {% endfor %}
+        </select>
+        <button
+          id="btn-descargar-excel-virtuales"
+          type="button"
+          class="inline-flex items-center rounded-md bg-green-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2"
+        >
+          <svg class="mr-1.5 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+          </svg>
+          Descargar
+        </button>
+      </div>
     </div>
   </div>
 
@@ -57,9 +98,46 @@
           <input
             type="text"
             id="busqueda-virtuales"
-            placeholder="Número, proveedor/cliente, agente, estatus, tipo, incoterm..."
+            placeholder="Número, proveedor/cliente, agente, tipo, incoterm..."
             class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm"
           />
+        </div>
+      </div>
+      <div class="min-w-[140px]">
+        <label for="filtro-mes-virtuales" class="block text-sm font-medium text-gray-900">Mes</label>
+        <div class="mt-2">
+          <select
+            id="filtro-mes-virtuales"
+            class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm"
+          >
+            <option value="">Todos</option>
+            <option value="Enero">Enero</option>
+            <option value="Febrero">Febrero</option>
+            <option value="Marzo">Marzo</option>
+            <option value="Abril">Abril</option>
+            <option value="Mayo">Mayo</option>
+            <option value="Junio">Junio</option>
+            <option value="Julio">Julio</option>
+            <option value="Agosto">Agosto</option>
+            <option value="Septiembre">Septiembre</option>
+            <option value="Octubre">Octubre</option>
+            <option value="Noviembre">Noviembre</option>
+            <option value="Diciembre">Diciembre</option>
+          </select>
+        </div>
+      </div>
+      <div class="min-w-[160px]">
+        <label for="filtro-estatus-virtuales" class="block text-sm font-medium text-gray-900">Estatus</label>
+        <div class="mt-2">
+          <select
+            id="filtro-estatus-virtuales"
+            class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm"
+          >
+            <option value="">Todos</option>
+            {% for estatus in estatus_counts %}
+            <option value="{{ estatus }}">{{ estatus }}</option>
+            {% endfor %}
+          </select>
         </div>
       </div>
       <div class="flex items-end gap-2">
@@ -577,6 +655,41 @@
   </div>
 </div>
 
+<!-- Modal Ver movimientos (últimas 5 compras o ventas) -->
+<div id="modal-movimientos" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-movimientos-title" role="dialog" aria-modal="true">
+  <div class="flex min-h-screen items-end justify-center px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+    <div id="modal-movimientos-backdrop" class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"></div>
+    <span class="hidden sm:inline-block sm:h-screen sm:align-middle" aria-hidden="true">&#8203;</span>
+    <div class="relative inline-block transform overflow-hidden rounded-lg bg-white text-left align-bottom shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-4xl sm:align-middle">
+      <div class="bg-[#003D89] px-6 py-4">
+        <div class="flex items-center justify-between">
+          <h3 class="text-lg font-semibold text-white" id="modal-movimientos-title">Últimos movimientos</h3>
+          <button id="btn-cerrar-modal-movimientos" type="button" class="text-white hover:text-gray-200 focus:outline-none">
+            <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+      </div>
+      <div class="px-6 py-4 max-h-[70vh] overflow-y-auto">
+        <p id="movimientos-cargando" class="text-sm text-gray-500">Cargando...</p>
+        <div id="movimientos-contenido" class="hidden">
+          <p id="movimientos-subtitulo" class="text-sm font-medium text-gray-700 mb-2"></p>
+          <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200 text-sm">
+              <thead id="movimientos-thead" class="bg-gray-50"></thead>
+              <tbody id="movimientos-tbody" class="divide-y divide-gray-200 bg-white"></tbody>
+            </table>
+          </div>
+          <p id="movimientos-vacio" class="hidden text-sm text-gray-500 mt-2">No hay movimientos.</p>
+        </div>
+        <p id="movimientos-error" class="hidden text-sm text-red-600"></p>
+      </div>
+      <div class="bg-gray-50 px-6 py-3 flex justify-end">
+        <button id="btn-cerrar-modal-movimientos-footer" type="button" class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 (function() {
   let todos = [];
@@ -641,9 +754,26 @@
     return s.includes(t);
   }
 
+  function cumpleMes(v, mesVal) {
+    if (!mesVal) return true;
+    return (v.mes || '').trim() === mesVal.trim();
+  }
+
+  function cumpleEstatus(v, estatusVal) {
+    if (!estatusVal) return true;
+    const e = (v.estatus || '').trim();
+    const sel = estatusVal.trim();
+    if (sel === 'Sin estatus') return e === '' || e === 'Sin estatus';
+    return e === sel;
+  }
+
   function aplicarFiltros() {
     const q = (document.getElementById('busqueda-virtuales').value || '').trim();
-    filtrados = todos.filter(v => cumpleFiltro(v, q));
+    const mesVal = (document.getElementById('filtro-mes-virtuales').value || '').trim();
+    const estatusVal = (document.getElementById('filtro-estatus-virtuales').value || '').trim();
+    filtrados = todos.filter(v =>
+      cumpleFiltro(v, q) && cumpleMes(v, mesVal) && cumpleEstatus(v, estatusVal)
+    );
     const cmp = (a, b) => {
       let va = a[sortCol] ?? '', vb = b[sortCol] ?? '';
       if (sortCol === 'numero') {
@@ -709,6 +839,10 @@
           '<button type="button" class="btn-ver inline-flex items-center rounded-md bg-[#003D89] px-2.5 py-1.5 text-xs font-medium text-white hover:bg-[#002d66] focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2" data-index="' + (from + idx) + '">' +
             '<svg class="h-4 w-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.64 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.64 0-8.573-3.007-9.963-7.178z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>' +
             'Ver' +
+          '</button> ' +
+          '<button type="button" class="btn-movimientos inline-flex items-center rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2" data-index="' + (from + idx) + '" title="Últimas 5 compras o ventas">' +
+            '<svg class="h-4 w-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" /></svg>' +
+            'Movimientos' +
           '</button>' +
         '</td>';
       tbody.appendChild(tr);
@@ -720,6 +854,13 @@
       btn.addEventListener('click', (e) => {
         const index = parseInt(e.currentTarget.dataset.index, 10);
         abrirModal(filtrados[index], 'edit');
+      });
+    });
+    // Agregar event listeners a los botones Movimientos
+    document.querySelectorAll('.btn-movimientos').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const index = parseInt(e.currentTarget.dataset.index, 10);
+        abrirModalMovimientos(filtrados[index]);
       });
     });
   }
@@ -824,6 +965,81 @@
     registroActual = null;
   }
 
+  function cerrarModalMovimientos() {
+    document.getElementById('modal-movimientos').classList.add('hidden');
+    document.body.style.overflow = '';
+  }
+
+  async function abrirModalMovimientos(row) {
+    const numero = (row && row.numero) ? String(row.numero).trim() : '';
+    const tipo = (row && row.tipo) ? String(row.tipo).trim() : '';
+    const nombre = (row && row.proveedorCliente) ? String(row.proveedorCliente).trim() : '';
+    if (!numero || !tipo) {
+      alert('No hay número o tipo para consultar movimientos.');
+      return;
+    }
+    const modal = document.getElementById('modal-movimientos');
+    document.getElementById('movimientos-cargando').classList.remove('hidden');
+    document.getElementById('movimientos-contenido').classList.add('hidden');
+    document.getElementById('movimientos-error').classList.add('hidden');
+    document.getElementById('modal-movimientos-title').textContent = 'Movimientos – ' + (nombre || numero);
+    modal.classList.remove('hidden');
+    document.body.style.overflow = 'hidden';
+
+    try {
+      const response = await fetch('/api/virtuales/movimientos?numero=' + encodeURIComponent(numero) + '&tipo=' + encodeURIComponent(tipo));
+      const data = await response.json().catch(function() { return {}; });
+      document.getElementById('movimientos-cargando').classList.add('hidden');
+
+      if (!response.ok) {
+        document.getElementById('movimientos-error').textContent = data.error || 'Error al cargar movimientos.';
+        document.getElementById('movimientos-error').classList.remove('hidden');
+        return;
+      }
+
+      const movimientos = data.movimientos || [];
+      const thead = document.getElementById('movimientos-thead');
+      const tbody = document.getElementById('movimientos-tbody');
+      thead.innerHTML = '';
+      tbody.innerHTML = '';
+
+      if (data.tipo === 'compras') {
+        document.getElementById('movimientos-subtitulo').textContent = 'Últimas 5 compras (Proveedor ' + numero + ')';
+        if (movimientos.length === 0) {
+          document.getElementById('movimientos-vacio').classList.remove('hidden');
+          document.getElementById('movimientos-vacio').textContent = 'No hay compras registradas.';
+        } else {
+          document.getElementById('movimientos-vacio').classList.add('hidden');
+          thead.innerHTML = '<tr><th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Fecha</th><th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Doc. compra</th><th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Material</th><th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cantidad</th><th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Importe</th><th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Moneda</th></tr>';
+          movimientos.forEach(function(m) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td class="px-3 py-2 text-gray-900">' + esc(m.posting_date || '') + '</td><td class="px-3 py-2 text-gray-600">' + esc(m.purchasing_document != null ? m.purchasing_document : '') + '</td><td class="px-3 py-2 text-gray-600">' + esc(m.numero_material || '') + ' ' + esc((m.descripcion_material || '').substring(0, 40)) + '</td><td class="px-3 py-2 text-gray-600">' + esc(m.quantity != null ? m.quantity : '') + '</td><td class="px-3 py-2 text-gray-600">' + esc(m.amount != null ? m.amount : '') + '</td><td class="px-3 py-2 text-gray-600">' + esc(m.currency || '') + '</td>';
+            tbody.appendChild(tr);
+          });
+        }
+      } else if (data.tipo === 'ventas') {
+        document.getElementById('movimientos-subtitulo').textContent = 'Últimas 5 ventas (Cliente ' + numero + ')';
+        if (movimientos.length === 0) {
+          document.getElementById('movimientos-vacio').classList.remove('hidden');
+          document.getElementById('movimientos-vacio').textContent = 'No hay ventas registradas.';
+        } else {
+          document.getElementById('movimientos-vacio').classList.add('hidden');
+          thead.innerHTML = '<tr><th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Periodo</th><th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Cliente</th><th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Producto</th><th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Planta</th><th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Sales MTS</th><th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Turnover</th></tr>';
+          movimientos.forEach(function(m) {
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td class="px-3 py-2 text-gray-900">' + esc(m.periodo || '') + '</td><td class="px-3 py-2 text-gray-600">' + esc(m.cliente || '') + '</td><td class="px-3 py-2 text-gray-600">' + esc((m.descripcion_producto || m.producto || '').substring(0, 40)) + '</td><td class="px-3 py-2 text-gray-600">' + esc(m.planta || '') + '</td><td class="px-3 py-2 text-gray-600">' + esc(m.sales_total_mts != null ? m.sales_total_mts : '') + '</td><td class="px-3 py-2 text-gray-600">' + esc(m.turnover_wo_metal != null ? m.turnover_wo_metal : '') + '</td>';
+            tbody.appendChild(tr);
+          });
+        }
+      }
+      document.getElementById('movimientos-contenido').classList.remove('hidden');
+    } catch (err) {
+      document.getElementById('movimientos-cargando').classList.add('hidden');
+      document.getElementById('movimientos-error').textContent = 'Error de conexión al cargar movimientos.';
+      document.getElementById('movimientos-error').classList.remove('hidden');
+    }
+  }
+
   function irPagina(n) {
     const total = Math.max(1, Math.ceil(filtrados.length / porPagina));
     pagina = Math.max(1, Math.min(n, total));
@@ -905,7 +1121,7 @@
         const r = result.resumen || {};
         const msg = [
           'Actualización completada.',
-          `Periodo analizado: ${r.periodo_analisis || '-'}`,
+          `Compras/ventas analizadas: ${r.periodo_rango || r.periodo_analisis || '-'}`,
           `Mes de captura: ${r.mes_captura || '-'}`,
           `En captura: ${r.existentes_en_captura ?? 0}`,
           `Sin operación: ${r.existentes_sin_operacion ?? 0}`,
@@ -936,13 +1152,30 @@
     if (btnActualizar) {
       btnActualizar.addEventListener('click', ejecutarActualizar);
     }
+    const btnDescargarExcel = document.getElementById('btn-descargar-excel-virtuales');
+    if (btnDescargarExcel) {
+      btnDescargarExcel.addEventListener('click', function() {
+        const mes = (document.getElementById('excel-mes-virtuales').value || '').trim();
+        const año = (document.getElementById('excel-año-virtuales').value || '').trim();
+        if (!mes) {
+          alert('Seleccione un mes para descargar el Excel.');
+          return;
+        }
+        const url = '/virtuales/descargar-excel?mes=' + encodeURIComponent(mes) + (año ? '&anio=' + encodeURIComponent(año) : '');
+        window.location.href = url;
+      });
+    }
     const btnEliminar = document.getElementById('btn-eliminar-modal');
     if (btnEliminar) {
       btnEliminar.addEventListener('click', eliminarRegistro);
     }
     document.getElementById('busqueda-virtuales').addEventListener('input', aplicarFiltros);
+    document.getElementById('filtro-mes-virtuales').addEventListener('change', aplicarFiltros);
+    document.getElementById('filtro-estatus-virtuales').addEventListener('change', aplicarFiltros);
     document.getElementById('btn-limpiar-virtuales').addEventListener('click', () => {
       document.getElementById('busqueda-virtuales').value = '';
+      document.getElementById('filtro-mes-virtuales').value = '';
+      document.getElementById('filtro-estatus-virtuales').value = '';
       aplicarFiltros();
     });
     document.getElementById('registros-pagina-virtuales').addEventListener('change', (e) => {
@@ -965,14 +1198,17 @@
     document.getElementById('btn-cerrar-modal').addEventListener('click', cerrarModal);
     document.getElementById('btn-cerrar-modal-footer').addEventListener('click', cerrarModal);
     document.getElementById('modal-backdrop').addEventListener('click', cerrarModal);
+    document.getElementById('btn-cerrar-modal-movimientos').addEventListener('click', cerrarModalMovimientos);
+    document.getElementById('btn-cerrar-modal-movimientos-footer').addEventListener('click', cerrarModalMovimientos);
+    document.getElementById('modal-movimientos-backdrop').addEventListener('click', cerrarModalMovimientos);
     
     // Cerrar modal con tecla Escape
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
-        const modal = document.getElementById('modal-detalle');
-        if (!modal.classList.contains('hidden')) {
-          cerrarModal();
-        }
+        const modalDetalle = document.getElementById('modal-detalle');
+        const modalMov = document.getElementById('modal-movimientos');
+        if (!modalDetalle.classList.contains('hidden')) cerrarModal();
+        else if (!modalMov.classList.contains('hidden')) cerrarModalMovimientos();
       }
     });
     

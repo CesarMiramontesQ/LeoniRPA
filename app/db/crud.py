@@ -5155,7 +5155,8 @@ async def list_master_unificado_virtuales(
     patente: Optional[int] = None,
     estatus: Optional[str] = None,
     proveedor_cliente: Optional[str] = None,
-    mes: Optional[str] = None
+    mes: Optional[str] = None,
+    año: Optional[int] = None
 ) -> List[MasterUnificadoVirtuales]:
     """Lista registros de master unificado virtuales con filtros opcionales."""
     query = select(MasterUnificadoVirtuales)
@@ -5179,7 +5180,10 @@ async def list_master_unificado_virtuales(
         query = query.where(MasterUnificadoVirtuales.proveedor_cliente.ilike(f"%{proveedor_cliente}%"))
     
     if mes:
-        query = query.where(MasterUnificadoVirtuales.mes == mes)
+        query = query.where(MasterUnificadoVirtuales.mes.ilike(mes))
+    
+    if año is not None:
+        query = query.where(func.extract("year", MasterUnificadoVirtuales.created_at) == año)
     
     query = query.order_by(desc(MasterUnificadoVirtuales.created_at)).limit(limit).offset(offset)
     
@@ -5219,7 +5223,7 @@ async def count_master_unificado_virtuales(
         query = query.where(MasterUnificadoVirtuales.proveedor_cliente.ilike(f"%{proveedor_cliente}%"))
     
     if mes:
-        query = query.where(MasterUnificadoVirtuales.mes == mes)
+        query = query.where(MasterUnificadoVirtuales.mes.ilike(mes))
     
     result = await db.execute(query)
     return result.scalar() or 0
@@ -5411,43 +5415,44 @@ def _es_tipo_cliente(tipo: Optional[str]) -> bool:
 
 async def get_proveedores_distintos_master_virtuales(db: AsyncSession) -> List[tuple]:
     """
-    Obtiene (proveedor_cliente, tipo) distintos donde tipo indica proveedor.
-    Se usa para identificar proveedores existentes que se revisan en compras.
+    Obtiene (numero, proveedor_cliente) distintos donde tipo indica proveedor.
+    numero se compara con codigo_proveedor en compras; proveedor_cliente es el nombre.
     """
     query = (
-        select(MasterUnificadoVirtuales.proveedor_cliente, MasterUnificadoVirtuales.tipo)
+        select(MasterUnificadoVirtuales.numero, MasterUnificadoVirtuales.proveedor_cliente)
+        .where(MasterUnificadoVirtuales.numero.isnot(None))
         .where(
-            MasterUnificadoVirtuales.proveedor_cliente.isnot(None),
-            MasterUnificadoVirtuales.proveedor_cliente != ""
+            or_(
+                MasterUnificadoVirtuales.tipo.is_(None),
+                MasterUnificadoVirtuales.tipo.ilike("%proveedor%")
+            )
         )
         .distinct()
     )
     result = await db.execute(query)
     return [
-        (str(r[0]).strip(), r[1])
+        (r[0], (str(r[1]).strip() if r[1] else None))
         for r in result.all()
-        if r[0] and str(r[0]).strip() and _es_tipo_proveedor(r[1])
+        if r[0] is not None
     ]
 
 
 async def get_clientes_distintos_master_virtuales(db: AsyncSession) -> List[tuple]:
     """
-    Obtiene (proveedor_cliente, tipo) distintos donde tipo indica cliente.
-    Se usa para identificar clientes existentes que se revisan en ventas.
+    Obtiene (numero, proveedor_cliente) distintos donde tipo indica cliente.
+    numero se compara con codigo_cliente en ventas; proveedor_cliente es el nombre.
     """
     query = (
-        select(MasterUnificadoVirtuales.proveedor_cliente, MasterUnificadoVirtuales.tipo)
-        .where(
-            MasterUnificadoVirtuales.proveedor_cliente.isnot(None),
-            MasterUnificadoVirtuales.proveedor_cliente != ""
-        )
+        select(MasterUnificadoVirtuales.numero, MasterUnificadoVirtuales.proveedor_cliente)
+        .where(MasterUnificadoVirtuales.numero.isnot(None))
+        .where(MasterUnificadoVirtuales.tipo.ilike("%cliente%"))
         .distinct()
     )
     result = await db.execute(query)
     return [
-        (str(r[0]).strip(), r[1])
+        (r[0], (str(r[1]).strip() if r[1] else None))
         for r in result.all()
-        if r[0] and str(r[0]).strip() and _es_tipo_cliente(r[1])
+        if r[0] is not None
     ]
 
 
@@ -5457,10 +5462,9 @@ async def get_proveedores_con_compras_en_mes(
     mes: int
 ) -> set:
     """
-    Obtiene el conjunto de identificadores (codigo_proveedor y nombre_proveedor)
-    que tienen al menos una compra en el mes/año indicado.
-    Se incluyen ambos para poder emparejar con proveedor_cliente del master,
-    que puede almacenar código o nombre.
+    Obtiene el conjunto de codigo_proveedor que tienen al menos una compra
+    en el mes/año indicado, solo proveedores mexicanos (pais = MX).
+    Se compara con master_virtuales.numero (tipo Proveedor).
     """
     from datetime import date
     inicio = date(año, mes, 1)
@@ -5471,24 +5475,21 @@ async def get_proveedores_con_compras_en_mes(
     inicio_dt = datetime(inicio.year, inicio.month, inicio.day, 0, 0, 0, tzinfo=timezone.utc)
     fin_dt = datetime(fin.year, fin.month, fin.day, 0, 0, 0, tzinfo=timezone.utc)
     query = (
-        select(Compra.codigo_proveedor, Compra.nombre_proveedor)
+        select(Compra.codigo_proveedor)
+        .select_from(Compra)
+        .join(Proveedor, Compra.codigo_proveedor == Proveedor.codigo_proveedor)
         .where(
             Compra.posting_date.isnot(None),
             Compra.posting_date >= inicio_dt,
             Compra.posting_date < fin_dt,
             Compra.codigo_proveedor.isnot(None),
-            Compra.codigo_proveedor != ""
+            Compra.codigo_proveedor != "",
+            Proveedor.pais == "MX"
         )
         .distinct()
     )
     result = await db.execute(query)
-    ids = set()
-    for row in result.all():
-        if row[0]:
-            ids.add(str(row[0]).strip())
-        if row[1]:
-            ids.add(str(row[1]).strip())
-    return ids
+    return {str(row[0]).strip() for row in result.all() if row[0]}
 
 
 async def get_clientes_con_ventas_en_mes(
@@ -5497,36 +5498,31 @@ async def get_clientes_con_ventas_en_mes(
     mes: int
 ) -> set:
     """
-    Obtiene el conjunto de identificadores (codigo_cliente y cliente/nombre)
-    que tienen al menos una venta en el mes/año indicado (Venta.periodo).
-    Se incluyen ambos para emparejar con proveedor_cliente del master.
+    Obtiene el conjunto de codigo_cliente que tienen al menos una venta
+    en el mes/año indicado (Venta.periodo). Se compara con master_virtuales.numero (tipo Cliente).
     """
     from datetime import date
     periodo_mes = date(año, mes, 1)
     query = (
-        select(Venta.codigo_cliente, Venta.cliente)
+        select(Venta.codigo_cliente)
         .where(Venta.periodo == periodo_mes)
         .distinct()
     )
     result = await db.execute(query)
-    ids = set()
-    for row in result.all():
-        if row[0] is not None:
-            ids.add(str(row[0]).strip())
-        if row[1]:
-            ids.add(str(row[1]).strip())
-    return ids
+    return {str(row[0]).strip() for row in result.all() if row[0] is not None}
 
 
 async def get_proveedores_nuevos_desde_compras(
     db: AsyncSession,
     año: int,
     mes: int,
-    proveedores_existentes: set
+    numeros_proveedores_existentes: set
 ) -> List[tuple]:
     """
     Obtiene (codigo_proveedor, nombre_proveedor) de compras en el mes que
-    NO existen en master_virtuales. Proveedores nuevos a registrar.
+    NO existen en master_virtuales (comparando codigo_proveedor con numero).
+    Solo proveedores mexicanos (pais = MX). Proveedores nuevos.
+    numeros_proveedores_existentes: set de numero (str o int) de master tipo Proveedor.
     """
     from datetime import date
     inicio = date(año, mes, 1)
@@ -5538,18 +5534,20 @@ async def get_proveedores_nuevos_desde_compras(
     fin_dt = datetime(fin.year, fin.month, fin.day, 0, 0, 0, tzinfo=timezone.utc)
     query = (
         select(Compra.codigo_proveedor, Compra.nombre_proveedor)
+        .select_from(Compra)
+        .join(Proveedor, Compra.codigo_proveedor == Proveedor.codigo_proveedor)
         .where(
             Compra.posting_date.isnot(None),
             Compra.posting_date >= inicio_dt,
             Compra.posting_date < fin_dt,
             Compra.codigo_proveedor.isnot(None),
-            Compra.codigo_proveedor != ""
+            Compra.codigo_proveedor != "",
+            Proveedor.pais == "MX"
         )
         .distinct()
     )
     result = await db.execute(query)
-    # Filtrar los que NO están en proveedores_existentes
-    proveedores_master = set(p.strip() for p in proveedores_existentes if p)
+    numeros_set = {str(n).strip() for n in numeros_proveedores_existentes if n is not None}
     nuevos = []
     vistos = set()
     for row in result.all():
@@ -5558,11 +5556,7 @@ async def get_proveedores_nuevos_desde_compras(
         if not cod or cod in vistos:
             continue
         vistos.add(cod)
-        # Existe si está en master (proveedor_cliente puede ser código o nombre)
-        if cod in proveedores_master:
-            continue
-        # También verificar por nombre por si el master usa nombres
-        if nom and nom in proveedores_master:
+        if cod in numeros_set:
             continue
         nuevos.append((cod, nom))
     return nuevos
@@ -5572,11 +5566,12 @@ async def get_clientes_nuevos_desde_ventas(
     db: AsyncSession,
     año: int,
     mes: int,
-    clientes_existentes: set
+    numeros_clientes_existentes: set
 ) -> List[tuple]:
     """
     Obtiene (codigo_cliente, nombre_cliente) de ventas en el mes que
-    NO existen en master_virtuales como tipo cliente. Clientes nuevos a registrar.
+    NO existen en master_virtuales como tipo cliente (comparando codigo_cliente con numero).
+    numeros_clientes_existentes: set de numero (str o int) de master tipo Cliente.
     """
     from datetime import date
     periodo_mes = date(año, mes, 1)
@@ -5586,36 +5581,33 @@ async def get_clientes_nuevos_desde_ventas(
         .distinct()
     )
     result = await db.execute(query)
-    clientes_master = set(c.strip() for c in clientes_existentes if c)
+    numeros_set = {str(n).strip() for n in numeros_clientes_existentes if n is not None}
     nuevos = []
     vistos = set()
     for row in result.all():
         cod = str(row[0]).strip() if row[0] is not None else ""
         nom = str(row[1]).strip() if row[1] else cod
-        id_clave = cod or nom
-        if not id_clave or id_clave in vistos:
+        if not cod or cod in vistos:
             continue
-        vistos.add(id_clave)
-        if cod and cod in clientes_master:
+        vistos.add(cod)
+        if cod in numeros_set:
             continue
-        if nom and nom in clientes_master:
-            continue
-        nuevos.append((cod or nom, nom or cod))
+        nuevos.append((cod, nom or cod))
     return nuevos
 
 
-async def get_ultimo_virtual_por_proveedor_cliente(
+async def get_ultimo_virtual_por_numero(
     db: AsyncSession,
-    proveedor_cliente: str,
+    numero: int,
     es_proveedor: bool = True
 ) -> Optional[MasterUnificadoVirtuales]:
     """
-    Obtiene el último registro de master_virtuales para un proveedor_cliente
-    del tipo indicado (proveedor o cliente). Ordenado por created_at descendente.
+    Obtiene el último registro de master_virtuales para un numero (codigo_proveedor
+    o codigo_cliente) del tipo indicado. Ordenado por created_at descendente.
     """
     query = (
         select(MasterUnificadoVirtuales)
-        .where(MasterUnificadoVirtuales.proveedor_cliente == proveedor_cliente)
+        .where(MasterUnificadoVirtuales.numero == numero)
     )
     if es_proveedor:
         query = query.where(
@@ -5633,19 +5625,18 @@ async def get_ultimo_virtual_por_proveedor_cliente(
     return result.scalar_one_or_none()
 
 
-async def existe_virtual_proveedor_mes(
+async def existe_virtual_numero_mes(
     db: AsyncSession,
-    proveedor_cliente: str,
+    numero: int,
     mes_captura: str,
     tipo: Optional[str] = None
 ) -> bool:
     """
-    Verifica si ya existe un registro en master_virtuales para el proveedor_cliente
-    y el mes de captura. Si se indica tipo, también filtra por tipo.
-    Evita duplicados en el mismo periodo.
+    Verifica si ya existe un registro en master_virtuales para ese numero
+    y mes de captura. Si se indica tipo, filtra por tipo. Evita duplicados en el mismo periodo.
     """
     conditions = [
-        MasterUnificadoVirtuales.proveedor_cliente == proveedor_cliente,
+        MasterUnificadoVirtuales.numero == numero,
         MasterUnificadoVirtuales.mes == mes_captura
     ]
     if tipo:
@@ -5671,6 +5662,48 @@ async def get_siguiente_numero_virtual(db: AsyncSession) -> int:
     return int(max_num) + 1
 
 
+async def get_ultimas_compras_proveedor(
+    db: AsyncSession,
+    codigo_proveedor: str,
+    limit: int = 5
+) -> List[Compra]:
+    """Últimas compras del proveedor (codigo_proveedor), ordenadas por posting_date descendente."""
+    codigo = str(codigo_proveedor).strip() if codigo_proveedor else ""
+    if not codigo:
+        return []
+    query = (
+        select(Compra)
+        .where(Compra.codigo_proveedor == codigo)
+        .where(Compra.posting_date.isnot(None))
+        .order_by(desc(Compra.posting_date))
+        .limit(limit)
+    )
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def get_ultimas_ventas_cliente(
+    db: AsyncSession,
+    codigo_cliente: Optional[int],
+    limit: int = 5
+) -> List[Venta]:
+    """Últimas ventas del cliente (codigo_cliente), ordenadas por periodo/created_at descendente."""
+    if codigo_cliente is None:
+        return []
+    try:
+        cod_int = int(codigo_cliente)
+    except (TypeError, ValueError):
+        return []
+    query = (
+        select(Venta)
+        .where(Venta.codigo_cliente == cod_int)
+        .order_by(desc(Venta.periodo), desc(Venta.created_at))
+        .limit(limit)
+    )
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
 async def actualizar_master_virtuales_desde_compras(
     db: AsyncSession,
     user_id: Optional[int] = None
@@ -5681,18 +5714,16 @@ async def actualizar_master_virtuales_desde_compras(
     Registros tipo proveedor → se revisan en compras.
     Registros tipo cliente → se revisan en ventas.
     
-    Lógica:
-    1. Periodo de análisis: mes anterior al actual.
-    2. Proveedores existentes (tipo proveedor): si tiene compras en el mes analizado
-       → "En Captura". Si no → "Sin Operacion".
-    3. Clientes existentes (tipo cliente): si tiene ventas en el mes analizado
-       → "En Captura". Si no → "Sin Operacion".
-    4. Proveedores nuevos: aparecen en compras del mes y no están en master → "Nuevo".
-    5. Clientes nuevos: aparecen en ventas del mes y no están en master → "Nuevo".
+    Periodo de análisis: siempre el mes anterior completo.
+    Ejemplo: si se pulsa el botón en febrero, se comparan compras y ventas
+    del 1 al 31 de enero del año correspondiente (1 ene - 31 ene 2026).
     
-    mes_actual_de_captura = mes en que se ejecuta la actualización (formato YYYY-MM).
-    No duplica registros para el mismo proveedor_cliente en el mismo periodo.
+    Lógica:
+    1. Proveedores existentes: si tienen compras en ese mes → "En Captura"; si no → "Sin Operacion".
+    2. Clientes existentes: si tienen ventas en ese mes → "En Captura"; si no → "Sin Operacion".
+    3. Proveedores/clientes nuevos: aparecen en compras/ventas del mes y no están en master → "Nuevo".
     """
+    import calendar
     MESES_ES = ("Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
                 "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre")
     ahora = datetime.now(timezone.utc)
@@ -5700,7 +5731,7 @@ async def actualizar_master_virtuales_desde_compras(
     mes_captura = ahora.month
     mes_captura_str = MESES_ES[mes_captura - 1]
 
-    # Periodo de análisis: mes anterior
+    # Periodo de análisis: mes anterior (ej. en febrero → enero 1-31)
     if mes_captura == 1:
         año_analisis = año_captura - 1
         mes_analisis = 12
@@ -5708,8 +5739,13 @@ async def actualizar_master_virtuales_desde_compras(
         año_analisis = año_captura
         mes_analisis = mes_captura - 1
 
+    _, ultimo_dia = calendar.monthrange(año_analisis, mes_analisis)
+    nombre_mes_analisis = MESES_ES[mes_analisis - 1]
+    periodo_rango = f"1 - {ultimo_dia} {nombre_mes_analisis} {año_analisis}"
+
     resumen = {
-        "periodo_analisis": f"{MESES_ES[mes_analisis - 1]} {año_analisis}",
+        "periodo_analisis": f"{nombre_mes_analisis} {año_analisis}",
+        "periodo_rango": periodo_rango,
         "mes_captura": mes_captura_str,
         "existentes_en_captura": 0,
         "existentes_sin_operacion": 0,
@@ -5721,6 +5757,12 @@ async def actualizar_master_virtuales_desde_compras(
     }
 
     try:
+        # 0. Sincronizar secuencia de id (evita UniqueViolationError si la secuencia quedó desincronizada)
+        await db.execute(text(
+            "SELECT setval(pg_get_serial_sequence('master_unificado_virtuales', 'id'), "
+            "COALESCE((SELECT MAX(id) FROM master_unificado_virtuales), 1))"
+        ))
+
         # 1. Movimientos en el mes analizado
         proveedores_con_compras = await get_proveedores_con_compras_en_mes(
             db, año_analisis, mes_analisis
@@ -5729,27 +5771,27 @@ async def actualizar_master_virtuales_desde_compras(
             db, año_analisis, mes_analisis
         )
 
-        # 2. Existentes en master por tipo
+        # 2. Existentes en master por tipo: (numero, proveedor_cliente)
         proveedores_master = await get_proveedores_distintos_master_virtuales(db)
         clientes_master = await get_clientes_distintos_master_virtuales(db)
-        proveedores_master_set = set(p[0] for p in proveedores_master if p[0])
-        clientes_master_set = set(c[0] for c in clientes_master if c[0])
+        proveedores_master_set = set(str(p[0]) for p in proveedores_master if p[0] is not None)
+        clientes_master_set = set(str(c[0]) for c in clientes_master if c[0] is not None)
 
-        # 3. Para cada proveedor existente (tipo proveedor → compras)
-        for proveedor, _ in proveedores_master:
-            if not proveedor or not str(proveedor).strip():
+        # 3. Para cada proveedor existente (numero = codigo_proveedor; proveedor_cliente = nombre)
+        for numero_prov, nombre_prov in proveedores_master:
+            if numero_prov is None:
                 continue
-            proveedor = str(proveedor).strip()
+            nombre_prov = (nombre_prov or "").strip() or None
 
-            if await existe_virtual_proveedor_mes(db, proveedor, mes_captura_str, tipo="Proveedor"):
+            if await existe_virtual_numero_mes(db, int(numero_prov), mes_captura_str, tipo="Proveedor"):
                 resumen["omitidos_duplicados"] += 1
                 continue
 
-            tiene_movimientos = proveedor in proveedores_con_compras
-            ultimo = await get_ultimo_virtual_por_proveedor_cliente(db, proveedor, es_proveedor=True)
+            tiene_movimientos = str(numero_prov) in proveedores_con_compras
+            ultimo = await get_ultimo_virtual_por_numero(db, int(numero_prov), es_proveedor=True)
 
             if tiene_movimientos and ultimo:
-                # Copiar del último registro, vaciar pedimento/aduana/patente/firma
+                # Copiar del último registro; Pedimento, Aduana, Patente, Firma en blanco; mes = mes captura
                 nuevo = MasterUnificadoVirtuales(
                     solicitud_previo=ultimo.solicitud_previo,
                     agente=ultimo.agente,
@@ -5773,46 +5815,48 @@ async def actualizar_master_virtuales_desde_compras(
                     estatus="En Captura",
                     op_regular=ultimo.op_regular,
                     tipo=ultimo.tipo or "Proveedor",
-                    numero=None,
+                    numero=ultimo.numero,
                     carretes=ultimo.carretes,
                     servicio_cliente=ultimo.servicio_cliente,
                     plazo=ultimo.plazo,
                     incoterm=ultimo.incoterm,
                     tipo_exportacion=ultimo.tipo_exportacion,
+                    escenario=ultimo.escenario,
                 )
             else:
-                # Sin compras o sin último: registro nuevo base (tipo proveedor)
+                # Sin compras o sin último: registro base (tipo proveedor); mismo numero, nombre del master
                 nuevo = MasterUnificadoVirtuales(
-                    solicitud_previo=None,
-                    agente=None,
+                    solicitud_previo=ultimo.solicitud_previo if ultimo else None,
+                    agente=ultimo.agente if ultimo else None,
                     pedimento=None,
                     aduana=None,
                     patente=None,
                     firma=None,
-                    destino=None,
-                    cliente_space=None,
-                    impo_expo=None,
-                    proveedor_cliente=proveedor,
+                    destino=ultimo.destino if ultimo else None,
+                    cliente_space=ultimo.cliente_space if ultimo else None,
+                    impo_expo=ultimo.impo_expo if ultimo else None,
+                    proveedor_cliente=nombre_prov or (ultimo.proveedor_cliente if ultimo else None),
                     mes=mes_captura_str,
-                    complemento=None,
-                    tipo_immex=None,
-                    factura=None,
-                    fecha_pago=None,
+                    complemento=ultimo.complemento if ultimo else None,
+                    tipo_immex=ultimo.tipo_immex if ultimo else None,
+                    factura=ultimo.factura if ultimo else None,
+                    fecha_pago=ultimo.fecha_pago if ultimo else None,
                     informacion=f"Periodo analizado: {resumen['periodo_analisis']}",
                     estatus="Sin Operacion",
-                    op_regular=None,
+                    op_regular=ultimo.op_regular if ultimo else None,
                     tipo="Proveedor",
-                    numero=None,
-                    carretes=None,
-                    servicio_cliente=None,
-                    plazo=None,
-                    incoterm=None,
-                    tipo_exportacion=None,
+                    numero=int(numero_prov) if numero_prov is not None else None,
+                    carretes=ultimo.carretes if ultimo else None,
+                    servicio_cliente=ultimo.servicio_cliente if ultimo else None,
+                    plazo=ultimo.plazo if ultimo else None,
+                    incoterm=ultimo.incoterm if ultimo else None,
+                    tipo_exportacion=ultimo.tipo_exportacion if ultimo else None,
+                    escenario=ultimo.escenario if ultimo else None,
                 )
 
             db.add(nuevo)
             await db.flush()
-            if nuevo.id and not nuevo.numero:
+            if nuevo.id and nuevo.numero is None:
                 nuevo.numero = nuevo.id
             if user_id:
                 _add_master_unificado_virtual_historial_entry(
@@ -5829,18 +5873,18 @@ async def actualizar_master_virtuales_desde_compras(
             else:
                 resumen["existentes_sin_operacion"] += 1
 
-        # 4. Para cada cliente existente (tipo cliente → ventas)
-        for cliente, _ in clientes_master:
-            if not cliente or not str(cliente).strip():
+        # 4. Para cada cliente existente (numero = codigo_cliente; proveedor_cliente = nombre)
+        for numero_cli, nombre_cli in clientes_master:
+            if numero_cli is None:
                 continue
-            cliente = str(cliente).strip()
+            nombre_cli = (nombre_cli or "").strip() or None
 
-            if await existe_virtual_proveedor_mes(db, cliente, mes_captura_str, tipo="Cliente"):
+            if await existe_virtual_numero_mes(db, int(numero_cli), mes_captura_str, tipo="Cliente"):
                 resumen["omitidos_duplicados"] += 1
                 continue
 
-            tiene_movimientos = cliente in clientes_con_ventas
-            ultimo = await get_ultimo_virtual_por_proveedor_cliente(db, cliente, es_proveedor=False)
+            tiene_movimientos = str(numero_cli) in clientes_con_ventas
+            ultimo = await get_ultimo_virtual_por_numero(db, int(numero_cli), es_proveedor=False)
 
             if tiene_movimientos and ultimo:
                 nuevo = MasterUnificadoVirtuales(
@@ -5866,45 +5910,47 @@ async def actualizar_master_virtuales_desde_compras(
                     estatus="En Captura",
                     op_regular=ultimo.op_regular,
                     tipo=ultimo.tipo or "Cliente",
-                    numero=None,
+                    numero=ultimo.numero,
                     carretes=ultimo.carretes,
                     servicio_cliente=ultimo.servicio_cliente,
                     plazo=ultimo.plazo,
                     incoterm=ultimo.incoterm,
                     tipo_exportacion=ultimo.tipo_exportacion,
+                    escenario=ultimo.escenario,
                 )
             else:
                 nuevo = MasterUnificadoVirtuales(
-                    solicitud_previo=None,
-                    agente=None,
+                    solicitud_previo=ultimo.solicitud_previo if ultimo else None,
+                    agente=ultimo.agente if ultimo else None,
                     pedimento=None,
                     aduana=None,
                     patente=None,
                     firma=None,
-                    destino=None,
-                    cliente_space=None,
-                    impo_expo=None,
-                    proveedor_cliente=cliente,
+                    destino=ultimo.destino if ultimo else None,
+                    cliente_space=ultimo.cliente_space if ultimo else None,
+                    impo_expo=ultimo.impo_expo if ultimo else None,
+                    proveedor_cliente=nombre_cli or (ultimo.proveedor_cliente if ultimo else None),
                     mes=mes_captura_str,
-                    complemento=None,
-                    tipo_immex=None,
-                    factura=None,
-                    fecha_pago=None,
+                    complemento=ultimo.complemento if ultimo else None,
+                    tipo_immex=ultimo.tipo_immex if ultimo else None,
+                    factura=ultimo.factura if ultimo else None,
+                    fecha_pago=ultimo.fecha_pago if ultimo else None,
                     informacion=f"Periodo analizado: {resumen['periodo_analisis']}",
                     estatus="Sin Operacion",
-                    op_regular=None,
+                    op_regular=ultimo.op_regular if ultimo else None,
                     tipo="Cliente",
-                    numero=None,
-                    carretes=None,
-                    servicio_cliente=None,
-                    plazo=None,
-                    incoterm=None,
-                    tipo_exportacion=None,
+                    numero=int(numero_cli) if numero_cli is not None else None,
+                    carretes=ultimo.carretes if ultimo else None,
+                    servicio_cliente=ultimo.servicio_cliente if ultimo else None,
+                    plazo=ultimo.plazo if ultimo else None,
+                    incoterm=ultimo.incoterm if ultimo else None,
+                    tipo_exportacion=ultimo.tipo_exportacion if ultimo else None,
+                    escenario=ultimo.escenario if ultimo else None,
                 )
 
             db.add(nuevo)
             await db.flush()
-            if nuevo.id and not nuevo.numero:
+            if nuevo.id and nuevo.numero is None:
                 nuevo.numero = nuevo.id
             if user_id:
                 _add_master_unificado_virtual_historial_entry(
@@ -5921,15 +5967,21 @@ async def actualizar_master_virtuales_desde_compras(
             else:
                 resumen["existentes_sin_operacion"] += 1
 
-        # 5. Proveedores nuevos (en compras, no en master)
+        # 5. Proveedores nuevos (codigo_proveedor no está en master por numero)
         proveedores_nuevos = await get_proveedores_nuevos_desde_compras(
             db, año_analisis, mes_analisis, proveedores_master_set
         )
 
         for codigo, nombre in proveedores_nuevos:
-            if await existe_virtual_proveedor_mes(db, codigo, mes_captura_str, tipo="Proveedor"):
+            try:
+                numero_asignar = int(codigo) if codigo else None
+            except (ValueError, TypeError):
+                numero_asignar = None
+            if numero_asignar is not None and await existe_virtual_numero_mes(db, numero_asignar, mes_captura_str, tipo="Proveedor"):
                 resumen["omitidos_duplicados"] += 1
                 continue
+            if numero_asignar is None:
+                numero_asignar = await get_siguiente_numero_virtual(db)
 
             nuevo = MasterUnificadoVirtuales(
                 solicitud_previo=None,
@@ -5941,7 +5993,7 @@ async def actualizar_master_virtuales_desde_compras(
                 destino=None,
                 cliente_space=None,
                 impo_expo=None,
-                proveedor_cliente=codigo,
+                proveedor_cliente=nombre or codigo,
                 mes=mes_captura_str,
                 complemento=None,
                 tipo_immex=None,
@@ -5954,7 +6006,7 @@ async def actualizar_master_virtuales_desde_compras(
                 estatus="Nuevo",
                 op_regular=None,
                 tipo="Proveedor",
-                numero=None,
+                numero=numero_asignar,
                 carretes=None,
                 servicio_cliente=None,
                 plazo=None,
@@ -5963,7 +6015,7 @@ async def actualizar_master_virtuales_desde_compras(
             )
             db.add(nuevo)
             await db.flush()
-            if nuevo.id and not nuevo.numero:
+            if nuevo.id and nuevo.numero is None:
                 nuevo.numero = nuevo.id
             if user_id:
                 _add_master_unificado_virtual_historial_entry(
@@ -5978,16 +6030,19 @@ async def actualizar_master_virtuales_desde_compras(
             resumen["nuevos"] += 1
             resumen["nuevos_proveedores"] += 1
 
-        # 6. Clientes nuevos (en ventas, no en master)
+        # 6. Clientes nuevos (codigo_cliente no está en master por numero)
         clientes_nuevos = await get_clientes_nuevos_desde_ventas(
             db, año_analisis, mes_analisis, clientes_master_set
         )
 
         for codigo, nombre in clientes_nuevos:
-            id_clave = codigo or nombre
-            if not id_clave:
+            if not codigo:
                 continue
-            if await existe_virtual_proveedor_mes(db, id_clave, mes_captura_str, tipo="Cliente"):
+            try:
+                numero_asignar = int(codigo)
+            except (ValueError, TypeError):
+                numero_asignar = await get_siguiente_numero_virtual(db)
+            if await existe_virtual_numero_mes(db, numero_asignar, mes_captura_str, tipo="Cliente"):
                 resumen["omitidos_duplicados"] += 1
                 continue
 
@@ -6001,7 +6056,7 @@ async def actualizar_master_virtuales_desde_compras(
                 destino=None,
                 cliente_space=None,
                 impo_expo=None,
-                proveedor_cliente=id_clave,
+                proveedor_cliente=nombre or codigo,
                 mes=mes_captura_str,
                 complemento=None,
                 tipo_immex=None,
@@ -6014,7 +6069,7 @@ async def actualizar_master_virtuales_desde_compras(
                 estatus="Nuevo",
                 op_regular=None,
                 tipo="Cliente",
-                numero=None,
+                numero=numero_asignar,
                 carretes=None,
                 servicio_cliente=None,
                 plazo=None,
@@ -6023,7 +6078,7 @@ async def actualizar_master_virtuales_desde_compras(
             )
             db.add(nuevo)
             await db.flush()
-            if nuevo.id and not nuevo.numero:
+            if nuevo.id and nuevo.numero is None:
                 nuevo.numero = nuevo.id
             if user_id:
                 _add_master_unificado_virtual_historial_entry(
