@@ -4365,22 +4365,34 @@ async def list_carga_clientes(
     offset: int = 0,
     codigo_cliente: Optional[int] = None,
     cliente_proveedor: Optional[str] = None,
-    estatus: Optional[str] = None
+    estatus: Optional[str] = None,
+    search: Optional[str] = None
 ) -> List[CargaCliente]:
-    """Lista registros de carga de clientes con filtros opcionales."""
+    """Lista registros de carga de clientes con filtros opcionales. search filtra por código o nombre."""
     query = select(CargaCliente)
-    
-    if codigo_cliente is not None:
+
+    if search and search.strip():
+        search = search.strip()
+        if search.isdigit():
+            query = query.where(
+                or_(
+                    CargaCliente.codigo_cliente == int(search),
+                    CargaCliente.nombre.ilike(f"%{search}%")
+                )
+            )
+        else:
+            query = query.where(CargaCliente.nombre.ilike(f"%{search}%"))
+    elif codigo_cliente is not None:
         query = query.where(CargaCliente.codigo_cliente == codigo_cliente)
-    
+
     if cliente_proveedor:
         query = query.where(CargaCliente.cliente_proveedor.ilike(f"%{cliente_proveedor}%"))
-    
+
     if estatus:
         query = query.where(CargaCliente.estatus == estatus)
-    
+
     query = query.order_by(desc(CargaCliente.created_at)).limit(limit).offset(offset)
-    
+
     result = await db.execute(query)
     return list(result.scalars().all())
 
@@ -4389,20 +4401,32 @@ async def count_carga_clientes(
     db: AsyncSession,
     codigo_cliente: Optional[int] = None,
     cliente_proveedor: Optional[str] = None,
-    estatus: Optional[str] = None
+    estatus: Optional[str] = None,
+    search: Optional[str] = None
 ) -> int:
-    """Cuenta el total de registros de carga de clientes con filtros opcionales."""
+    """Cuenta el total de registros de carga de clientes con filtros opcionales. search filtra por código o nombre."""
     query = select(func.count(CargaCliente.id))
-    
-    if codigo_cliente is not None:
+
+    if search and search.strip():
+        search = search.strip()
+        if search.isdigit():
+            query = query.where(
+                or_(
+                    CargaCliente.codigo_cliente == int(search),
+                    CargaCliente.nombre.ilike(f"%{search}%")
+                )
+            )
+        else:
+            query = query.where(CargaCliente.nombre.ilike(f"%{search}%"))
+    elif codigo_cliente is not None:
         query = query.where(CargaCliente.codigo_cliente == codigo_cliente)
-    
+
     if cliente_proveedor:
         query = query.where(CargaCliente.cliente_proveedor.ilike(f"%{cliente_proveedor}%"))
-    
+
     if estatus:
         query = query.where(CargaCliente.estatus == estatus)
-    
+
     result = await db.execute(query)
     return result.scalar() or 0
 

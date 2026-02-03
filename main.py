@@ -884,26 +884,20 @@ async def carga_cliente(
     """Página de carga de cliente - requiere autenticación."""
     limit = 50
     offset = (page - 1) * limit
-    
-    # Convertir search a int si es posible para buscar por código
-    codigo_cliente = None
-    if search:
-        try:
-            codigo_cliente = int(search)
-        except ValueError:
-            pass
-    
-    # Obtener clientes
+
+    search_param = search.strip() if search else None
+
+    # Obtener clientes (filtro por código o nombre)
     clientes = await crud.list_carga_clientes(
-        db, 
-        limit=limit, 
+        db,
+        limit=limit,
         offset=offset,
-        codigo_cliente=codigo_cliente,
+        search=search_param,
         estatus=estatus if estatus else None
     )
     total_clientes = await crud.count_carga_clientes(
         db,
-        codigo_cliente=codigo_cliente,
+        search=search_param,
         estatus=estatus if estatus else None
     )
     
