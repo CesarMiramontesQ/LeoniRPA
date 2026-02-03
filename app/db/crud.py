@@ -4930,6 +4930,34 @@ def master_unificado_virtual_to_dict(master: Optional[MasterUnificadoVirtuales])
     }
 
 
+def _add_master_unificado_virtual_historial_entry(
+    db: AsyncSession,
+    *,
+    numero: Optional[int],
+    operacion: MasterUnificadoVirtualOperacion,
+    user_id: int,
+    datos_antes: Optional[Dict[str, Any]] = None,
+    datos_despues: Optional[Dict[str, Any]] = None,
+    campos_modificados: Optional[List[str]] = None,
+    comentario: Optional[str] = None,
+) -> MasterUnificadoVirtualHistorial:
+    """
+    Agrega una entrada al historial sin hacer commit.
+    Útil cuando se están registrando varios movimientos en la misma transacción.
+    """
+    historial = MasterUnificadoVirtualHistorial(
+        numero=numero,
+        operacion=operacion,
+        user_id=user_id,
+        datos_antes=datos_antes,
+        datos_despues=datos_despues,
+        campos_modificados=campos_modificados,
+        comentario=comentario,
+    )
+    db.add(historial)
+    return historial
+
+
 async def create_master_unificado_virtual_historial(
     db: AsyncSession,
     *,
@@ -4941,8 +4969,9 @@ async def create_master_unificado_virtual_historial(
     campos_modificados: Optional[List[str]] = None,
     comentario: Optional[str] = None,
 ) -> MasterUnificadoVirtualHistorial:
-    """Registra una entrada en el historial de virtuales."""
-    historial = MasterUnificadoVirtualHistorial(
+    """Registra una entrada en el historial de virtuales y hace commit."""
+    historial = _add_master_unificado_virtual_historial_entry(
+        db,
         numero=numero,
         operacion=operacion,
         user_id=user_id,
@@ -4951,7 +4980,6 @@ async def create_master_unificado_virtual_historial(
         campos_modificados=campos_modificados,
         comentario=comentario,
     )
-    db.add(historial)
     await db.commit()
     await db.refresh(historial)
     return historial
@@ -4983,7 +5011,8 @@ async def create_master_unificado_virtuales(
     plazo: Optional[str] = None,
     firma: Optional[str] = None,
     incoterm: Optional[str] = None,
-    tipo_exportacion: Optional[str] = None
+    tipo_exportacion: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> MasterUnificadoVirtuales:
     """Crea un nuevo registro de master unificado virtuales."""
     master = MasterUnificadoVirtuales(
@@ -5014,6 +5043,20 @@ async def create_master_unificado_virtuales(
         tipo_exportacion=tipo_exportacion
     )
     db.add(master)
+    await db.flush()
+    if master.numero is None and master.id:
+        master.numero = master.id
+        await db.flush()
+    if user_id:
+        _add_master_unificado_virtual_historial_entry(
+            db,
+            numero=master.numero,
+            operacion=MasterUnificadoVirtualOperacion.CREATE,
+            user_id=user_id,
+            datos_antes=None,
+            datos_despues=master_unificado_virtual_to_dict(master),
+            comentario="Creación manual",
+        )
     await db.commit()
     await db.refresh(master)
     return master
@@ -5156,12 +5199,15 @@ async def update_master_unificado_virtuales(
     plazo: Optional[str] = None,
     firma: Optional[str] = None,
     incoterm: Optional[str] = None,
-    tipo_exportacion: Optional[str] = None
+    tipo_exportacion: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> Optional[MasterUnificadoVirtuales]:
     """Actualiza un registro de master unificado virtuales. Identificador: numero."""
     master = await get_master_unificado_virtuales_by_numero(db, numero)
     if not master:
         return None
+
+    datos_antes = master_unificado_virtual_to_dict(master)
     
     if solicitud_previo is not None:
         master.solicitud_previo = solicitud_previo
@@ -5213,10 +5259,69 @@ async def update_master_unificado_virtuales(
         master.incoterm = incoterm
     if tipo_exportacion is not None:
         master.tipo_exportacion = tipo_exportacion
+
+    if user_id:
+        datos_despues = master_unificado_virtual_to_dict(master)
+        campos_modificados = [
+            k for k in datos_antes
+            if datos_antes.get(k) != datos_despues.get(k)
+        ]
+        _add_master_unificado_virtual_historial_entry(
+            db,
+            numero=master.numero,
+            operacion=MasterUnificadoVirtualOperacion.UPDATE,
+            user_id=user_id,
+            datos_antes=datos_antes,
+            datos_despues=datos_despues,
+            campos_modificados=campos_modificados if campos_modificados else None,
+            comentario="Actualización manual",
+        )
     
     await db.commit()
     await db.refresh(master)
     return master
+
+
+async def list_master_unificado_virtuales_historial(
+    db: AsyncSession,
+    numero: Optional[int] = None,
+    operacion: Optional[MasterUnificadoVirtualOperacion] = None,
+    user_id: Optional[int] = None,
+    limit: int = 100,
+    offset: int = 0
+) -> List[MasterUnificadoVirtualHistorial]:
+    """Lista el historial de movimientos del master virtuales con filtros opcionales."""
+    query = (
+        select(MasterUnificadoVirtualHistorial)
+        .options(selectinload(MasterUnificadoVirtualHistorial.user))
+    )
+    if numero is not None:
+        query = query.where(MasterUnificadoVirtualHistorial.numero == numero)
+    if operacion is not None:
+        query = query.where(MasterUnificadoVirtualHistorial.operacion == operacion)
+    if user_id is not None:
+        query = query.where(MasterUnificadoVirtualHistorial.user_id == user_id)
+    query = query.order_by(desc(MasterUnificadoVirtualHistorial.created_at)).limit(limit).offset(offset)
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def count_master_unificado_virtuales_historial(
+    db: AsyncSession,
+    numero: Optional[int] = None,
+    operacion: Optional[MasterUnificadoVirtualOperacion] = None,
+    user_id: Optional[int] = None
+) -> int:
+    """Cuenta registros del historial con filtros opcionales."""
+    query = select(func.count(MasterUnificadoVirtualHistorial.id))
+    if numero is not None:
+        query = query.where(MasterUnificadoVirtualHistorial.numero == numero)
+    if operacion is not None:
+        query = query.where(MasterUnificadoVirtualHistorial.operacion == operacion)
+    if user_id is not None:
+        query = query.where(MasterUnificadoVirtualHistorial.user_id == user_id)
+    result = await db.execute(query)
+    return result.scalar() or 0
 
 
 async def delete_master_unificado_virtuales(db: AsyncSession, numero: int) -> bool:
@@ -5228,6 +5333,660 @@ async def delete_master_unificado_virtuales(db: AsyncSession, numero: int) -> bo
     await db.delete(master)
     await db.commit()
     return True
+
+
+# ============================================================================
+# Actualización de Master Virtuales desde Compras y Ventas
+# ============================================================================
+
+def _es_tipo_proveedor(tipo: Optional[str]) -> bool:
+    """Indica si el registro es tipo proveedor (revisar compras)."""
+    if not tipo:
+        return True
+    return "proveedor" in str(tipo).lower()
+
+
+def _es_tipo_cliente(tipo: Optional[str]) -> bool:
+    """Indica si el registro es tipo cliente (revisar ventas)."""
+    if not tipo:
+        return False
+    return "cliente" in str(tipo).lower()
+
+
+async def get_proveedores_distintos_master_virtuales(db: AsyncSession) -> List[tuple]:
+    """
+    Obtiene (proveedor_cliente, tipo) distintos donde tipo indica proveedor.
+    Se usa para identificar proveedores existentes que se revisan en compras.
+    """
+    query = (
+        select(MasterUnificadoVirtuales.proveedor_cliente, MasterUnificadoVirtuales.tipo)
+        .where(
+            MasterUnificadoVirtuales.proveedor_cliente.isnot(None),
+            MasterUnificadoVirtuales.proveedor_cliente != ""
+        )
+        .distinct()
+    )
+    result = await db.execute(query)
+    return [
+        (str(r[0]).strip(), r[1])
+        for r in result.all()
+        if r[0] and str(r[0]).strip() and _es_tipo_proveedor(r[1])
+    ]
+
+
+async def get_clientes_distintos_master_virtuales(db: AsyncSession) -> List[tuple]:
+    """
+    Obtiene (proveedor_cliente, tipo) distintos donde tipo indica cliente.
+    Se usa para identificar clientes existentes que se revisan en ventas.
+    """
+    query = (
+        select(MasterUnificadoVirtuales.proveedor_cliente, MasterUnificadoVirtuales.tipo)
+        .where(
+            MasterUnificadoVirtuales.proveedor_cliente.isnot(None),
+            MasterUnificadoVirtuales.proveedor_cliente != ""
+        )
+        .distinct()
+    )
+    result = await db.execute(query)
+    return [
+        (str(r[0]).strip(), r[1])
+        for r in result.all()
+        if r[0] and str(r[0]).strip() and _es_tipo_cliente(r[1])
+    ]
+
+
+async def get_proveedores_con_compras_en_mes(
+    db: AsyncSession,
+    año: int,
+    mes: int
+) -> set:
+    """
+    Obtiene el conjunto de identificadores (codigo_proveedor y nombre_proveedor)
+    que tienen al menos una compra en el mes/año indicado.
+    Se incluyen ambos para poder emparejar con proveedor_cliente del master,
+    que puede almacenar código o nombre.
+    """
+    from datetime import date
+    inicio = date(año, mes, 1)
+    if mes == 12:
+        fin = date(año + 1, 1, 1)
+    else:
+        fin = date(año, mes + 1, 1)
+    inicio_dt = datetime(inicio.year, inicio.month, inicio.day, 0, 0, 0, tzinfo=timezone.utc)
+    fin_dt = datetime(fin.year, fin.month, fin.day, 0, 0, 0, tzinfo=timezone.utc)
+    query = (
+        select(Compra.codigo_proveedor, Compra.nombre_proveedor)
+        .where(
+            Compra.posting_date.isnot(None),
+            Compra.posting_date >= inicio_dt,
+            Compra.posting_date < fin_dt,
+            Compra.codigo_proveedor.isnot(None),
+            Compra.codigo_proveedor != ""
+        )
+        .distinct()
+    )
+    result = await db.execute(query)
+    ids = set()
+    for row in result.all():
+        if row[0]:
+            ids.add(str(row[0]).strip())
+        if row[1]:
+            ids.add(str(row[1]).strip())
+    return ids
+
+
+async def get_clientes_con_ventas_en_mes(
+    db: AsyncSession,
+    año: int,
+    mes: int
+) -> set:
+    """
+    Obtiene el conjunto de identificadores (codigo_cliente y cliente/nombre)
+    que tienen al menos una venta en el mes/año indicado (Venta.periodo).
+    Se incluyen ambos para emparejar con proveedor_cliente del master.
+    """
+    from datetime import date
+    periodo_mes = date(año, mes, 1)
+    query = (
+        select(Venta.codigo_cliente, Venta.cliente)
+        .where(Venta.periodo == periodo_mes)
+        .distinct()
+    )
+    result = await db.execute(query)
+    ids = set()
+    for row in result.all():
+        if row[0] is not None:
+            ids.add(str(row[0]).strip())
+        if row[1]:
+            ids.add(str(row[1]).strip())
+    return ids
+
+
+async def get_proveedores_nuevos_desde_compras(
+    db: AsyncSession,
+    año: int,
+    mes: int,
+    proveedores_existentes: set
+) -> List[tuple]:
+    """
+    Obtiene (codigo_proveedor, nombre_proveedor) de compras en el mes que
+    NO existen en master_virtuales. Proveedores nuevos a registrar.
+    """
+    from datetime import date
+    inicio = date(año, mes, 1)
+    if mes == 12:
+        fin = date(año + 1, 1, 1)
+    else:
+        fin = date(año, mes + 1, 1)
+    inicio_dt = datetime(inicio.year, inicio.month, inicio.day, 0, 0, 0, tzinfo=timezone.utc)
+    fin_dt = datetime(fin.year, fin.month, fin.day, 0, 0, 0, tzinfo=timezone.utc)
+    query = (
+        select(Compra.codigo_proveedor, Compra.nombre_proveedor)
+        .where(
+            Compra.posting_date.isnot(None),
+            Compra.posting_date >= inicio_dt,
+            Compra.posting_date < fin_dt,
+            Compra.codigo_proveedor.isnot(None),
+            Compra.codigo_proveedor != ""
+        )
+        .distinct()
+    )
+    result = await db.execute(query)
+    # Filtrar los que NO están en proveedores_existentes
+    proveedores_master = set(p.strip() for p in proveedores_existentes if p)
+    nuevos = []
+    vistos = set()
+    for row in result.all():
+        cod = str(row[0]).strip() if row[0] else ""
+        nom = str(row[1]).strip() if row[1] else cod
+        if not cod or cod in vistos:
+            continue
+        vistos.add(cod)
+        # Existe si está en master (proveedor_cliente puede ser código o nombre)
+        if cod in proveedores_master:
+            continue
+        # También verificar por nombre por si el master usa nombres
+        if nom and nom in proveedores_master:
+            continue
+        nuevos.append((cod, nom))
+    return nuevos
+
+
+async def get_clientes_nuevos_desde_ventas(
+    db: AsyncSession,
+    año: int,
+    mes: int,
+    clientes_existentes: set
+) -> List[tuple]:
+    """
+    Obtiene (codigo_cliente, nombre_cliente) de ventas en el mes que
+    NO existen en master_virtuales como tipo cliente. Clientes nuevos a registrar.
+    """
+    from datetime import date
+    periodo_mes = date(año, mes, 1)
+    query = (
+        select(Venta.codigo_cliente, Venta.cliente)
+        .where(Venta.periodo == periodo_mes)
+        .distinct()
+    )
+    result = await db.execute(query)
+    clientes_master = set(c.strip() for c in clientes_existentes if c)
+    nuevos = []
+    vistos = set()
+    for row in result.all():
+        cod = str(row[0]).strip() if row[0] is not None else ""
+        nom = str(row[1]).strip() if row[1] else cod
+        id_clave = cod or nom
+        if not id_clave or id_clave in vistos:
+            continue
+        vistos.add(id_clave)
+        if cod and cod in clientes_master:
+            continue
+        if nom and nom in clientes_master:
+            continue
+        nuevos.append((cod or nom, nom or cod))
+    return nuevos
+
+
+async def get_ultimo_virtual_por_proveedor_cliente(
+    db: AsyncSession,
+    proveedor_cliente: str,
+    es_proveedor: bool = True
+) -> Optional[MasterUnificadoVirtuales]:
+    """
+    Obtiene el último registro de master_virtuales para un proveedor_cliente
+    del tipo indicado (proveedor o cliente). Ordenado por created_at descendente.
+    """
+    query = (
+        select(MasterUnificadoVirtuales)
+        .where(MasterUnificadoVirtuales.proveedor_cliente == proveedor_cliente)
+    )
+    if es_proveedor:
+        query = query.where(
+            or_(
+                MasterUnificadoVirtuales.tipo.is_(None),
+                MasterUnificadoVirtuales.tipo.ilike("%proveedor%")
+            )
+        )
+    else:
+        query = query.where(
+            MasterUnificadoVirtuales.tipo.ilike("%cliente%")
+        )
+    query = query.order_by(desc(MasterUnificadoVirtuales.created_at)).limit(1)
+    result = await db.execute(query)
+    return result.scalar_one_or_none()
+
+
+async def existe_virtual_proveedor_mes(
+    db: AsyncSession,
+    proveedor_cliente: str,
+    mes_captura: str,
+    tipo: Optional[str] = None
+) -> bool:
+    """
+    Verifica si ya existe un registro en master_virtuales para el proveedor_cliente
+    y el mes de captura. Si se indica tipo, también filtra por tipo.
+    Evita duplicados en el mismo periodo.
+    """
+    conditions = [
+        MasterUnificadoVirtuales.proveedor_cliente == proveedor_cliente,
+        MasterUnificadoVirtuales.mes == mes_captura
+    ]
+    if tipo:
+        if "cliente" in str(tipo).lower():
+            conditions.append(MasterUnificadoVirtuales.tipo.ilike("%cliente%"))
+        elif "proveedor" in str(tipo).lower():
+            conditions.append(
+                or_(
+                    MasterUnificadoVirtuales.tipo.is_(None),
+                    MasterUnificadoVirtuales.tipo.ilike("%proveedor%")
+                )
+            )
+    query = select(func.count(MasterUnificadoVirtuales.id)).where(*conditions)
+    result = await db.execute(query)
+    return (result.scalar() or 0) > 0
+
+
+async def get_siguiente_numero_virtual(db: AsyncSession) -> int:
+    """Obtiene el siguiente número disponible para un nuevo registro (max + 1)."""
+    query = select(func.coalesce(func.max(MasterUnificadoVirtuales.numero), 0))
+    result = await db.execute(query)
+    max_num = result.scalar() or 0
+    return int(max_num) + 1
+
+
+async def actualizar_master_virtuales_desde_compras(
+    db: AsyncSession,
+    user_id: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Actualiza el master de virtuales basándose en compras y ventas del mes anterior.
+    
+    Registros tipo proveedor → se revisan en compras.
+    Registros tipo cliente → se revisan en ventas.
+    
+    Lógica:
+    1. Periodo de análisis: mes anterior al actual.
+    2. Proveedores existentes (tipo proveedor): si tiene compras en el mes analizado
+       → "En Captura". Si no → "Sin Operacion".
+    3. Clientes existentes (tipo cliente): si tiene ventas en el mes analizado
+       → "En Captura". Si no → "Sin Operacion".
+    4. Proveedores nuevos: aparecen en compras del mes y no están en master → "Nuevo".
+    5. Clientes nuevos: aparecen en ventas del mes y no están en master → "Nuevo".
+    
+    mes_actual_de_captura = mes en que se ejecuta la actualización (formato YYYY-MM).
+    No duplica registros para el mismo proveedor_cliente en el mismo periodo.
+    """
+    ahora = datetime.now(timezone.utc)
+    año_captura = ahora.year
+    mes_captura = ahora.month
+    mes_captura_str = f"{año_captura:04d}-{mes_captura:02d}"
+
+    # Periodo de análisis: mes anterior
+    if mes_captura == 1:
+        año_analisis = año_captura - 1
+        mes_analisis = 12
+    else:
+        año_analisis = año_captura
+        mes_analisis = mes_captura - 1
+
+    resumen = {
+        "periodo_analisis": f"{año_analisis:04d}-{mes_analisis:02d}",
+        "mes_captura": mes_captura_str,
+        "existentes_en_captura": 0,
+        "existentes_sin_operacion": 0,
+        "nuevos": 0,
+        "nuevos_proveedores": 0,
+        "nuevos_clientes": 0,
+        "omitidos_duplicados": 0,
+        "errores": [],
+    }
+
+    try:
+        # 1. Movimientos en el mes analizado
+        proveedores_con_compras = await get_proveedores_con_compras_en_mes(
+            db, año_analisis, mes_analisis
+        )
+        clientes_con_ventas = await get_clientes_con_ventas_en_mes(
+            db, año_analisis, mes_analisis
+        )
+
+        # 2. Existentes en master por tipo
+        proveedores_master = await get_proveedores_distintos_master_virtuales(db)
+        clientes_master = await get_clientes_distintos_master_virtuales(db)
+        proveedores_master_set = set(p[0] for p in proveedores_master if p[0])
+        clientes_master_set = set(c[0] for c in clientes_master if c[0])
+
+        # 3. Para cada proveedor existente (tipo proveedor → compras)
+        for proveedor, _ in proveedores_master:
+            if not proveedor or not str(proveedor).strip():
+                continue
+            proveedor = str(proveedor).strip()
+
+            if await existe_virtual_proveedor_mes(db, proveedor, mes_captura_str, tipo="Proveedor"):
+                resumen["omitidos_duplicados"] += 1
+                continue
+
+            tiene_movimientos = proveedor in proveedores_con_compras
+            ultimo = await get_ultimo_virtual_por_proveedor_cliente(db, proveedor, es_proveedor=True)
+
+            if tiene_movimientos and ultimo:
+                # Copiar del último registro, vaciar pedimento/aduana/patente/firma
+                nuevo = MasterUnificadoVirtuales(
+                    solicitud_previo=ultimo.solicitud_previo,
+                    agente=ultimo.agente,
+                    pedimento=None,
+                    aduana=None,
+                    patente=None,
+                    firma=None,
+                    destino=ultimo.destino,
+                    cliente_space=ultimo.cliente_space,
+                    impo_expo=ultimo.impo_expo,
+                    proveedor_cliente=ultimo.proveedor_cliente,
+                    mes=mes_captura_str,
+                    complemento=ultimo.complemento,
+                    tipo_immex=ultimo.tipo_immex,
+                    factura=ultimo.factura,
+                    fecha_pago=ultimo.fecha_pago,
+                    informacion=(
+                        f"Periodo analizado: {resumen['periodo_analisis']}. "
+                        + (ultimo.informacion or "")
+                    ).strip() or None,
+                    estatus="En Captura",
+                    op_regular=ultimo.op_regular,
+                    tipo=ultimo.tipo or "Proveedor",
+                    numero=None,
+                    carretes=ultimo.carretes,
+                    servicio_cliente=ultimo.servicio_cliente,
+                    plazo=ultimo.plazo,
+                    incoterm=ultimo.incoterm,
+                    tipo_exportacion=ultimo.tipo_exportacion,
+                )
+            else:
+                # Sin compras o sin último: registro nuevo base (tipo proveedor)
+                nuevo = MasterUnificadoVirtuales(
+                    solicitud_previo=None,
+                    agente=None,
+                    pedimento=None,
+                    aduana=None,
+                    patente=None,
+                    firma=None,
+                    destino=None,
+                    cliente_space=None,
+                    impo_expo=None,
+                    proveedor_cliente=proveedor,
+                    mes=mes_captura_str,
+                    complemento=None,
+                    tipo_immex=None,
+                    factura=None,
+                    fecha_pago=None,
+                    informacion=f"Periodo analizado: {resumen['periodo_analisis']}",
+                    estatus="Sin Operacion",
+                    op_regular=None,
+                    tipo="Proveedor",
+                    numero=None,
+                    carretes=None,
+                    servicio_cliente=None,
+                    plazo=None,
+                    incoterm=None,
+                    tipo_exportacion=None,
+                )
+
+            db.add(nuevo)
+            await db.flush()
+            if nuevo.id and not nuevo.numero:
+                nuevo.numero = nuevo.id
+            if user_id:
+                _add_master_unificado_virtual_historial_entry(
+                    db,
+                    numero=nuevo.numero,
+                    operacion=MasterUnificadoVirtualOperacion.CREATE,
+                    user_id=user_id,
+                    datos_antes=None,
+                    datos_despues=master_unificado_virtual_to_dict(nuevo),
+                    comentario=f"Actualización automática. Estatus: {nuevo.estatus}",
+                )
+            if tiene_movimientos and ultimo:
+                resumen["existentes_en_captura"] += 1
+            else:
+                resumen["existentes_sin_operacion"] += 1
+
+        # 4. Para cada cliente existente (tipo cliente → ventas)
+        for cliente, _ in clientes_master:
+            if not cliente or not str(cliente).strip():
+                continue
+            cliente = str(cliente).strip()
+
+            if await existe_virtual_proveedor_mes(db, cliente, mes_captura_str, tipo="Cliente"):
+                resumen["omitidos_duplicados"] += 1
+                continue
+
+            tiene_movimientos = cliente in clientes_con_ventas
+            ultimo = await get_ultimo_virtual_por_proveedor_cliente(db, cliente, es_proveedor=False)
+
+            if tiene_movimientos and ultimo:
+                nuevo = MasterUnificadoVirtuales(
+                    solicitud_previo=ultimo.solicitud_previo,
+                    agente=ultimo.agente,
+                    pedimento=None,
+                    aduana=None,
+                    patente=None,
+                    firma=None,
+                    destino=ultimo.destino,
+                    cliente_space=ultimo.cliente_space,
+                    impo_expo=ultimo.impo_expo,
+                    proveedor_cliente=ultimo.proveedor_cliente,
+                    mes=mes_captura_str,
+                    complemento=ultimo.complemento,
+                    tipo_immex=ultimo.tipo_immex,
+                    factura=ultimo.factura,
+                    fecha_pago=ultimo.fecha_pago,
+                    informacion=(
+                        f"Periodo analizado: {resumen['periodo_analisis']}. "
+                        + (ultimo.informacion or "")
+                    ).strip() or None,
+                    estatus="En Captura",
+                    op_regular=ultimo.op_regular,
+                    tipo=ultimo.tipo or "Cliente",
+                    numero=None,
+                    carretes=ultimo.carretes,
+                    servicio_cliente=ultimo.servicio_cliente,
+                    plazo=ultimo.plazo,
+                    incoterm=ultimo.incoterm,
+                    tipo_exportacion=ultimo.tipo_exportacion,
+                )
+            else:
+                nuevo = MasterUnificadoVirtuales(
+                    solicitud_previo=None,
+                    agente=None,
+                    pedimento=None,
+                    aduana=None,
+                    patente=None,
+                    firma=None,
+                    destino=None,
+                    cliente_space=None,
+                    impo_expo=None,
+                    proveedor_cliente=cliente,
+                    mes=mes_captura_str,
+                    complemento=None,
+                    tipo_immex=None,
+                    factura=None,
+                    fecha_pago=None,
+                    informacion=f"Periodo analizado: {resumen['periodo_analisis']}",
+                    estatus="Sin Operacion",
+                    op_regular=None,
+                    tipo="Cliente",
+                    numero=None,
+                    carretes=None,
+                    servicio_cliente=None,
+                    plazo=None,
+                    incoterm=None,
+                    tipo_exportacion=None,
+                )
+
+            db.add(nuevo)
+            await db.flush()
+            if nuevo.id and not nuevo.numero:
+                nuevo.numero = nuevo.id
+            if user_id:
+                _add_master_unificado_virtual_historial_entry(
+                    db,
+                    numero=nuevo.numero,
+                    operacion=MasterUnificadoVirtualOperacion.CREATE,
+                    user_id=user_id,
+                    datos_antes=None,
+                    datos_despues=master_unificado_virtual_to_dict(nuevo),
+                    comentario=f"Actualización automática. Estatus: {nuevo.estatus}",
+                )
+            if tiene_movimientos and ultimo:
+                resumen["existentes_en_captura"] += 1
+            else:
+                resumen["existentes_sin_operacion"] += 1
+
+        # 5. Proveedores nuevos (en compras, no en master)
+        proveedores_nuevos = await get_proveedores_nuevos_desde_compras(
+            db, año_analisis, mes_analisis, proveedores_master_set
+        )
+
+        for codigo, nombre in proveedores_nuevos:
+            if await existe_virtual_proveedor_mes(db, codigo, mes_captura_str, tipo="Proveedor"):
+                resumen["omitidos_duplicados"] += 1
+                continue
+
+            nuevo = MasterUnificadoVirtuales(
+                solicitud_previo=None,
+                agente=None,
+                pedimento=None,
+                aduana=None,
+                patente=None,
+                firma=None,
+                destino=None,
+                cliente_space=None,
+                impo_expo=None,
+                proveedor_cliente=codigo,
+                mes=mes_captura_str,
+                complemento=None,
+                tipo_immex=None,
+                factura=None,
+                fecha_pago=None,
+                informacion=(
+                    f"Periodo analizado: {resumen['periodo_analisis']}"
+                    + (f". Nombre: {nombre}" if nombre else "")
+                ),
+                estatus="Nuevo",
+                op_regular=None,
+                tipo="Proveedor",
+                numero=None,
+                carretes=None,
+                servicio_cliente=None,
+                plazo=None,
+                incoterm=None,
+                tipo_exportacion=None,
+            )
+            db.add(nuevo)
+            await db.flush()
+            if nuevo.id and not nuevo.numero:
+                nuevo.numero = nuevo.id
+            if user_id:
+                _add_master_unificado_virtual_historial_entry(
+                    db,
+                    numero=nuevo.numero,
+                    operacion=MasterUnificadoVirtualOperacion.CREATE,
+                    user_id=user_id,
+                    datos_antes=None,
+                    datos_despues=master_unificado_virtual_to_dict(nuevo),
+                    comentario="Proveedor nuevo desde compras",
+                )
+            resumen["nuevos"] += 1
+            resumen["nuevos_proveedores"] += 1
+
+        # 6. Clientes nuevos (en ventas, no en master)
+        clientes_nuevos = await get_clientes_nuevos_desde_ventas(
+            db, año_analisis, mes_analisis, clientes_master_set
+        )
+
+        for codigo, nombre in clientes_nuevos:
+            id_clave = codigo or nombre
+            if not id_clave:
+                continue
+            if await existe_virtual_proveedor_mes(db, id_clave, mes_captura_str, tipo="Cliente"):
+                resumen["omitidos_duplicados"] += 1
+                continue
+
+            nuevo = MasterUnificadoVirtuales(
+                solicitud_previo=None,
+                agente=None,
+                pedimento=None,
+                aduana=None,
+                patente=None,
+                firma=None,
+                destino=None,
+                cliente_space=None,
+                impo_expo=None,
+                proveedor_cliente=id_clave,
+                mes=mes_captura_str,
+                complemento=None,
+                tipo_immex=None,
+                factura=None,
+                fecha_pago=None,
+                informacion=(
+                    f"Periodo analizado: {resumen['periodo_analisis']}"
+                    + (f". Nombre: {nombre}" if nombre else "")
+                ),
+                estatus="Nuevo",
+                op_regular=None,
+                tipo="Cliente",
+                numero=None,
+                carretes=None,
+                servicio_cliente=None,
+                plazo=None,
+                incoterm=None,
+                tipo_exportacion=None,
+            )
+            db.add(nuevo)
+            await db.flush()
+            if nuevo.id and not nuevo.numero:
+                nuevo.numero = nuevo.id
+            if user_id:
+                _add_master_unificado_virtual_historial_entry(
+                    db,
+                    numero=nuevo.numero,
+                    operacion=MasterUnificadoVirtualOperacion.CREATE,
+                    user_id=user_id,
+                    datos_antes=None,
+                    datos_despues=master_unificado_virtual_to_dict(nuevo),
+                    comentario="Cliente nuevo desde ventas",
+                )
+            resumen["nuevos"] += 1
+            resumen["nuevos_clientes"] += 1
+
+        await db.commit()
+        return resumen
+
+    except Exception as e:
+        await db.rollback()
+        resumen["errores"].append(str(e))
+        raise
 
 
 # ==================== CRUD para Clientes ====================

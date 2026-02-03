@@ -972,6 +972,11 @@ async def virtuales(request: Request, current_user: User = Depends(get_current_u
     estatus_counts = Counter(v.estatus or "Sin estatus" for v in virtuales_data)
     # Ordenar por cantidad descendente
     estatus_counts = dict(sorted(estatus_counts.items(), key=lambda x: x[1], reverse=True))
+
+    # Últimos 10 movimientos del historial
+    historial_reciente = await crud.list_master_unificado_virtuales_historial(
+        db, limit=10, offset=0
+    )
     
     return templates.TemplateResponse(
         "virtuales.html",
@@ -982,6 +987,7 @@ async def virtuales(request: Request, current_user: User = Depends(get_current_u
             "virtuales": virtuales_data,
             "total_virtuales": total_virtuales,
             "estatus_counts": estatus_counts,
+            "historial_reciente": historial_reciente,
         }
     )
 
@@ -1086,7 +1092,8 @@ async def crear_virtual(
             plazo=parse_str(data.get("plazo")),
             firma=parse_str(data.get("firma")),
             incoterm=parse_str(data.get("incoterm")),
-            tipo_exportacion=parse_str(data.get("tipo_exportacion"))
+            tipo_exportacion=parse_str(data.get("tipo_exportacion")),
+            user_id=current_user.id
         )
     except Exception as exc:
         return JSONResponse(
@@ -1163,6 +1170,83 @@ async def eliminar_virtual(
             "message": "Registro eliminado correctamente",
             "numero": numero
         }
+    )
+
+
+@app.post("/api/virtuales/actualizar")
+async def actualizar_master_virtuales(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Ejecuta la actualización del master de virtuales basándose en compras
+    del mes anterior. Crea registros para proveedores existentes y nuevos.
+    """
+    try:
+        resumen = await crud.actualizar_master_virtuales_desde_compras(
+            db=db,
+            user_id=current_user.id
+        )
+        return JSONResponse(
+            status_code=200,
+            content={
+                "success": True,
+                "message": "Actualización completada",
+                "resumen": resumen
+            }
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "message": "Error al actualizar el master de virtuales"
+            }
+        )
+
+
+@app.get("/api/virtuales/historial")
+async def api_virtuales_historial(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    numero: Optional[int] = None,
+    operacion: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0
+):
+    """API para consultar el historial de movimientos del master virtuales."""
+    from app.db.models import MasterUnificadoVirtualOperacion
+    operacion_enum = None
+    if operacion:
+        try:
+            operacion_enum = MasterUnificadoVirtualOperacion(operacion.upper())
+        except ValueError:
+            pass
+    historial = await crud.list_master_unificado_virtuales_historial(
+        db, numero=numero, operacion=operacion_enum, limit=limit, offset=offset
+    )
+    total = await crud.count_master_unificado_virtuales_historial(
+        db, numero=numero, operacion=operacion_enum
+    )
+    items = []
+    for h in historial:
+        items.append({
+            "id": h.id,
+            "numero": h.numero,
+            "operacion": h.operacion.value if h.operacion else None,
+            "user_id": h.user_id,
+            "user_email": h.user.email if h.user else None,
+            "datos_antes": h.datos_antes,
+            "datos_despues": h.datos_despues,
+            "campos_modificados": h.campos_modificados,
+            "comentario": h.comentario,
+            "created_at": h.created_at.isoformat() if h.created_at else None,
+        })
+    return JSONResponse(
+        status_code=200,
+        content={"historial": items, "total": total}
     )
 
 
@@ -1244,7 +1328,8 @@ async def actualizar_virtual(
             plazo=data.get("plazo") or None,
             firma=data.get("firma") or None,
             incoterm=data.get("incoterm") or None,
-            tipo_exportacion=data.get("tipo_exportacion") or None
+            tipo_exportacion=data.get("tipo_exportacion") or None,
+            user_id=current_user.id
         )
         
         if not virtual_actualizado:
