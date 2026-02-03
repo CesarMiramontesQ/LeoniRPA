@@ -1028,6 +1028,26 @@ async def crear_virtual(
             status_code=409,
             content={"error": f"Ya existe un registro con el número {numero}"}
         )
+
+    # Campos obligatorios al crear: numero (ya validado), nombre (proveedor_cliente), impo_expo, tipo
+    proveedor_cliente = (data.get("proveedor_cliente") or "").strip()
+    if not proveedor_cliente:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "El campo 'Nombre' (Proveedor/Cliente) es obligatorio"}
+        )
+    impo_expo = (data.get("impo_expo") or "").strip()
+    if not impo_expo:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "El campo 'Impo/Expo' es obligatorio"}
+        )
+    tipo = (data.get("tipo") or "").strip()
+    if not tipo:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "El campo 'Tipo' es obligatorio"}
+        )
     
     def parse_bool(value):
         if value is None or str(value).strip() == "":
@@ -1093,6 +1113,7 @@ async def crear_virtual(
             firma=parse_str(data.get("firma")),
             incoterm=parse_str(data.get("incoterm")),
             tipo_exportacion=parse_str(data.get("tipo_exportacion")),
+            escenario=parse_str(data.get("escenario")),
             user_id=current_user.id
         )
     except Exception as exc:
@@ -1329,6 +1350,7 @@ async def actualizar_virtual(
             firma=data.get("firma") or None,
             incoterm=data.get("incoterm") or None,
             tipo_exportacion=data.get("tipo_exportacion") or None,
+            escenario=data.get("escenario") or None,
             user_id=current_user.id
         )
         

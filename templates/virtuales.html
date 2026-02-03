@@ -48,7 +48,144 @@
     {% endfor %}
   </dl>
 
-  <!-- Últimos movimientos del historial -->
+  <!-- Panel de filtros -->
+  <div class="rounded-lg bg-white p-6 shadow-sm">
+    <div class="flex flex-wrap items-end gap-4">
+      <div class="flex-1 min-w-[200px]">
+        <label for="busqueda-virtuales" class="block text-sm font-medium text-gray-900">Buscar</label>
+        <div class="mt-2">
+          <input
+            type="text"
+            id="busqueda-virtuales"
+            placeholder="Número, proveedor/cliente, agente, estatus, tipo, incoterm..."
+            class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm"
+          />
+        </div>
+      </div>
+      <div class="flex items-end gap-2">
+        <button
+          id="btn-limpiar-virtuales"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
+        >
+          Limpiar
+        </button>
+      </div>
+    </div>
+
+    <div class="mt-4 flex flex-wrap items-center gap-4">
+      <div class="flex items-center gap-2">
+        <label for="registros-pagina-virtuales" class="text-sm text-gray-600">Mostrar</label>
+        <select
+          id="registros-pagina-virtuales"
+          class="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+        >
+          <option value="25">25</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+        </select>
+        <span class="text-sm text-gray-600">por página</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabla -->
+  <div class="rounded-lg bg-white shadow-sm">
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200" id="tabla-virtuales">
+        <thead class="bg-gray-50">
+          <tr>
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="numero">Número</th>
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="proveedor_cliente">Proveedor/Cliente</th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Impo/Expo</th>
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="agente">Agente</th>
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="mes">Mes</th>
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="estatus">Estatus</th>
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="tipo">Tipo</th>
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="incoterm">Incoterm</th>
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="tipo_exportacion">Tipo Exportación</th>
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="escenario">Escenario</th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Plazo</th>
+            <th scope="col" class="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500">Acciones</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200 bg-white" id="tabla-virtuales-body">
+          <tr id="fila-sin-datos-virtuales">
+            <td colspan="12" class="px-6 py-12 text-center text-sm text-gray-500">
+              <div class="flex flex-col items-center">
+                <svg class="h-12 w-12 text-gray-400 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p class="font-medium text-gray-500">No hay registros</p>
+                <p class="mt-1 text-gray-400">Los datos se mostrarán aquí cuando estén disponibles</p>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Paginación -->
+    <div class="flex flex-wrap items-center justify-between gap-4 border-t border-gray-200 px-4 py-4 sm:px-6">
+      <div class="flex items-center gap-2">
+        <button
+          id="btn-primera-virtuales"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled
+        >
+          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m18.75 4.5-7.5 7.5 7.5 7.5m-6-15L5.25 12l7.5 7.5" />
+          </svg>
+        </button>
+        <button
+          id="btn-anterior-virtuales"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled
+        >
+          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+          </svg>
+        </button>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-sm text-gray-600">Página</span>
+        <input
+          type="number"
+          id="pagina-actual-virtuales"
+          value="1"
+          min="1"
+          class="w-16 rounded-md border border-gray-300 bg-white px-2 py-1 text-center text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+        />
+        <span class="text-sm text-gray-600">de <span id="total-paginas-virtuales">1</span></span>
+      </div>
+      <div class="flex items-center gap-2">
+        <button
+          id="btn-siguiente-virtuales"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled
+        >
+          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+          </svg>
+        </button>
+        <button
+          id="btn-ultima-virtuales"
+          type="button"
+          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled
+        >
+          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="m5.25 4.5 7.5 7.5-7.5 7.5m6-15 7.5 7.5-7.5 7.5" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Historial de movimientos (al final de la página) -->
   <div class="rounded-lg bg-white shadow-sm">
     <div class="px-6 py-4 border-b border-gray-200">
       <h2 class="text-lg font-medium text-gray-900">Últimos 10 Movimientos</h2>
@@ -144,142 +281,6 @@
       {% endif %}
     </div>
   </div>
-
-  <!-- Panel de filtros -->
-  <div class="rounded-lg bg-white p-6 shadow-sm">
-    <div class="flex flex-wrap items-end gap-4">
-      <div class="flex-1 min-w-[200px]">
-        <label for="busqueda-virtuales" class="block text-sm font-medium text-gray-900">Buscar</label>
-        <div class="mt-2">
-          <input
-            type="text"
-            id="busqueda-virtuales"
-            placeholder="Número, proveedor/cliente, agente, estatus, tipo, incoterm..."
-            class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm"
-          />
-        </div>
-      </div>
-      <div class="flex items-end gap-2">
-        <button
-          id="btn-limpiar-virtuales"
-          type="button"
-          class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
-        >
-          Limpiar
-        </button>
-      </div>
-    </div>
-
-    <div class="mt-4 flex flex-wrap items-center gap-4">
-      <div class="flex items-center gap-2">
-        <label for="registros-pagina-virtuales" class="text-sm text-gray-600">Mostrar</label>
-        <select
-          id="registros-pagina-virtuales"
-          class="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
-        >
-          <option value="25">25</option>
-          <option value="50">50</option>
-          <option value="100">100</option>
-        </select>
-        <span class="text-sm text-gray-600">por página</span>
-      </div>
-    </div>
-  </div>
-
-  <!-- Tabla -->
-  <div class="rounded-lg bg-white shadow-sm">
-    <div class="overflow-x-auto">
-      <table class="min-w-full divide-y divide-gray-200" id="tabla-virtuales">
-        <thead class="bg-gray-50">
-          <tr>
-            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="numero">Número</th>
-            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="proveedor_cliente">Proveedor/Cliente</th>
-            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Impo/Expo</th>
-            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="agente">Agente</th>
-            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="mes">Mes</th>
-            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="estatus">Estatus</th>
-            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="tipo">Tipo</th>
-            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="incoterm">Incoterm</th>
-            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="tipo_exportacion">Tipo Exportación</th>
-            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Plazo</th>
-            <th scope="col" class="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500">Acciones</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-gray-200 bg-white" id="tabla-virtuales-body">
-          <tr id="fila-sin-datos-virtuales">
-            <td colspan="11" class="px-6 py-12 text-center text-sm text-gray-500">
-              <div class="flex flex-col items-center">
-                <svg class="h-12 w-12 text-gray-400 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <p class="font-medium text-gray-500">No hay registros</p>
-                <p class="mt-1 text-gray-400">Los datos se mostrarán aquí cuando estén disponibles</p>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <!-- Paginación -->
-    <div class="flex flex-wrap items-center justify-between gap-4 border-t border-gray-200 px-4 py-4 sm:px-6">
-      <div class="flex items-center gap-2">
-        <button
-          id="btn-primera-virtuales"
-          type="button"
-          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-          disabled
-        >
-          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="m18.75 4.5-7.5 7.5 7.5 7.5m-6-15L5.25 12l7.5 7.5" />
-          </svg>
-        </button>
-        <button
-          id="btn-anterior-virtuales"
-          type="button"
-          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-          disabled
-        >
-          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
-          </svg>
-        </button>
-      </div>
-      <div class="flex items-center gap-2">
-        <span class="text-sm text-gray-600">Página</span>
-        <input
-          type="number"
-          id="pagina-actual-virtuales"
-          value="1"
-          min="1"
-          class="w-16 rounded-md border border-gray-300 bg-white px-2 py-1 text-center text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
-        />
-        <span class="text-sm text-gray-600">de <span id="total-paginas-virtuales">1</span></span>
-      </div>
-      <div class="flex items-center gap-2">
-        <button
-          id="btn-siguiente-virtuales"
-          type="button"
-          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-          disabled
-        >
-          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-          </svg>
-        </button>
-        <button
-          id="btn-ultima-virtuales"
-          type="button"
-          class="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-          disabled
-        >
-          <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" d="m5.25 4.5 7.5 7.5-7.5 7.5m6-15 7.5 7.5-7.5 7.5" />
-          </svg>
-        </button>
-      </div>
-    </div>
-  </div>
 </div>
 
 <!-- Datos ocultos -->
@@ -297,6 +298,7 @@
     data-tipo="{{ v.tipo or '' }}"
     data-incoterm="{{ v.incoterm or '' }}"
     data-tipo-exportacion="{{ v.tipo_exportacion or '' }}"
+    data-escenario="{{ v.escenario or '' }}"
     data-plazo="{{ v.plazo or '' }}"
     data-solicitud-previo="{{ 'Sí' if v.solicitud_previo else 'No' }}"
     data-pedimento="{{ v.pedimento or '' }}"
@@ -345,25 +347,29 @@
         <input type="hidden" id="modal-id" name="id" />
         <div class="bg-white px-6 py-4 max-h-[70vh] overflow-y-auto">
           <div class="grid grid-cols-1 gap-x-4 gap-y-4 sm:grid-cols-3">
-            <!-- Número (solo lectura) -->
+            <!-- Número (solo lectura en edición; obligatorio en nuevo) -->
             <div>
-              <label for="modal-numero" class="block text-sm/6 font-medium text-gray-900">Número</label>
+              <label for="modal-numero" class="block text-sm/6 font-medium text-gray-900">Número de cliente <span class="text-red-600">*</span></label>
               <div class="mt-2">
                 <input type="text" id="modal-numero" name="numero" readonly class="block w-full rounded-md bg-gray-100 px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 sm:text-sm/6" />
               </div>
             </div>
-            <!-- Proveedor/Cliente -->
+            <!-- Proveedor/Cliente (Nombre) -->
             <div class="sm:col-span-2">
-              <label for="modal-proveedor-cliente" class="block text-sm/6 font-medium text-gray-900">Proveedor/Cliente</label>
+              <label for="modal-proveedor-cliente" class="block text-sm/6 font-medium text-gray-900">Nombre (Proveedor/Cliente) <span class="text-red-600">*</span></label>
               <div class="mt-2">
-                <input type="text" id="modal-proveedor-cliente" name="proveedor_cliente" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6" />
+                <input type="text" id="modal-proveedor-cliente" name="proveedor_cliente" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6" placeholder="Obligatorio" />
               </div>
             </div>
             <!-- Impo/Expo -->
             <div>
-              <label for="modal-impo-expo" class="block text-sm/6 font-medium text-gray-900">Impo/Expo</label>
+              <label for="modal-impo-expo" class="block text-sm/6 font-medium text-gray-900">Impo/Expo <span class="text-red-600">*</span></label>
               <div class="mt-2">
-                <input type="text" id="modal-impo-expo" name="impo_expo" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6" />
+                <select id="modal-impo-expo" name="impo_expo" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6">
+                  <option value="">Seleccione...</option>
+                  <option value="IMPO">IMPO</option>
+                  <option value="EXPO">EXPO</option>
+                </select>
               </div>
             </div>
             <!-- Agente -->
@@ -389,9 +395,13 @@
             </div>
             <!-- Tipo -->
             <div>
-              <label for="modal-tipo" class="block text-sm/6 font-medium text-gray-900">Tipo</label>
+              <label for="modal-tipo" class="block text-sm/6 font-medium text-gray-900">Tipo <span class="text-red-600">*</span></label>
               <div class="mt-2">
-                <input type="text" id="modal-tipo" name="tipo" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6" />
+                <select id="modal-tipo" name="tipo" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6">
+                  <option value="">Seleccione...</option>
+                  <option value="Cliente">Cliente</option>
+                  <option value="Proveedor">Proveedor</option>
+                </select>
               </div>
             </div>
             <!-- Incoterm -->
@@ -406,6 +416,19 @@
               <label for="modal-tipo-exportacion" class="block text-sm/6 font-medium text-gray-900">Tipo Exportación</label>
               <div class="mt-2">
                 <input type="text" id="modal-tipo-exportacion" name="tipo_exportacion" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6" />
+              </div>
+            </div>
+            <!-- Escenario -->
+            <div>
+              <label for="modal-escenario" class="block text-sm/6 font-medium text-gray-900">Escenario</label>
+              <div class="mt-2">
+                <select id="modal-escenario" name="escenario" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6">
+                  <option value="">Seleccione...</option>
+                  <option value="Escenario 1">Escenario 1</option>
+                  <option value="Escenario 2">Escenario 2</option>
+                  <option value="Escenario 3">Escenario 3</option>
+                  <option value="Escenario 4">Escenario 4</option>
+                </select>
               </div>
             </div>
             <!-- Plazo -->
@@ -587,6 +610,7 @@
         tipo: el.dataset.tipo || '',
         incoterm: el.dataset.incoterm || '',
         tipoExportacion: el.dataset.tipoExportacion || '',
+        escenario: el.dataset.escenario || '',
         plazo: el.dataset.plazo || '',
         solicitudPrevio: el.dataset.solicitudPrevio || '',
         pedimento: el.dataset.pedimento || '',
@@ -612,7 +636,7 @@
     const t = q.toLowerCase();
     const s = [
       v.numero, v.agente, v.impoExpo, v.proveedorCliente, v.mes,
-      v.estatus, v.tipo, v.incoterm, v.tipoExportacion, v.plazo
+      v.estatus, v.tipo, v.incoterm, v.tipoExportacion, v.escenario, v.plazo
     ].join(' ').toLowerCase();
     return s.includes(t);
   }
@@ -679,6 +703,7 @@
         '<td class="whitespace-nowrap px-4 py-3 text-sm text-gray-600">' + esc(v.tipo) + '</td>' +
         '<td class="whitespace-nowrap px-4 py-3 text-sm text-gray-600">' + esc(v.incoterm) + '</td>' +
         '<td class="px-4 py-3 text-sm text-gray-600 max-w-[200px] truncate" title="' + esc(v.tipoExportacion) + '">' + esc(v.tipoExportacion) + '</td>' +
+        '<td class="whitespace-nowrap px-4 py-3 text-sm text-gray-600">' + esc(v.escenario) + '</td>' +
         '<td class="whitespace-nowrap px-4 py-3 text-sm text-gray-600">' + esc(v.plazo) + '</td>' +
         '<td class="whitespace-nowrap px-4 py-3 text-sm text-center">' +
           '<button type="button" class="btn-ver inline-flex items-center rounded-md bg-[#003D89] px-2.5 py-1.5 text-xs font-medium text-white hover:bg-[#002d66] focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2" data-index="' + (from + idx) + '">' +
@@ -719,6 +744,7 @@
       tipo: '',
       incoterm: '',
       tipoExportacion: '',
+      escenario: '',
       plazo: '',
       solicitudPrevio: '',
       pedimento: '',
@@ -765,6 +791,7 @@
     document.getElementById('modal-tipo').value = v.tipo || '';
     document.getElementById('modal-incoterm').value = v.incoterm || '';
     document.getElementById('modal-tipo-exportacion').value = v.tipoExportacion || '';
+    document.getElementById('modal-escenario').value = v.escenario || '';
     document.getElementById('modal-plazo').value = v.plazo || '';
     document.getElementById('modal-pedimento').value = v.pedimento || '';
     document.getElementById('modal-aduana').value = v.aduana || '';
@@ -804,7 +831,7 @@
   }
 
   function setupSort() {
-    const map = { numero: 'numero', agente: 'agente', proveedor_cliente: 'proveedorCliente', mes: 'mes', estatus: 'estatus', tipo: 'tipo', incoterm: 'incoterm', tipo_exportacion: 'tipoExportacion' };
+    const map = { numero: 'numero', agente: 'agente', proveedor_cliente: 'proveedorCliente', mes: 'mes', estatus: 'estatus', tipo: 'tipo', incoterm: 'incoterm', tipo_exportacion: 'tipoExportacion', escenario: 'escenario' };
     document.querySelectorAll('#tabla-virtuales th[data-sort]').forEach(th => {
       th.addEventListener('click', () => {
         const col = map[th.dataset.sort] || th.dataset.sort;
@@ -955,17 +982,35 @@
       
       const numeroValor = (document.getElementById('modal-numero').value || '').trim();
       if (!numeroValor) {
-        alert('No se puede guardar: el número es requerido');
+        alert('El Número de cliente es obligatorio.');
         return;
       }
       
       const numeroInt = parseInt(numeroValor, 10);
       if (Number.isNaN(numeroInt)) {
-        alert('No se puede guardar: el número debe ser numérico');
+        alert('El Número de cliente debe ser numérico.');
         return;
       }
-      
+
       const esCreacion = modoModal === 'create';
+      if (esCreacion) {
+        const nombre = (document.getElementById('modal-proveedor-cliente').value || '').trim();
+        if (!nombre) {
+          alert('El campo Nombre (Proveedor/Cliente) es obligatorio.');
+          return;
+        }
+        const impoExpo = (document.getElementById('modal-impo-expo').value || '').trim();
+        if (!impoExpo) {
+          alert('El campo Impo/Expo es obligatorio.');
+          return;
+        }
+        const tipo = (document.getElementById('modal-tipo').value || '').trim();
+        if (!tipo) {
+          alert('El campo Tipo es obligatorio.');
+          return;
+        }
+      }
+      
       const btnGuardar = document.getElementById('btn-guardar-modal');
       const textoOriginal = btnGuardar.textContent;
       btnGuardar.disabled = true;
@@ -981,6 +1026,7 @@
         tipo: document.getElementById('modal-tipo').value,
         incoterm: document.getElementById('modal-incoterm').value,
         tipo_exportacion: document.getElementById('modal-tipo-exportacion').value,
+        escenario: document.getElementById('modal-escenario').value,
         plazo: document.getElementById('modal-plazo').value,
         pedimento: document.getElementById('modal-pedimento').value,
         aduana: document.getElementById('modal-aduana').value,

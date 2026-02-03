@@ -4925,6 +4925,7 @@ def master_unificado_virtual_to_dict(master: Optional[MasterUnificadoVirtuales])
         "firma": master.firma,
         "incoterm": master.incoterm,
         "tipo_exportacion": master.tipo_exportacion,
+        "escenario": master.escenario,
         "created_at": master.created_at.isoformat() if master.created_at else None,
         "updated_at": master.updated_at.isoformat() if master.updated_at else None,
     }
@@ -5012,6 +5013,7 @@ async def create_master_unificado_virtuales(
     firma: Optional[str] = None,
     incoterm: Optional[str] = None,
     tipo_exportacion: Optional[str] = None,
+    escenario: Optional[str] = None,
     user_id: Optional[int] = None,
 ) -> MasterUnificadoVirtuales:
     """Crea un nuevo registro de master unificado virtuales."""
@@ -5040,7 +5042,8 @@ async def create_master_unificado_virtuales(
         plazo=plazo,
         firma=firma,
         incoterm=incoterm,
-        tipo_exportacion=tipo_exportacion
+        tipo_exportacion=tipo_exportacion,
+        escenario=escenario,
     )
     db.add(master)
     await db.flush()
@@ -5200,6 +5203,7 @@ async def update_master_unificado_virtuales(
     firma: Optional[str] = None,
     incoterm: Optional[str] = None,
     tipo_exportacion: Optional[str] = None,
+    escenario: Optional[str] = None,
     user_id: Optional[int] = None,
 ) -> Optional[MasterUnificadoVirtuales]:
     """Actualiza un registro de master unificado virtuales. Identificador: numero."""
@@ -5259,6 +5263,8 @@ async def update_master_unificado_virtuales(
         master.incoterm = incoterm
     if tipo_exportacion is not None:
         master.tipo_exportacion = tipo_exportacion
+    if escenario is not None:
+        master.escenario = escenario
 
     if user_id:
         datos_despues = master_unificado_virtual_to_dict(master)
