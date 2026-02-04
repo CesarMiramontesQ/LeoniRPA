@@ -1569,6 +1569,18 @@ async def duplicar_virtual_expo_a_impo(
                 content={"error": f"Ya existe un registro IMPO para el número {numero} en el mes {registro_expo.mes}"}
             )
         
+        # Sincronizar secuencia de id para evitar UniqueViolationError (id ya existente)
+        from sqlalchemy import text
+        try:
+            await db.execute(
+                text(
+                    "SELECT setval(pg_get_serial_sequence('master_unificado_virtuales', 'id'), "
+                    "COALESCE((SELECT MAX(id) FROM master_unificado_virtuales), 1))"
+                )
+            )
+        except Exception:
+            pass  # Si la tabla no usa secuencia o falla, se intenta el create igualmente
+        
         # Crear nuevo registro copiando todos los campos pero con impo_expo="IMPO"
         nuevo_impo = await crud.create_master_unificado_virtuales(
             db=db,
