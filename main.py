@@ -1534,6 +1534,103 @@ async def actualizar_virtual(
         )
 
 
+@app.post("/api/virtuales/{numero}/duplicar-impo")
+async def duplicar_virtual_expo_a_impo(
+    numero: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Duplica un registro EXPO como IMPO con la misma información."""
+    try:
+        # Obtener el registro EXPO más reciente para este numero
+        registro_expo = await crud.get_master_unificado_virtuales_by_numero_impoexpo(
+            db=db,
+            numero=numero,
+            impo_expo="EXPO"
+        )
+        
+        if not registro_expo:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"No se encontró un registro EXPO con número {numero}"}
+            )
+        
+        # Verificar si ya existe un registro IMPO para este numero y mes
+        if await crud.existe_virtual_numero_mes(
+            db=db,
+            numero=numero,
+            mes_captura=registro_expo.mes or "",
+            tipo=registro_expo.tipo or "",
+            impo_expo="IMPO"
+        ):
+            return JSONResponse(
+                status_code=409,
+                content={"error": f"Ya existe un registro IMPO para el número {numero} en el mes {registro_expo.mes}"}
+            )
+        
+        # Crear nuevo registro copiando todos los campos pero con impo_expo="IMPO"
+        nuevo_impo = await crud.create_master_unificado_virtuales(
+            db=db,
+            solicitud_previo=registro_expo.solicitud_previo,
+            agente=registro_expo.agente,
+            pedimento=registro_expo.pedimento,
+            aduana=registro_expo.aduana,
+            patente=registro_expo.patente,
+            destino=registro_expo.destino,
+            cliente_space=registro_expo.cliente_space,
+            impo_expo="IMPO",
+            proveedor_cliente=registro_expo.proveedor_cliente,
+            mes=registro_expo.mes,
+            complemento=registro_expo.complemento,
+            tipo_immex=registro_expo.tipo_immex,
+            factura=registro_expo.factura,
+            fecha_pago=registro_expo.fecha_pago,
+            informacion=registro_expo.informacion,
+            estatus=registro_expo.estatus,
+            op_regular=registro_expo.op_regular,
+            tipo=registro_expo.tipo,
+            numero=registro_expo.numero,
+            carretes=registro_expo.carretes,
+            servicio_cliente=registro_expo.servicio_cliente,
+            plazo=registro_expo.plazo,
+            firma=registro_expo.firma,
+            incoterm=registro_expo.incoterm,
+            tipo_exportacion=registro_expo.tipo_exportacion,
+            escenario=registro_expo.escenario,
+            user_id=current_user.id
+        )
+        
+        # Actualizar el comentario del historial para indicar que es una duplicación
+        from app.db.models import MasterUnificadoVirtualHistorial
+        from sqlalchemy import select, desc
+        historial_mas_reciente = await db.execute(
+            select(MasterUnificadoVirtualHistorial)
+            .where(MasterUnificadoVirtualHistorial.numero == nuevo_impo.numero)
+            .order_by(desc(MasterUnificadoVirtualHistorial.created_at))
+            .limit(1)
+        )
+        historial = historial_mas_reciente.scalar_one_or_none()
+        if historial:
+            historial.comentario = f"Duplicado desde registro EXPO (número {numero})"
+            await db.commit()
+        
+        return JSONResponse(
+            status_code=201,
+            content={
+                "success": True,
+                "message": "Registro duplicado como IMPO correctamente",
+                "numero": nuevo_impo.numero
+            }
+        )
+        
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Error al duplicar el registro: {str(e)}"}
+        )
+
+
 @app.put("/api/paises-origen/{pais_id}")
 async def actualizar_pais_origen(
     pais_id: int,

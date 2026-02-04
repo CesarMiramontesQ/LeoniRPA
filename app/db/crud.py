@@ -5145,6 +5145,22 @@ async def get_master_unificado_virtuales_by_numero(db: AsyncSession, numero: int
     return result.scalar_one_or_none()
 
 
+async def get_master_unificado_virtuales_by_numero_impoexpo(
+    db: AsyncSession,
+    numero: int,
+    impo_expo: str
+) -> Optional[MasterUnificadoVirtuales]:
+    """Obtiene el registro más reciente de master unificado virtuales por número e impo_expo."""
+    result = await db.execute(
+        select(MasterUnificadoVirtuales)
+        .where(MasterUnificadoVirtuales.numero == numero)
+        .where(MasterUnificadoVirtuales.impo_expo == impo_expo)
+        .order_by(desc(MasterUnificadoVirtuales.created_at))
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
 async def list_master_unificado_virtuales(
     db: AsyncSession,
     limit: int = 100,
