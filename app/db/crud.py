@@ -5456,6 +5456,49 @@ async def get_clientes_distintos_master_virtuales(db: AsyncSession) -> List[tupl
     ]
 
 
+async def get_registros_master_por_mes(
+    db: AsyncSession,
+    mes_str: str
+) -> List[MasterUnificadoVirtuales]:
+    """
+    Obtiene todos los registros de master_unificado_virtuales del mes indicado.
+    Usado para revisar los registros del mes anterior y propagarlos al mes actual.
+    """
+    query = (
+        select(MasterUnificadoVirtuales)
+        .where(MasterUnificadoVirtuales.mes == mes_str)
+        .where(MasterUnificadoVirtuales.numero.isnot(None))
+    )
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def get_ultimos_registros_por_numero_tipo_impoexpo(
+    db: AsyncSession
+) -> List[MasterUnificadoVirtuales]:
+    """
+    Cuando no hay registros del mes anterior, obtiene el último registro (por created_at)
+    por cada combinación (numero, tipo, impo_expo). Así se puede propagar al mes actual
+    sin marcar todo como "Nuevo".
+    """
+    query = (
+        select(MasterUnificadoVirtuales)
+        .where(MasterUnificadoVirtuales.numero.isnot(None))
+        .order_by(desc(MasterUnificadoVirtuales.created_at))
+    )
+    result = await db.execute(query)
+    todos = list(result.scalars().all())
+    vistos = set()
+    ultimos = []
+    for r in todos:
+        clave = (r.numero, (r.tipo or "").strip(), (r.impo_expo or "").strip())
+        if clave in vistos:
+            continue
+        vistos.add(clave)
+        ultimos.append(r)
+    return ultimos
+
+
 async def get_proveedores_con_compras_en_mes(
     db: AsyncSession,
     año: int,
@@ -5463,7 +5506,7 @@ async def get_proveedores_con_compras_en_mes(
 ) -> set:
     """
     Obtiene el conjunto de codigo_proveedor que tienen al menos una compra
-    en el mes/año indicado, solo proveedores mexicanos (pais = MX).
+    en el mes/año indicado. Proveedores son siempre IMPO (solo mexicanos, pais = MX).
     Se compara con master_virtuales.numero (tipo Proveedor).
     """
     from datetime import date
@@ -5496,20 +5539,58 @@ async def get_clientes_con_ventas_en_mes(
     db: AsyncSession,
     año: int,
     mes: int
-) -> set:
+) -> Dict[str, List[str]]:
     """
-    Obtiene el conjunto de codigo_cliente que tienen al menos una venta
-    en el mes/año indicado (Venta.periodo). Se compara con master_virtuales.numero (tipo Cliente).
+    Obtiene un diccionario de codigo_cliente -> lista de tipos IMPO/EXPO que tienen ventas
+    en el mes/año indicado (Venta.periodo). 
+    
+    Obtiene TODOS los clientes con ventas en el mes, sin filtrar por región.
+    
+    Reglas para determinar IMPO/EXPO:
+    - Si region_asc == 'MX  Mexiko' → IMPO
+    - Si region_asc != 'MX  Mexiko' → EXPO
+    
+    Se compara con master_virtuales.numero (tipo Cliente).
+    
+    Retorna: Dict[str, List[str]] donde la clave es codigo_cliente y el valor es lista de ["IMPO", "EXPO"]
     """
     from datetime import date
     periodo_mes = date(año, mes, 1)
+    
+    # Obtener TODOS los clientes con ventas en el mes, con su región
     query = (
-        select(Venta.codigo_cliente)
-        .where(Venta.periodo == periodo_mes)
+        select(Venta.codigo_cliente, Venta.region_asc)
+        .where(
+            Venta.periodo == periodo_mes,
+            Venta.codigo_cliente.isnot(None)
+        )
         .distinct()
     )
     result = await db.execute(query)
-    return {str(row[0]).strip() for row in result.all() if row[0] is not None}
+    
+    # Agrupar por cliente y determinar tipos IMPO/EXPO
+    resultado = {}
+    for row in result.all():
+        codigo_cliente = str(row[0]).strip() if row[0] is not None else None
+        region_asc = row[1]
+        
+        if not codigo_cliente:
+            continue
+        
+        if codigo_cliente not in resultado:
+            resultado[codigo_cliente] = []
+        
+        # Determinar tipo según región (NULL o vacío se considera EXPO para no perder registros)
+        region_normalized = (region_asc or "").strip()
+        if region_normalized == "MX  Mexiko":
+            if "IMPO" not in resultado[codigo_cliente]:
+                resultado[codigo_cliente].append("IMPO")
+        else:
+            # Cualquier otro valor (incl. NULL, "") → EXPO
+            if "EXPO" not in resultado[codigo_cliente]:
+                resultado[codigo_cliente].append("EXPO")
+    
+    return resultado
 
 
 async def get_proveedores_nuevos_desde_compras(
@@ -5519,10 +5600,12 @@ async def get_proveedores_nuevos_desde_compras(
     numeros_proveedores_existentes: set
 ) -> List[tuple]:
     """
-    Obtiene (codigo_proveedor, nombre_proveedor) de compras en el mes que
+    Obtiene (codigo_proveedor, nombre_proveedor, impo_expo) de compras en el mes que
     NO existen en master_virtuales (comparando codigo_proveedor con numero).
-    Solo proveedores mexicanos (pais = MX). Proveedores nuevos.
+    Proveedores son siempre IMPO (solo mexicanos, pais = MX).
     numeros_proveedores_existentes: set de numero (str o int) de master tipo Proveedor.
+    
+    Retorna: List[tuple] donde cada tupla es (codigo, nombre, "IMPO")
     """
     from datetime import date
     inicio = date(año, mes, 1)
@@ -5553,12 +5636,10 @@ async def get_proveedores_nuevos_desde_compras(
     for row in result.all():
         cod = str(row[0]).strip() if row[0] else ""
         nom = str(row[1]).strip() if row[1] else cod
-        if not cod or cod in vistos:
+        if not cod or cod in vistos or cod in numeros_set:
             continue
         vistos.add(cod)
-        if cod in numeros_set:
-            continue
-        nuevos.append((cod, nom))
+        nuevos.append((cod, nom, "IMPO"))
     return nuevos
 
 
@@ -5569,41 +5650,72 @@ async def get_clientes_nuevos_desde_ventas(
     numeros_clientes_existentes: set
 ) -> List[tuple]:
     """
-    Obtiene (codigo_cliente, nombre_cliente) de ventas en el mes que
+    Obtiene (codigo_cliente, nombre_cliente, impo_expo) de ventas en el mes que
     NO existen en master_virtuales como tipo cliente (comparando codigo_cliente con numero).
+    
+    Obtiene TODOS los clientes con ventas en el mes, sin filtrar por región.
+    
     numeros_clientes_existentes: set de numero (str o int) de master tipo Cliente.
+    
+    Reglas para determinar IMPO/EXPO:
+    - Si region_asc == 'MX  Mexiko' → IMPO
+    - Si region_asc != 'MX  Mexiko' → EXPO
+    
+    Retorna: List[tuple] donde cada tupla es (codigo, nombre, impo_expo)
     """
     from datetime import date
     periodo_mes = date(año, mes, 1)
+    
+    # Obtener TODOS los clientes con ventas en el mes, con su región
     query = (
-        select(Venta.codigo_cliente, Venta.cliente)
-        .where(Venta.periodo == periodo_mes)
+        select(Venta.codigo_cliente, Venta.cliente, Venta.region_asc)
+        .where(
+            Venta.periodo == periodo_mes,
+            Venta.codigo_cliente.isnot(None)
+        )
         .distinct()
     )
     result = await db.execute(query)
+    
     numeros_set = {str(n).strip() for n in numeros_clientes_existentes if n is not None}
     nuevos = []
     vistos = set()
+    
+    # Procesar todas las ventas y agrupar por cliente + tipo IMPO/EXPO
     for row in result.all():
         cod = str(row[0]).strip() if row[0] is not None else ""
         nom = str(row[1]).strip() if row[1] else cod
-        if not cod or cod in vistos:
+        region_asc = row[2]
+        
+        if not cod or cod in numeros_set:
             continue
-        vistos.add(cod)
-        if cod in numeros_set:
+        
+        # Determinar tipo según región (NULL o vacío → EXPO para no perder registros)
+        region_normalized = (region_asc or "").strip()
+        if region_normalized == "MX  Mexiko":
+            tipo_impo_expo = "IMPO"
+        else:
+            tipo_impo_expo = "EXPO"
+        
+        clave = (cod, tipo_impo_expo)
+        if clave in vistos:
             continue
-        nuevos.append((cod, nom or cod))
+        vistos.add(clave)
+        nuevos.append((cod, nom or cod, tipo_impo_expo))
+    
     return nuevos
 
 
 async def get_ultimo_virtual_por_numero(
     db: AsyncSession,
     numero: int,
-    es_proveedor: bool = True
+    es_proveedor: bool = True,
+    impo_expo: Optional[str] = None
 ) -> Optional[MasterUnificadoVirtuales]:
     """
     Obtiene el último registro de master_virtuales para un numero (codigo_proveedor
-    o codigo_cliente) del tipo indicado. Ordenado por created_at descendente.
+    o codigo_cliente) del tipo indicado. Si se especifica impo_expo, filtra por ese valor.
+    Ordenado por created_at descendente.
     """
     query = (
         select(MasterUnificadoVirtuales)
@@ -5620,6 +5732,11 @@ async def get_ultimo_virtual_por_numero(
         query = query.where(
             MasterUnificadoVirtuales.tipo.ilike("%cliente%")
         )
+    
+    # Filtrar por impo_expo si se especifica
+    if impo_expo:
+        query = query.where(MasterUnificadoVirtuales.impo_expo == impo_expo)
+    
     query = query.order_by(desc(MasterUnificadoVirtuales.created_at)).limit(1)
     result = await db.execute(query)
     return result.scalar_one_or_none()
@@ -5629,11 +5746,13 @@ async def existe_virtual_numero_mes(
     db: AsyncSession,
     numero: int,
     mes_captura: str,
-    tipo: Optional[str] = None
+    tipo: Optional[str] = None,
+    impo_expo: Optional[str] = None
 ) -> bool:
     """
-    Verifica si ya existe un registro en master_virtuales para ese numero
-    y mes de captura. Si se indica tipo, filtra por tipo. Evita duplicados en el mismo periodo.
+    Verifica si ya existe un registro en master_virtuales para ese numero,
+    mes de captura e impo_expo. Si se indica tipo, filtra por tipo. 
+    Evita duplicados en el mismo periodo considerando también impo_expo.
     """
     conditions = [
         MasterUnificadoVirtuales.numero == numero,
@@ -5649,6 +5768,11 @@ async def existe_virtual_numero_mes(
                     MasterUnificadoVirtuales.tipo.ilike("%proveedor%")
                 )
             )
+    
+    # Incluir impo_expo en la verificación para evitar duplicados
+    if impo_expo:
+        conditions.append(MasterUnificadoVirtuales.impo_expo == impo_expo)
+    
     query = select(func.count(MasterUnificadoVirtuales.id)).where(*conditions)
     result = await db.execute(query)
     return (result.scalar() or 0) > 0
@@ -5709,19 +5833,19 @@ async def actualizar_master_virtuales_desde_compras(
     user_id: Optional[int] = None
 ) -> Dict[str, Any]:
     """
-    Actualiza el master de virtuales basándose en compras y ventas del mes anterior.
+    Actualiza el master de virtuales según especificación:
     
-    Registros tipo proveedor → se revisan en compras.
-    Registros tipo cliente → se revisan en ventas.
-    
-    Periodo de análisis: siempre el mes anterior completo.
-    Ejemplo: si se pulsa el botón en febrero, se comparan compras y ventas
-    del 1 al 31 de enero del año correspondiente (1 ene - 31 ene 2026).
-    
-    Lógica:
-    1. Proveedores existentes: si tienen compras en ese mes → "En Captura"; si no → "Sin Operacion".
-    2. Clientes existentes: si tienen ventas en ese mes → "En Captura"; si no → "Sin Operacion".
-    3. Proveedores/clientes nuevos: aparecen en compras/ventas del mes y no están en master → "Nuevo".
+    1. Revisar los registros del MES ANTERIOR almacenados en la tabla principal.
+    2. Para cada registro (tipo IMPO o EXPO):
+       - Validar si existieron movimientos en el mes evaluado:
+         * Cliente → Ventas
+         * Proveedor → Compras (solo país = MX)
+       - Si hay movimientos: crear registro del MES ACTUAL con estatus "En Captura".
+       - Si no hay movimientos: crear registro del MES ACTUAL con estatus "Sin Operación".
+       - Si el cliente/proveedor tiene IMPO y EXPO, se crean dos registros (uno por tipo).
+    3. Clientes o Proveedores nuevos (no existían en el mes anterior):
+       - Crear registro con información básica y estatus "Nuevo".
+       - El campo Mes corresponde al mes en que se ejecuta el proceso.
     """
     import calendar
     MESES_ES = ("Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -5763,7 +5887,7 @@ async def actualizar_master_virtuales_desde_compras(
             "COALESCE((SELECT MAX(id) FROM master_unificado_virtuales), 1))"
         ))
 
-        # 1. Movimientos en el mes analizado
+        # 1. Movimientos en el mes evaluado (mes anterior)
         proveedores_con_compras = await get_proveedores_con_compras_en_mes(
             db, año_analisis, mes_analisis
         )
@@ -5771,89 +5895,66 @@ async def actualizar_master_virtuales_desde_compras(
             db, año_analisis, mes_analisis
         )
 
-        # 2. Existentes en master por tipo: (numero, proveedor_cliente)
-        proveedores_master = await get_proveedores_distintos_master_virtuales(db)
-        clientes_master = await get_clientes_distintos_master_virtuales(db)
-        proveedores_master_set = set(str(p[0]) for p in proveedores_master if p[0] is not None)
-        clientes_master_set = set(str(c[0]) for c in clientes_master if c[0] is not None)
+        # 2. Registros del MES ANTERIOR en la tabla principal (origen para propagar al mes actual)
+        registros_mes_anterior = await get_registros_master_por_mes(db, nombre_mes_analisis)
+        # Si no hay registros del mes anterior (primera vez o mes sin datos), usar el último
+        # registro por (numero, tipo, impo_expo) para no marcar todo como "Nuevo"
+        if not registros_mes_anterior:
+            registros_mes_anterior = await get_ultimos_registros_por_numero_tipo_impoexpo(db)
 
-        # 3. Para cada proveedor existente (numero = codigo_proveedor; proveedor_cliente = nombre)
-        for numero_prov, nombre_prov in proveedores_master:
-            if numero_prov is None:
+        # 3. Por cada registro del mes anterior: validar movimientos y crear registro del MES ACTUAL
+        for r in registros_mes_anterior:
+            if r.numero is None:
                 continue
-            nombre_prov = (nombre_prov or "").strip() or None
 
-            if await existe_virtual_numero_mes(db, int(numero_prov), mes_captura_str, tipo="Proveedor"):
+            if await existe_virtual_numero_mes(
+                db, int(r.numero), mes_captura_str,
+                tipo=r.tipo, impo_expo=r.impo_expo or None
+            ):
                 resumen["omitidos_duplicados"] += 1
                 continue
 
-            tiene_movimientos = str(numero_prov) in proveedores_con_compras
-            ultimo = await get_ultimo_virtual_por_numero(db, int(numero_prov), es_proveedor=True)
-
-            if tiene_movimientos and ultimo:
-                # Copiar del último registro; Pedimento, Aduana, Patente, Firma en blanco; mes = mes captura
-                nuevo = MasterUnificadoVirtuales(
-                    solicitud_previo=ultimo.solicitud_previo,
-                    agente=ultimo.agente,
-                    pedimento=None,
-                    aduana=None,
-                    patente=None,
-                    firma=None,
-                    destino=ultimo.destino,
-                    cliente_space=ultimo.cliente_space,
-                    impo_expo=ultimo.impo_expo,
-                    proveedor_cliente=ultimo.proveedor_cliente,
-                    mes=mes_captura_str,
-                    complemento=ultimo.complemento,
-                    tipo_immex=ultimo.tipo_immex,
-                    factura=ultimo.factura,
-                    fecha_pago=ultimo.fecha_pago,
-                    informacion=(
-                        f"Periodo analizado: {resumen['periodo_analisis']}. "
-                        + (ultimo.informacion or "")
-                    ).strip() or None,
-                    estatus="En Captura",
-                    op_regular=ultimo.op_regular,
-                    tipo=ultimo.tipo or "Proveedor",
-                    numero=ultimo.numero,
-                    carretes=ultimo.carretes,
-                    servicio_cliente=ultimo.servicio_cliente,
-                    plazo=ultimo.plazo,
-                    incoterm=ultimo.incoterm,
-                    tipo_exportacion=ultimo.tipo_exportacion,
-                    escenario=ultimo.escenario,
-                )
+            # Validar movimientos: Cliente → Ventas; Proveedor → Compras (solo MX)
+            es_proveedor = r.tipo and "proveedor" in str(r.tipo).lower()
+            if es_proveedor:
+                tiene_movimientos = str(r.numero) in proveedores_con_compras
             else:
-                # Sin compras o sin último: registro base (tipo proveedor); mismo numero, nombre del master
-                nuevo = MasterUnificadoVirtuales(
-                    solicitud_previo=ultimo.solicitud_previo if ultimo else None,
-                    agente=ultimo.agente if ultimo else None,
-                    pedimento=None,
-                    aduana=None,
-                    patente=None,
-                    firma=None,
-                    destino=ultimo.destino if ultimo else None,
-                    cliente_space=ultimo.cliente_space if ultimo else None,
-                    impo_expo=ultimo.impo_expo if ultimo else None,
-                    proveedor_cliente=nombre_prov or (ultimo.proveedor_cliente if ultimo else None),
-                    mes=mes_captura_str,
-                    complemento=ultimo.complemento if ultimo else None,
-                    tipo_immex=ultimo.tipo_immex if ultimo else None,
-                    factura=ultimo.factura if ultimo else None,
-                    fecha_pago=ultimo.fecha_pago if ultimo else None,
-                    informacion=f"Periodo analizado: {resumen['periodo_analisis']}",
-                    estatus="Sin Operacion",
-                    op_regular=ultimo.op_regular if ultimo else None,
-                    tipo="Proveedor",
-                    numero=int(numero_prov) if numero_prov is not None else None,
-                    carretes=ultimo.carretes if ultimo else None,
-                    servicio_cliente=ultimo.servicio_cliente if ultimo else None,
-                    plazo=ultimo.plazo if ultimo else None,
-                    incoterm=ultimo.incoterm if ultimo else None,
-                    tipo_exportacion=ultimo.tipo_exportacion if ultimo else None,
-                    escenario=ultimo.escenario if ultimo else None,
-                )
+                tipos_del_cliente = clientes_con_ventas.get(str(r.numero), [])
+                tiene_movimientos = (r.impo_expo or "") in tipos_del_cliente
 
+            estatus = "En Captura" if tiene_movimientos else "Sin Operacion"
+
+            nuevo = MasterUnificadoVirtuales(
+                solicitud_previo=r.solicitud_previo,
+                agente=r.agente,
+                pedimento=None,
+                aduana=None,
+                patente=None,
+                firma=None,
+                destino=r.destino,
+                cliente_space=r.cliente_space,
+                impo_expo=r.impo_expo,
+                proveedor_cliente=r.proveedor_cliente,
+                mes=mes_captura_str,
+                complemento=r.complemento,
+                tipo_immex=r.tipo_immex,
+                factura=r.factura,
+                fecha_pago=r.fecha_pago,
+                informacion=(
+                    f"Periodo analizado: {resumen['periodo_analisis']}. "
+                    + (r.informacion or "")
+                ).strip() or None,
+                estatus=estatus,
+                op_regular=r.op_regular,
+                tipo=r.tipo,
+                numero=r.numero,
+                carretes=r.carretes,
+                servicio_cliente=r.servicio_cliente,
+                plazo=r.plazo,
+                incoterm=r.incoterm,
+                tipo_exportacion=r.tipo_exportacion,
+                escenario=r.escenario,
+            )
             db.add(nuevo)
             await db.flush()
             if nuevo.id and nuevo.numero is None:
@@ -5868,116 +5969,28 @@ async def actualizar_master_virtuales_desde_compras(
                     datos_despues=master_unificado_virtual_to_dict(nuevo),
                     comentario=f"Actualización automática. Estatus: {nuevo.estatus}",
                 )
-            if tiene_movimientos and ultimo:
+            if tiene_movimientos:
                 resumen["existentes_en_captura"] += 1
             else:
                 resumen["existentes_sin_operacion"] += 1
 
-        # 4. Para cada cliente existente (numero = codigo_cliente; proveedor_cliente = nombre)
-        for numero_cli, nombre_cli in clientes_master:
-            if numero_cli is None:
-                continue
-            nombre_cli = (nombre_cli or "").strip() or None
+        # 4. Numeros ya registrados en la tabla (cualquier mes). Nuevos = solo los que NO están y tienen movimientos.
+        prov_distintos = await get_proveedores_distintos_master_virtuales(db)
+        cli_distintos = await get_clientes_distintos_master_virtuales(db)
+        proveedores_en_tabla = {str(p[0]) for p in prov_distintos if p[0] is not None}
+        clientes_en_tabla = {str(c[0]) for c in cli_distintos if c[0] is not None}
 
-            if await existe_virtual_numero_mes(db, int(numero_cli), mes_captura_str, tipo="Cliente"):
-                resumen["omitidos_duplicados"] += 1
-                continue
-
-            tiene_movimientos = str(numero_cli) in clientes_con_ventas
-            ultimo = await get_ultimo_virtual_por_numero(db, int(numero_cli), es_proveedor=False)
-
-            if tiene_movimientos and ultimo:
-                nuevo = MasterUnificadoVirtuales(
-                    solicitud_previo=ultimo.solicitud_previo,
-                    agente=ultimo.agente,
-                    pedimento=None,
-                    aduana=None,
-                    patente=None,
-                    firma=None,
-                    destino=ultimo.destino,
-                    cliente_space=ultimo.cliente_space,
-                    impo_expo=ultimo.impo_expo,
-                    proveedor_cliente=ultimo.proveedor_cliente,
-                    mes=mes_captura_str,
-                    complemento=ultimo.complemento,
-                    tipo_immex=ultimo.tipo_immex,
-                    factura=ultimo.factura,
-                    fecha_pago=ultimo.fecha_pago,
-                    informacion=(
-                        f"Periodo analizado: {resumen['periodo_analisis']}. "
-                        + (ultimo.informacion or "")
-                    ).strip() or None,
-                    estatus="En Captura",
-                    op_regular=ultimo.op_regular,
-                    tipo=ultimo.tipo or "Cliente",
-                    numero=ultimo.numero,
-                    carretes=ultimo.carretes,
-                    servicio_cliente=ultimo.servicio_cliente,
-                    plazo=ultimo.plazo,
-                    incoterm=ultimo.incoterm,
-                    tipo_exportacion=ultimo.tipo_exportacion,
-                    escenario=ultimo.escenario,
-                )
-            else:
-                nuevo = MasterUnificadoVirtuales(
-                    solicitud_previo=ultimo.solicitud_previo if ultimo else None,
-                    agente=ultimo.agente if ultimo else None,
-                    pedimento=None,
-                    aduana=None,
-                    patente=None,
-                    firma=None,
-                    destino=ultimo.destino if ultimo else None,
-                    cliente_space=ultimo.cliente_space if ultimo else None,
-                    impo_expo=ultimo.impo_expo if ultimo else None,
-                    proveedor_cliente=nombre_cli or (ultimo.proveedor_cliente if ultimo else None),
-                    mes=mes_captura_str,
-                    complemento=ultimo.complemento if ultimo else None,
-                    tipo_immex=ultimo.tipo_immex if ultimo else None,
-                    factura=ultimo.factura if ultimo else None,
-                    fecha_pago=ultimo.fecha_pago if ultimo else None,
-                    informacion=f"Periodo analizado: {resumen['periodo_analisis']}",
-                    estatus="Sin Operacion",
-                    op_regular=ultimo.op_regular if ultimo else None,
-                    tipo="Cliente",
-                    numero=int(numero_cli) if numero_cli is not None else None,
-                    carretes=ultimo.carretes if ultimo else None,
-                    servicio_cliente=ultimo.servicio_cliente if ultimo else None,
-                    plazo=ultimo.plazo if ultimo else None,
-                    incoterm=ultimo.incoterm if ultimo else None,
-                    tipo_exportacion=ultimo.tipo_exportacion if ultimo else None,
-                    escenario=ultimo.escenario if ultimo else None,
-                )
-
-            db.add(nuevo)
-            await db.flush()
-            if nuevo.id and nuevo.numero is None:
-                nuevo.numero = nuevo.id
-            if user_id:
-                _add_master_unificado_virtual_historial_entry(
-                    db,
-                    numero=nuevo.numero,
-                    operacion=MasterUnificadoVirtualOperacion.CREATE,
-                    user_id=user_id,
-                    datos_antes=None,
-                    datos_despues=master_unificado_virtual_to_dict(nuevo),
-                    comentario=f"Actualización automática. Estatus: {nuevo.estatus}",
-                )
-            if tiene_movimientos and ultimo:
-                resumen["existentes_en_captura"] += 1
-            else:
-                resumen["existentes_sin_operacion"] += 1
-
-        # 5. Proveedores nuevos (codigo_proveedor no está en master por numero)
+        # 5. Proveedores nuevos: no están en la tabla y tienen compras en el mes evaluado (MX)
         proveedores_nuevos = await get_proveedores_nuevos_desde_compras(
-            db, año_analisis, mes_analisis, proveedores_master_set
+            db, año_analisis, mes_analisis, proveedores_en_tabla
         )
 
-        for codigo, nombre in proveedores_nuevos:
+        for codigo, nombre, impo_expo_tipo in proveedores_nuevos:
             try:
                 numero_asignar = int(codigo) if codigo else None
             except (ValueError, TypeError):
                 numero_asignar = None
-            if numero_asignar is not None and await existe_virtual_numero_mes(db, numero_asignar, mes_captura_str, tipo="Proveedor"):
+            if numero_asignar is not None and await existe_virtual_numero_mes(db, numero_asignar, mes_captura_str, tipo="Proveedor", impo_expo=impo_expo_tipo):
                 resumen["omitidos_duplicados"] += 1
                 continue
             if numero_asignar is None:
@@ -5992,7 +6005,7 @@ async def actualizar_master_virtuales_desde_compras(
                 firma=None,
                 destino=None,
                 cliente_space=None,
-                impo_expo=None,
+                impo_expo=impo_expo_tipo,
                 proveedor_cliente=nombre or codigo,
                 mes=mes_captura_str,
                 complemento=None,
@@ -6030,19 +6043,19 @@ async def actualizar_master_virtuales_desde_compras(
             resumen["nuevos"] += 1
             resumen["nuevos_proveedores"] += 1
 
-        # 6. Clientes nuevos (codigo_cliente no está en master por numero)
+        # 6. Clientes nuevos: no están en la tabla y tienen ventas en el mes evaluado
         clientes_nuevos = await get_clientes_nuevos_desde_ventas(
-            db, año_analisis, mes_analisis, clientes_master_set
+            db, año_analisis, mes_analisis, clientes_en_tabla
         )
 
-        for codigo, nombre in clientes_nuevos:
+        for codigo, nombre, impo_expo_tipo in clientes_nuevos:
             if not codigo:
                 continue
             try:
                 numero_asignar = int(codigo)
             except (ValueError, TypeError):
                 numero_asignar = await get_siguiente_numero_virtual(db)
-            if await existe_virtual_numero_mes(db, numero_asignar, mes_captura_str, tipo="Cliente"):
+            if await existe_virtual_numero_mes(db, numero_asignar, mes_captura_str, tipo="Cliente", impo_expo=impo_expo_tipo):
                 resumen["omitidos_duplicados"] += 1
                 continue
 
@@ -6055,7 +6068,7 @@ async def actualizar_master_virtuales_desde_compras(
                 firma=None,
                 destino=None,
                 cliente_space=None,
-                impo_expo=None,
+                impo_expo=impo_expo_tipo,
                 proveedor_cliente=nombre or codigo,
                 mes=mes_captura_str,
                 complemento=None,
