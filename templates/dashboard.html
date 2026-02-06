@@ -69,7 +69,7 @@
   <div class="rounded-lg bg-white p-6 shadow-sm">
     <h2 class="mb-4 text-lg font-medium text-gray-900">Virtuales</h2>
     <p class="mb-4 text-sm text-gray-500">Actualiza el master de virtuales, carga de proveedores y carga de clientes.</p>
-    <div class="flex flex-wrap gap-3">
+    <div class="flex flex-wrap items-center gap-x-0 gap-y-3">
       <button
         type="button"
         data-endpoint="/api/virtuales/actualizar"
@@ -79,14 +79,17 @@
         <span class="btn-text">Actualizar Master Virtuales</span>
         <svg class="btn-spinner ml-2 hidden h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
       </button>
+      <div class="hidden sm:block w-px h-8 bg-gray-200 mx-1" aria-hidden="true"></div>
       <button type="button" data-endpoint="/carga-proveedor/actualizar" data-label="Carga Proveedor" class="btn-actualizar-dashboard inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
         <span class="btn-text">Carga Proveedor</span>
         <svg class="btn-spinner ml-2 hidden h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
       </button>
+      <div class="hidden sm:block w-px h-8 bg-gray-200 mx-1" aria-hidden="true"></div>
       <button type="button" data-endpoint="/carga-proveedores-nacional/actualizar" data-label="Carga Proveedores Nacional" class="btn-actualizar-dashboard inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
         <span class="btn-text">Carga Proveedores Nacional</span>
         <svg class="btn-spinner ml-2 hidden h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
       </button>
+      <div class="hidden sm:block w-px h-8 bg-gray-200 mx-1" aria-hidden="true"></div>
       <button type="button" data-endpoint="/carga-cliente/actualizar" data-label="Carga Cliente" class="btn-actualizar-dashboard inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
         <span class="btn-text">Carga Cliente</span>
         <svg class="btn-spinner ml-2 hidden h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
@@ -94,6 +97,94 @@
     </div>
     <a href="/virtuales" class="mt-4 inline-block text-sm text-[#003D89] hover:underline">Ver página de Virtuales</a>
     <div id="toast-dashboard" class="fixed bottom-4 right-4 z-50 hidden rounded-lg px-4 py-3 shadow-lg" role="alert"></div>
+  </div>
+
+  <!-- Descargas Excel -->
+  <div class="rounded-lg bg-white p-6 shadow-sm">
+    <h2 class="mb-4 text-lg font-medium text-gray-900">Descargas Excel</h2>
+    <p class="mb-4 text-sm text-gray-500">Descarga reportes en formato Excel para Carga Proveedores/Clientes, Carga Proveedores Nacionales y Virtuales.</p>
+
+    <div class="space-y-6">
+      <div class="md:flex md:items-center md:justify-between">
+        <div class="min-w-0 flex-1">
+          <h3 class="text-base font-semibold text-gray-900 sm:truncate">Descargar Excel Carga Proveedores/Clientes</h3>
+        </div>
+        <div class="mt-4 flex md:mt-0 md:ml-4">
+          <a
+            href="/carga-proveedor-cliente/descargar-excel"
+            class="inline-flex items-center rounded-md bg-green-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600"
+          >
+            <svg class="mr-1.5 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            Descargar
+          </a>
+        </div>
+      </div>
+
+      <div class="md:flex md:items-center md:justify-between">
+        <div class="min-w-0 flex-1">
+          <h3 class="text-base font-semibold text-gray-900 sm:truncate">Descargar Excel Carga Proveedores Nacionales</h3>
+        </div>
+        <div class="mt-4 flex md:mt-0 md:ml-4">
+          <a
+            href="/carga-proveedores-nacional/descargar-excel"
+            class="inline-flex items-center rounded-md bg-green-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-green-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600"
+          >
+            <svg class="mr-1.5 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            Descargar
+          </a>
+        </div>
+      </div>
+
+      <div class="md:flex md:items-center md:justify-between">
+        <div class="min-w-0 flex-1">
+          <h3 class="text-base font-semibold text-gray-900 sm:truncate">Descargar Excel Virtuales</h3>
+        </div>
+        <div class="mt-4 flex flex-wrap items-center gap-2 md:mt-0 md:ml-4">
+          <select
+            id="excel-mes-dashboard"
+            class="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 shadow-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+            title="Mes"
+          >
+            <option value="">Mes</option>
+            <option value="Enero">Enero</option>
+            <option value="Febrero">Febrero</option>
+            <option value="Marzo">Marzo</option>
+            <option value="Abril">Abril</option>
+            <option value="Mayo">Mayo</option>
+            <option value="Junio">Junio</option>
+            <option value="Julio">Julio</option>
+            <option value="Agosto">Agosto</option>
+            <option value="Septiembre">Septiembre</option>
+            <option value="Octubre">Octubre</option>
+            <option value="Noviembre">Noviembre</option>
+            <option value="Diciembre">Diciembre</option>
+          </select>
+          <select
+            id="excel-año-dashboard"
+            class="rounded-md border border-gray-300 bg-white px-2 py-1.5 text-sm text-gray-900 shadow-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+            title="Año"
+          >
+            {% for a in años_disponibles %}
+            <option value="{{ a }}" {% if a == años_disponibles[0] %}selected{% endif %}>{{ a }}</option>
+            {% endfor %}
+          </select>
+          <button
+            id="btn-descargar-excel-virtuales-dashboard"
+            type="button"
+            class="inline-flex items-center rounded-md bg-[#003D89] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#002d66] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#003D89]"
+          >
+            <svg class="mr-1.5 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+            </svg>
+            Descargar
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -164,6 +255,20 @@ document.addEventListener('DOMContentLoaded', function() {
       if (m && !m.classList.contains('hidden')) cerrarModalYaActualizado();
     }
   });
+
+  const btnDescargarExcelVirtuales = document.getElementById('btn-descargar-excel-virtuales-dashboard');
+  if (btnDescargarExcelVirtuales) {
+    btnDescargarExcelVirtuales.addEventListener('click', function() {
+      const mes = (document.getElementById('excel-mes-dashboard')?.value || '').trim();
+      const año = (document.getElementById('excel-año-dashboard')?.value || '').trim();
+      if (!mes) {
+        showToast('Seleccione un mes para descargar el Excel de Virtuales.', true);
+        return;
+      }
+      const url = '/virtuales/descargar-excel?mes=' + encodeURIComponent(mes) + (año ? '&anio=' + encodeURIComponent(año) : '');
+      window.location.href = url;
+    });
+  }
 
   document.querySelectorAll('.btn-actualizar-dashboard').forEach(function(btn) {
     const btnText = btn.querySelector('.btn-text');

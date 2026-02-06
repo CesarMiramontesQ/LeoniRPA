@@ -76,6 +76,8 @@ async def dashboard(
         "total_materiales": await crud.count_materiales(db),
         "total_precios_compra": await crud.count_precios_materiales(db),
     }
+    año_actual = datetime.now().year
+    años_disponibles = list(range(año_actual, año_actual - 6, -1))
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -83,6 +85,8 @@ async def dashboard(
             "current_user": current_user,
             "active_page": "dashboard",
             "stats": stats,
+            "años_disponibles": años_disponibles,
+            "mes_actual_nombre": mes_actual,
         },
     )
 
@@ -1007,6 +1011,118 @@ async def actualizar_carga_clientes(
             "message": f"Error al actualizar: {str(e)}",
             "resumen": None
         }
+
+
+@app.get("/carga-proveedor-cliente/descargar-excel")
+async def descargar_carga_proveedor_cliente_excel(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Descarga un Excel con una sola hoja: primero proveedores (carga_proveedores) y luego clientes (carga_clientes)."""
+    import io
+    import pandas as pd
+
+    COLUMNAS = [
+        "Nombre o Razón social",
+        "Apellido Paterno",
+        "Apellido Materno",
+        "País",
+        "Domicilio",
+        "Cliente/Proveedor",
+        "Estatus",
+    ]
+
+    def _valor(v):
+        if v is None:
+            return ""
+        if hasattr(v, "strftime"):
+            return v.strftime("%Y-%m-%d") if hasattr(v, "hour") and v.hour == 0 and v.minute == 0 else v.strftime("%Y-%m-%d %H:%M")
+        if isinstance(v, bool):
+            return "Sí" if v else "No"
+        return str(v)
+
+    # Obtener datos
+    proveedores = await crud.list_carga_proveedores(db, limit=50000, offset=0)
+    clientes = await crud.list_carga_clientes(db, limit=50000, offset=0)
+
+    filas = []
+
+    # Primero proveedores (carga_proveedores)
+    for p in proveedores:
+        filas.append({
+            "Nombre o Razón social": _valor(p.nombre),
+            "Apellido Paterno": _valor(p.apellido_paterno),
+            "Apellido Materno": _valor(p.apellido_materno),
+            "País": _valor(p.pais),
+            "Domicilio": _valor(p.domicilio),
+            "Cliente/Proveedor": _valor(p.cliente_proveedor) or "Proveedor",
+            "Estatus": _valor(p.estatus),
+        })
+
+    # Luego clientes (carga_clientes)
+    for c in clientes:
+        filas.append({
+            "Nombre o Razón social": _valor(c.nombre),
+            "Apellido Paterno": "",
+            "Apellido Materno": "",
+            "País": _valor(c.pais),
+            "Domicilio": _valor(c.domicilio),
+            "Cliente/Proveedor": _valor(c.cliente_proveedor) or "Cliente",
+            "Estatus": _valor(c.estatus),
+        })
+
+    df = pd.DataFrame(filas, columns=COLUMNAS)
+    buffer = io.BytesIO()
+    df.to_excel(buffer, index=False, engine="openpyxl", sheet_name="Carga Proveedores y Clientes")
+    buffer.seek(0)
+
+    nombre_archivo = "carga_proveedores_clientes.xlsx"
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nombre_archivo}"'},
+    )
+
+
+@app.get("/carga-proveedores-nacional/descargar-excel")
+async def descargar_carga_proveedores_nacional_excel(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Descarga un Excel de carga_proveedores_nacional con columnas: RFC, Operaciones Virtuales, Estatus."""
+    import io
+    import pandas as pd
+
+    COLUMNAS = ["RFC", "Operaciones Virtuales", "Estatus"]
+
+    def _valor(v):
+        if v is None:
+            return ""
+        return str(v)
+
+    registros = await crud.list_carga_proveedores_nacional(db, limit=50000, offset=0)
+    filas = [
+        {
+            "RFC": _valor(p.rfc),
+            "Operaciones Virtuales": _valor(p.operacion),
+            "Estatus": _valor(p.estatus),
+        }
+        for p in registros
+    ]
+
+    df = pd.DataFrame(filas, columns=COLUMNAS)
+    buffer = io.BytesIO()
+    df.to_excel(buffer, index=False, engine="openpyxl", sheet_name="Carga Proveedores Nacionales")
+    buffer.seek(0)
+
+    nombre_archivo = "carga_proveedores_nacionales.xlsx"
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nombre_archivo}"'},
+    )
 
 
 @app.get("/virtuales")
