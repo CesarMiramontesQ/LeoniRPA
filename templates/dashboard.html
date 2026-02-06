@@ -21,117 +21,199 @@
     </div>
   </div>
 
-  <!-- Información del usuario -->
+  <!-- Estadísticas -->
+  {% if stats %}
   <div class="rounded-lg bg-white p-6 shadow-sm">
-    <h2 class="mb-4 text-lg font-medium text-gray-900">Tu información</h2>
-    <dl class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      <div>
-        <dt class="text-sm font-medium text-gray-500">Email</dt>
-        <dd class="mt-1 text-sm text-gray-900">{{ current_user.email }}</dd>
+    <h2 class="mb-4 text-lg font-medium text-gray-900">Resumen del sistema</h2>
+    <dl class="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-7">
+      <div class="overflow-hidden rounded-lg bg-gray-50 px-4 py-5 sm:p-6">
+        <dt class="truncate text-sm font-medium text-gray-500">Ventas</dt>
+        <dd class="mt-1 text-2xl font-semibold tracking-tight text-gray-900">{{ "{:,}".format(stats.total_ventas) }}</dd>
+        <a href="/ventas-registros" class="mt-2 inline-block text-xs text-[#003D89] hover:underline">Ver registros</a>
       </div>
-      {% if current_user.nombre %}
-      <div>
-        <dt class="text-sm font-medium text-gray-500">Nombre completo</dt>
-        <dd class="mt-1 text-sm text-gray-900">{{ current_user.nombre }}</dd>
+      <div class="overflow-hidden rounded-lg bg-gray-50 px-4 py-5 sm:p-6">
+        <dt class="truncate text-sm font-medium text-gray-500">Compras</dt>
+        <dd class="mt-1 text-2xl font-semibold tracking-tight text-gray-900">{{ "{:,}".format(stats.total_compras) }}</dd>
+        <a href="/todas-compras" class="mt-2 inline-block text-xs text-[#003D89] hover:underline">Ver registros</a>
       </div>
-      {% endif %}
-      <div>
-        <dt class="text-sm font-medium text-gray-500">Rol</dt>
-        <dd class="mt-1 text-sm text-gray-900">
-          <span class="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">
-            {{ current_user.rol }}
-          </span>
-        </dd>
+      <div class="overflow-hidden rounded-lg bg-gray-50 px-4 py-5 sm:p-6">
+        <dt class="truncate text-sm font-medium text-gray-500">Virtuales (mes)</dt>
+        <dd class="mt-1 text-2xl font-semibold tracking-tight text-[#003D89]">{{ "{:,}".format(stats.total_virtuales) }}</dd>
+        <a href="/virtuales" class="mt-2 inline-block text-xs text-[#003D89] hover:underline">Ver virtuales</a>
       </div>
-      <div>
-        <dt class="text-sm font-medium text-gray-500">Estado</dt>
-        <dd class="mt-1 text-sm text-gray-900">
-          {% if current_user.activo %}
-          <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">
-            Activo
-          </span>
-          {% else %}
-          <span class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-800">
-            Inactivo
-          </span>
-          {% endif %}
-        </dd>
+      <div class="overflow-hidden rounded-lg bg-gray-50 px-4 py-5 sm:p-6">
+        <dt class="truncate text-sm font-medium text-gray-500">Clientes</dt>
+        <dd class="mt-1 text-2xl font-semibold tracking-tight text-gray-900">{{ "{:,}".format(stats.total_clientes) }}</dd>
+        <a href="/clientes" class="mt-2 inline-block text-xs text-[#003D89] hover:underline">Ver clientes</a>
+      </div>
+      <div class="overflow-hidden rounded-lg bg-gray-50 px-4 py-5 sm:p-6">
+        <dt class="truncate text-sm font-medium text-gray-500">Proveedores</dt>
+        <dd class="mt-1 text-2xl font-semibold tracking-tight text-gray-900">{{ "{:,}".format(stats.total_proveedores) }}</dd>
+        <a href="/proveedores" class="mt-2 inline-block text-xs text-[#003D89] hover:underline">Ver proveedores</a>
+      </div>
+      <div class="overflow-hidden rounded-lg bg-gray-50 px-4 py-5 sm:p-6">
+        <dt class="truncate text-sm font-medium text-gray-500">Materiales</dt>
+        <dd class="mt-1 text-2xl font-semibold tracking-tight text-gray-900">{{ "{:,}".format(stats.total_materiales) }}</dd>
+        <a href="/materiales" class="mt-2 inline-block text-xs text-[#003D89] hover:underline">Ver materiales</a>
+      </div>
+      <div class="overflow-hidden rounded-lg bg-gray-50 px-4 py-5 sm:p-6">
+        <dt class="truncate text-sm font-medium text-gray-500">Precios compra</dt>
+        <dd class="mt-1 text-2xl font-semibold tracking-tight text-gray-900">{{ "{:,}".format(stats.total_precios_compra) }}</dd>
+        <a href="/precios-compra" class="mt-2 inline-block text-xs text-[#003D89] hover:underline">Ver precios</a>
       </div>
     </dl>
   </div>
+  {% endif %}
 
-  <!-- Accesos rápidos -->
+  <!-- Virtuales - Botones de actualización -->
   <div class="rounded-lg bg-white p-6 shadow-sm">
-    <h2 class="mb-4 text-lg font-medium text-gray-900">Accesos rápidos</h2>
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <a
-        href="/ventas"
-        class="group rounded-lg border border-gray-200 p-4 hover:border-[#003D89] hover:bg-gray-50"
+    <h2 class="mb-4 text-lg font-medium text-gray-900">Virtuales</h2>
+    <p class="mb-4 text-sm text-gray-500">Actualiza el master de virtuales, carga de proveedores y carga de clientes.</p>
+    <div class="flex flex-wrap gap-3">
+      <button
+        type="button"
+        data-endpoint="/api/virtuales/actualizar"
+        data-label="Actualizar Master Virtuales"
+        class="btn-actualizar-dashboard inline-flex items-center rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white hover:bg-[#002d66] disabled:opacity-50"
       >
-        <div class="flex items-center gap-3">
-          <div class="rounded-md bg-blue-100 p-2">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke-width="1.5"
-              stroke="currentColor"
-              class="h-6 w-6 text-[#003D89]"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M14.25 7.756a4.5 4.5 0 1 0 0 8.488M7.5 10.5h5.25m-5.25 3h5.25M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"
-              />
-            </svg>
-          </div>
-          <div>
-            <h3 class="font-medium text-gray-900 group-hover:text-[#003D89]">
-              Ventas
-            </h3>
-            <p class="text-sm text-gray-500">Gestión de ventas</p>
-          </div>
-        </div>
-      </a>
+        <span class="btn-text">Actualizar Master Virtuales</span>
+        <svg class="btn-spinner ml-2 hidden h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+      </button>
+      <button type="button" data-endpoint="/carga-proveedor/actualizar" data-label="Carga Proveedor" class="btn-actualizar-dashboard inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+        <span class="btn-text">Carga Proveedor</span>
+        <svg class="btn-spinner ml-2 hidden h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+      </button>
+      <button type="button" data-endpoint="/carga-proveedores-nacional/actualizar" data-label="Carga Proveedores Nacional" class="btn-actualizar-dashboard inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+        <span class="btn-text">Carga Proveedores Nacional</span>
+        <svg class="btn-spinner ml-2 hidden h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+      </button>
+      <button type="button" data-endpoint="/carga-cliente/actualizar" data-label="Carga Cliente" class="btn-actualizar-dashboard inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+        <span class="btn-text">Carga Cliente</span>
+        <svg class="btn-spinner ml-2 hidden h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+      </button>
+    </div>
+    <a href="/virtuales" class="mt-4 inline-block text-sm text-[#003D89] hover:underline">Ver página de Virtuales</a>
+    <div id="toast-dashboard" class="fixed bottom-4 right-4 z-50 hidden rounded-lg px-4 py-3 shadow-lg" role="alert"></div>
+  </div>
+</div>
 
-      {% if current_user.rol == "admin" %}
-      <a
-        href="/admin"
-        class="group rounded-lg border border-gray-200 p-4 hover:border-[#003D89] hover:bg-gray-50"
-      >
-        <div class="flex items-center gap-3">
-          <div class="rounded-md bg-purple-100 p-2">
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke-width="1.5"
-              stroke="currentColor"
-              class="h-6 w-6 text-purple-700"
-            >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z"
-              />
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-              />
+<!-- Modal: mes ya actualizado -->
+<div id="modal-ya-actualizado-dashboard" class="hidden fixed inset-0 z-[60] overflow-y-auto" aria-labelledby="modal-ya-actualizado-dashboard-title" role="dialog" aria-modal="true">
+  <div class="flex min-h-screen items-end justify-center px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+    <div id="modal-ya-actualizado-dashboard-backdrop" class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"></div>
+    <span class="hidden sm:inline-block sm:h-screen sm:align-middle" aria-hidden="true">&#8203;</span>
+    <div class="relative inline-block transform overflow-hidden rounded-lg bg-white text-left align-bottom shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-md sm:align-middle">
+      <div class="bg-amber-500 px-6 py-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <svg class="h-6 w-6 text-white flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
             </svg>
+            <h3 class="text-lg font-semibold text-white" id="modal-ya-actualizado-dashboard-title">Mes ya actualizado</h3>
           </div>
-          <div>
-            <h3 class="font-medium text-gray-900 group-hover:text-[#003D89]">
-              Administración
-            </h3>
-            <p class="text-sm text-gray-500">Panel de administración</p>
-          </div>
+          <button id="btn-cerrar-modal-ya-actualizado-dashboard-x" type="button" class="text-white hover:text-gray-200 focus:outline-none">
+            <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
-      </a>
-      {% endif %}
+      </div>
+      <div class="px-6 py-4">
+        <p id="modal-ya-actualizado-dashboard-mensaje" class="text-sm text-gray-700">Ese mes ya se actualizaron los registros.</p>
+      </div>
+      <div class="bg-gray-50 px-6 py-3 flex justify-end">
+        <button id="btn-cerrar-modal-ya-actualizado-dashboard" type="button" class="rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2">Entendido</button>
+      </div>
     </div>
   </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  const toast = document.getElementById('toast-dashboard');
+  function showToast(msg, isError) {
+    if (!toast) return;
+    toast.textContent = msg;
+    toast.className = 'fixed bottom-4 right-4 z-50 rounded-lg px-4 py-3 shadow-lg ' + (isError ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800');
+    toast.classList.remove('hidden');
+    setTimeout(() => toast.classList.add('hidden'), 6000);
+  }
+
+  function mostrarModalYaActualizado(mensaje) {
+    const modal = document.getElementById('modal-ya-actualizado-dashboard');
+    const texto = document.getElementById('modal-ya-actualizado-dashboard-mensaje');
+    if (modal && texto) {
+      texto.textContent = mensaje || 'Ese mes ya se actualizaron los registros.';
+      modal.classList.remove('hidden');
+      document.body.style.overflow = 'hidden';
+    }
+  }
+  function cerrarModalYaActualizado() {
+    const modal = document.getElementById('modal-ya-actualizado-dashboard');
+    if (modal) {
+      modal.classList.add('hidden');
+      document.body.style.overflow = '';
+    }
+  }
+  document.getElementById('btn-cerrar-modal-ya-actualizado-dashboard')?.addEventListener('click', cerrarModalYaActualizado);
+  document.getElementById('btn-cerrar-modal-ya-actualizado-dashboard-x')?.addEventListener('click', cerrarModalYaActualizado);
+  document.getElementById('modal-ya-actualizado-dashboard-backdrop')?.addEventListener('click', cerrarModalYaActualizado);
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      const m = document.getElementById('modal-ya-actualizado-dashboard');
+      if (m && !m.classList.contains('hidden')) cerrarModalYaActualizado();
+    }
+  });
+
+  document.querySelectorAll('.btn-actualizar-dashboard').forEach(function(btn) {
+    const btnText = btn.querySelector('.btn-text');
+    const originalText = btnText ? btnText.textContent : 'Actualizar';
+
+    btn.addEventListener('click', async function() {
+      const endpoint = this.dataset.endpoint;
+      const btnSpinner = this.querySelector('.btn-spinner');
+
+      if (!endpoint) return;
+      this.disabled = true;
+      if (btnText) btnText.textContent = 'Actualizando...';
+      if (btnSpinner) btnSpinner.classList.remove('hidden');
+
+      try {
+        const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        const data = await response.json().catch(() => ({}));
+
+        let msg = '';
+        if (response.ok) {
+          if (data.ya_actualizado) {
+            mostrarModalYaActualizado(data.message || 'Ese mes ya se actualizaron los registros.');
+          } else {
+            msg = data.message || data.mensaje || data.error || 'Actualización completada.';
+            if (data.resumen && typeof data.resumen === 'object') {
+              const r = data.resumen;
+              const partes = [];
+              if (r.altas != null) partes.push(r.altas + ' altas');
+              if (r.bajas != null) partes.push(r.bajas + ' bajas');
+              if (r.nuevos != null) partes.push(r.nuevos + ' nuevos');
+              if (r.actualizados != null) partes.push(r.actualizados + ' actualizados');
+              if (partes.length) msg += ' (' + partes.join(', ') + ')';
+            }
+            showToast(msg, false);
+            if (endpoint === '/api/virtuales/actualizar') window.location.reload();
+          }
+        } else {
+          msg = data.error || data.message || data.mensaje || 'Error en la actualización';
+          showToast(msg, true);
+        }
+      } catch (err) {
+        showToast('Error de conexión: ' + (err.message || 'Desconocido'), true);
+      } finally {
+        this.disabled = false;
+        if (btnText) btnText.textContent = originalText;
+        if (btnSpinner) btnSpinner.classList.add('hidden');
+      }
+    });
+  });
+});
+</script>
 {% endblock %}
 

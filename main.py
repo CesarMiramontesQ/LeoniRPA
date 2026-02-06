@@ -25,6 +25,12 @@ except ImportError:
     # Fallback para Python < 3.9
     from backports.zoneinfo import ZoneInfo
 
+# Meses en español para filtrar virtuales
+MESES_VIRTUALES_ES = (
+    "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+    "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
+)
+
 # Inicializar base de datos al iniciar
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -54,15 +60,30 @@ async def root():
 
 
 @app.get("/dashboard")
-async def dashboard(request: Request, current_user: User = Depends(get_current_user)):
-    """Dashboard principal - requiere autenticación."""
+async def dashboard(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Dashboard principal - requiere autenticación. Incluye estadísticas y acciones de actualización centralizadas."""
+    mes_actual = MESES_VIRTUALES_ES[datetime.now().month - 1]
+    stats = {
+        "total_ventas": await crud.count_ventas(db),
+        "total_compras": await crud.count_compras(db),
+        "total_virtuales": await crud.count_master_unificado_virtuales(db, mes=mes_actual),
+        "total_clientes": await crud.count_clientes(db),
+        "total_proveedores": await crud.count_proveedores(db),
+        "total_materiales": await crud.count_materiales(db),
+        "total_precios_compra": await crud.count_precios_materiales(db),
+    }
     return templates.TemplateResponse(
         "dashboard.html",
         {
             "request": request,
             "current_user": current_user,
-            "active_page": "dashboard"
-        }
+            "active_page": "dashboard",
+            "stats": stats,
+        },
     )
 
 
@@ -757,12 +778,20 @@ async def actualizar_carga_proveedores(
 ):
     """
     Actualiza los estatus de proveedores según las compras de los últimos 6 meses.
-    
-    Reglas:
-    - Si un proveedor NO tiene compras en los últimos 6 meses → estatus = "Baja"
-    - Si SÍ tiene compras en los últimos 6 meses → estatus = "Sin modificacion"
-    - Si hay un proveedor nuevo → se agrega con estatus = "Alta"
+    Solo permite la actualización si no hay registros creados en el historial este mes.
     """
+    mes_actual = MESES_VIRTUALES_ES[datetime.now().month - 1]
+    count_este_mes = await crud.count_carga_proveedor_historial_este_mes(db)
+    if count_este_mes > 0:
+        return JSONResponse(
+            status_code=200,
+            content={
+                "success": False,
+                "ya_actualizado": True,
+                "message": f"Ese mes ({mes_actual}) ya se actualizaron los registros de Carga Proveedor.",
+                "mes": mes_actual,
+            }
+        )
     resultado = await crud.actualizar_estatus_carga_proveedores_por_compras(db)
     
     if resultado["exitoso"]:
@@ -850,8 +879,20 @@ async def actualizar_carga_proveedores_nacional(
 ):
     """
     Actualiza los estatus de proveedores nacionales (solo MX) según compras de los últimos 6 meses.
-    Mismas reglas que Carga Proveedor pero filtro de país = MX únicamente.
+    Solo permite la actualización si no hay registros creados en el historial este mes.
     """
+    mes_actual = MESES_VIRTUALES_ES[datetime.now().month - 1]
+    count_este_mes = await crud.count_carga_proveedores_nacional_historial_este_mes(db)
+    if count_este_mes > 0:
+        return JSONResponse(
+            status_code=200,
+            content={
+                "success": False,
+                "ya_actualizado": True,
+                "message": f"Ese mes ({mes_actual}) ya se actualizaron los registros de Carga Proveedores Nacional.",
+                "mes": mes_actual,
+            }
+        )
     resultado = await crud.actualizar_estatus_carga_proveedores_nacional_por_compras(db)
     if resultado.get("exitoso"):
         return JSONResponse(
@@ -940,11 +981,18 @@ async def actualizar_carga_clientes(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Actualiza los estatus de carga_clientes basándose en las ventas:
-    - Clientes existentes sin ventas en últimos 6 meses → Baja
-    - Clientes existentes con ventas en últimos 6 meses → Sin modificacion
-    - Clientes nuevos con ventas → Alta
+    Actualiza los estatus de carga_clientes basándose en las ventas.
+    Solo permite la actualización si no hay registros creados en el historial este mes.
     """
+    mes_actual = MESES_VIRTUALES_ES[datetime.now().month - 1]
+    count_este_mes = await crud.count_carga_cliente_historial_este_mes(db)
+    if count_este_mes > 0:
+        return {
+            "success": False,
+            "ya_actualizado": True,
+            "message": f"Ese mes ({mes_actual}) ya se actualizaron los registros de Carga Cliente.",
+            "mes": mes_actual,
+        }
     try:
         resumen = await crud.actualizar_carga_clientes_desde_ventas(db)
         
@@ -959,13 +1007,6 @@ async def actualizar_carga_clientes(
             "message": f"Error al actualizar: {str(e)}",
             "resumen": None
         }
-
-
-# Meses en español para filtrar virtuales por mes actual
-MESES_VIRTUALES_ES = (
-    "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
-    "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
-)
 
 
 @app.get("/virtuales")
@@ -1304,8 +1345,21 @@ async def actualizar_master_virtuales(
     """
     Ejecuta la actualización del master de virtuales basándose en compras
     del mes anterior. Crea registros para proveedores existentes y nuevos.
+    Solo permite la actualización si no hay registros creados para el mes actual.
     """
     try:
+        mes_actual = MESES_VIRTUALES_ES[datetime.now().month - 1]
+        count_mes = await crud.count_master_unificado_virtuales(db, mes=mes_actual)
+        if count_mes > 0:
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": False,
+                    "ya_actualizado": True,
+                    "message": f"Ese mes ({mes_actual}) ya se actualizaron los registros.",
+                    "mes": mes_actual,
+                }
+            )
         resumen = await crud.actualizar_master_virtuales_desde_compras(
             db=db,
             user_id=current_user.id

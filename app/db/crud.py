@@ -4154,6 +4154,17 @@ async def actualizar_estatus_carga_proveedores_nacional_por_compras(db: AsyncSes
             except Exception as e:
                 errores.append(f"Error creando proveedor nacional {codigo_proveedor}: {str(e)}")
 
+        # Siempre registrar una entrada de ejecución en el historial (para ya_actualizado y trazabilidad)
+        motivo_ejecucion = f"Ejecución completada. Nuevos: {proveedores_nuevos}, Sin modificación: {proveedores_sin_modificacion}, Baja: {proveedores_marcados_baja}, Eliminados: {proveedores_eliminados}, Sin cambios: {proveedores_sin_cambios}"
+        db.add(CargaProveedoresNacionalHistorial(
+            carga_proveedores_nacional_id=None,
+            codigo_proveedor=None,
+            operacion="EJECUCION",
+            estatus_anterior=None,
+            estatus_nuevo=None,
+            motivo=motivo_ejecucion
+        ))
+
         await db.commit()
         return {
             "exitoso": True,
@@ -4218,6 +4229,17 @@ async def count_carga_proveedor_historial(
     if operacion:
         query = query.where(CargaProveedorHistorial.operacion == operacion)
     
+    result = await db.execute(query)
+    return result.scalar() or 0
+
+
+async def count_carga_proveedor_historial_este_mes(db: AsyncSession) -> int:
+    """Cuenta registros del historial de carga proveedores creados en el mes actual."""
+    ahora = datetime.now(timezone.utc)
+    inicio_mes = ahora.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    query = select(func.count(CargaProveedorHistorial.id)).where(
+        CargaProveedorHistorial.created_at >= inicio_mes
+    )
     result = await db.execute(query)
     return result.scalar() or 0
 
@@ -4308,6 +4330,17 @@ async def count_carga_proveedores_nacional_historial(
         query = query.where(CargaProveedoresNacionalHistorial.codigo_proveedor.ilike(f"%{codigo_proveedor}%"))
     if operacion:
         query = query.where(CargaProveedoresNacionalHistorial.operacion == operacion)
+    result = await db.execute(query)
+    return result.scalar() or 0
+
+
+async def count_carga_proveedores_nacional_historial_este_mes(db: AsyncSession) -> int:
+    """Cuenta registros del historial de carga proveedores nacionales creados en el mes actual."""
+    ahora = datetime.now(timezone.utc)
+    inicio_mes = ahora.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    query = select(func.count(CargaProveedoresNacionalHistorial.id)).where(
+        CargaProveedoresNacionalHistorial.created_at >= inicio_mes
+    )
     result = await db.execute(query)
     return result.scalar() or 0
 
@@ -4515,6 +4548,17 @@ async def count_carga_cliente_historial(
     if operacion:
         query = query.where(CargaClienteHistorial.operacion == operacion)
     
+    result = await db.execute(query)
+    return result.scalar() or 0
+
+
+async def count_carga_cliente_historial_este_mes(db: AsyncSession) -> int:
+    """Cuenta registros del historial de carga clientes creados en el mes actual."""
+    ahora = datetime.now(timezone.utc)
+    inicio_mes = ahora.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    query = select(func.count(CargaClienteHistorial.id)).where(
+        CargaClienteHistorial.created_at >= inicio_mes
+    )
     result = await db.execute(query)
     return result.scalar() or 0
 
@@ -4934,7 +4978,22 @@ async def actualizar_carga_clientes_desde_ventas(db: AsyncSession) -> Dict[str, 
                 "nombre": cliente_venta.get("nombre")
             })
     
-    # 5. Commit de todos los cambios
+    # 5. Siempre registrar una entrada de ejecución en el historial (para ya_actualizado y trazabilidad)
+    motivo_ejecucion = (
+        f"Ejecución completada. Altas: {resumen['altas']}, Bajas: {resumen['bajas']}, "
+        f"Sin modificación: {resumen['sin_modificacion']}, Eliminados: {resumen['eliminados']}, "
+        f"Sin cambios: {resumen['sin_cambios']}"
+    )
+    db.add(CargaClienteHistorial(
+        carga_cliente_id=None,
+        codigo_cliente=None,
+        operacion=CargaClienteOperacion.EJECUCION,
+        estatus_anterior=None,
+        estatus_nuevo=None,
+        motivo=motivo_ejecucion
+    ))
+    
+    # 6. Commit de todos los cambios
     await db.commit()
     
     return resumen

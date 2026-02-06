@@ -940,6 +940,7 @@ class CargaClienteOperacion(PyEnum):
     CREATE = "CREATE"      # Cliente nuevo agregado (Alta)
     UPDATE = "UPDATE"      # Estatus modificado
     DELETE = "DELETE"      # Cliente eliminado
+    EJECUCION = "EJECUCION"  # Ejecución del proceso de actualización
 
 
 class CargaClienteHistorial(Base):
