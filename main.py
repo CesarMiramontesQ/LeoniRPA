@@ -1155,6 +1155,11 @@ async def virtuales(request: Request, current_user: User = Depends(get_current_u
     estatus_counts = Counter(v.estatus or "Sin estatus" for v in virtuales_mes_actual)
     estatus_counts = dict(sorted(estatus_counts.items(), key=lambda x: x[1], reverse=True))
 
+    # Valores distintos de tipo_exportacion para el filtro
+    tipo_exportacion_opciones = sorted(
+        {(v.tipo_exportacion or "").strip() for v in virtuales_data if (v.tipo_exportacion or "").strip()}
+    )
+
     # Últimos 10 movimientos del historial
     historial_reciente = await crud.list_master_unificado_virtuales_historial(
         db, limit=10, offset=0
@@ -1173,6 +1178,7 @@ async def virtuales(request: Request, current_user: User = Depends(get_current_u
             "virtuales": virtuales_data,
             "total_virtuales": total_virtuales,
             "estatus_counts": estatus_counts,
+            "tipo_exportacion_opciones": tipo_exportacion_opciones,
             "historial_reciente": historial_reciente,
             "años_disponibles": años_disponibles,
             "mes_actual_nombre": mes_actual,
@@ -1835,9 +1841,9 @@ async def actualizar_virtuales_desde_excel(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Lee un Excel con columnas Codigo cliente, Impo/Expo, Mes y opcionales patente, aduana, complemento, firma.
+    Lee un Excel con columnas Codigo cliente, Impo/Expo, Mes y opcionales patente, aduana, complemento, firma, pedimento.
     Para cada fila busca el registro en master_unificado_virtuales por (numero, impo_expo, mes) y actualiza
-    patente, aduana, complemento y firma. Los cambios se registran en el historial.
+    patente, aduana, complemento, firma y pedimento. Los cambios se registran en el historial.
     """
     import tempfile
     import shutil
@@ -1899,6 +1905,7 @@ async def actualizar_virtuales_desde_excel(
         col_aduana = _find_col(df, ["aduana", "Aduana"])
         col_complemento = _find_col(df, ["complemento", "Complemento"])
         col_firma = _find_col(df, ["firma", "Firma"])
+        col_pedimento = _find_col(df, ["pedimento", "Pedimento"])
 
         if not col_codigo or not col_impo or not col_mes:
             return JSONResponse(
@@ -1930,8 +1937,9 @@ async def actualizar_virtuales_desde_excel(
             aduana = _int_or_none(row.get(col_aduana)) if col_aduana else None
             complemento = _str_or_none(row.get(col_complemento)) if col_complemento else None
             firma = _str_or_none(row.get(col_firma)) if col_firma else None
+            pedimento = _int_or_none(row.get(col_pedimento)) if col_pedimento else None
 
-            if patente is None and aduana is None and complemento is None and firma is None:
+            if patente is None and aduana is None and complemento is None and firma is None and pedimento is None:
                 continue
 
             master = await crud.update_master_unificado_virtuales_campos_desde_excel(
@@ -1944,6 +1952,7 @@ async def actualizar_virtuales_desde_excel(
                 aduana=aduana,
                 complemento=complemento,
                 firma=firma,
+                pedimento=pedimento,
             )
             if master:
                 actualizados += 1

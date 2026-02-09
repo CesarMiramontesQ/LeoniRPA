@@ -5335,9 +5335,10 @@ async def update_master_unificado_virtuales_campos_desde_excel(
     aduana: Optional[int] = None,
     complemento: Optional[str] = None,
     firma: Optional[str] = None,
+    pedimento: Optional[int] = None,
 ) -> Optional[MasterUnificadoVirtuales]:
     """
-    Busca el registro por numero, impo_expo y mes; actualiza patente, aduana, complemento y firma;
+    Busca el registro por numero, impo_expo y mes; actualiza patente, aduana, complemento, firma y pedimento;
     registra el cambio en el historial. No hace commit (lo debe hacer el llamador).
     """
     master = await get_master_unificado_virtuales_by_numero_impoexpo_mes(db, numero, impo_expo, mes)
@@ -5352,6 +5353,8 @@ async def update_master_unificado_virtuales_campos_desde_excel(
         master.complemento = complemento
     if firma is not None:
         master.firma = firma
+    if pedimento is not None:
+        master.pedimento = pedimento
     datos_despues = master_unificado_virtual_to_dict(master)
     campos_modificados = [k for k in datos_antes if datos_antes.get(k) != datos_despues.get(k)]
     _add_master_unificado_virtual_historial_entry(
@@ -5362,7 +5365,7 @@ async def update_master_unificado_virtuales_campos_desde_excel(
         datos_antes=datos_antes,
         datos_despues=datos_despues,
         campos_modificados=campos_modificados if campos_modificados else None,
-        comentario="Actualización desde Excel (patente, aduana, complemento, firma)",
+        comentario="Actualización desde Excel (patente, aduana, complemento, firma, pedimento)",
     )
     return master
 

@@ -225,6 +225,21 @@
           </select>
         </div>
       </div>
+      <div class="min-w-[180px]">
+        <label for="filtro-tipo-exportacion-virtuales" class="block text-sm/6 font-medium text-gray-900">Tipo Exportación</label>
+        <div class="mt-2">
+          <select
+            id="filtro-tipo-exportacion-virtuales"
+            name="filtro_tipo_exportacion"
+            class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6"
+          >
+            <option value="">Todos</option>
+            {% for te in tipo_exportacion_opciones %}
+            <option value="{{ te }}">{{ te }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
       <div class="flex items-end gap-2">
         <button
           id="btn-limpiar-virtuales"
@@ -265,16 +280,15 @@
             <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="mes">Mes</th>
             <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="estatus">Estatus</th>
             <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="tipo">Tipo</th>
-            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="incoterm">Incoterm</th>
             <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="tipo_exportacion">Tipo Exportación</th>
             <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="escenario">Escenario</th>
-            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Plazo</th>
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="pedimento">Pedimento</th>
             <th scope="col" class="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500">Acciones</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-200 bg-white" id="tabla-virtuales-body">
           <tr id="fila-sin-datos-virtuales">
-            <td colspan="12" class="px-6 py-12 text-center text-sm text-gray-500">
+            <td colspan="11" class="px-6 py-12 text-center text-sm text-gray-500">
               <div class="flex flex-col items-center">
                 <svg class="h-12 w-12 text-gray-400 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -883,12 +897,18 @@
     return e === sel;
   }
 
+  function cumpleTipoExportacion(v, tipoExportacionVal) {
+    if (!tipoExportacionVal) return true;
+    return (v.tipoExportacion || '').trim() === tipoExportacionVal.trim();
+  }
+
   function aplicarFiltros() {
     const q = (document.getElementById('busqueda-virtuales').value || '').trim();
     const mesVal = (document.getElementById('filtro-mes-virtuales').value || '').trim();
     const estatusVal = (document.getElementById('filtro-estatus-virtuales').value || '').trim();
+    const tipoExportacionVal = (document.getElementById('filtro-tipo-exportacion-virtuales').value || '').trim();
     filtrados = todos.filter(v =>
-      cumpleFiltro(v, q) && cumpleMes(v, mesVal) && cumpleEstatus(v, estatusVal)
+      cumpleFiltro(v, q) && cumpleMes(v, mesVal) && cumpleEstatus(v, estatusVal) && cumpleTipoExportacion(v, tipoExportacionVal)
     );
     const cmp = (a, b) => {
       let va = a[sortCol] ?? '', vb = b[sortCol] ?? '';
@@ -947,10 +967,9 @@
         '<td class="whitespace-nowrap px-4 py-3 text-sm text-gray-600">' + esc(v.mes) + '</td>' +
         '<td class="whitespace-nowrap px-4 py-3 text-sm text-gray-600">' + esc(v.estatus) + '</td>' +
         '<td class="whitespace-nowrap px-4 py-3 text-sm text-gray-600">' + esc(v.tipo) + '</td>' +
-        '<td class="whitespace-nowrap px-4 py-3 text-sm text-gray-600">' + esc(v.incoterm) + '</td>' +
         '<td class="px-4 py-3 text-sm text-gray-600 max-w-[200px] truncate" title="' + esc(v.tipoExportacion) + '">' + esc(v.tipoExportacion) + '</td>' +
         '<td class="whitespace-nowrap px-4 py-3 text-sm text-gray-600">' + esc(v.escenario) + '</td>' +
-        '<td class="whitespace-nowrap px-4 py-3 text-sm text-gray-600">' + esc(v.plazo) + '</td>' +
+        '<td class="whitespace-nowrap px-4 py-3 text-sm text-gray-600">' + esc(v.pedimento) + '</td>' +
         '<td class="whitespace-nowrap px-4 py-3 text-sm text-center">' +
           '<button type="button" class="btn-ver inline-flex items-center rounded-md bg-[#003D89] px-2.5 py-1.5 text-xs font-medium text-white hover:bg-[#002d66] focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2" data-index="' + (from + idx) + '">' +
             '<svg class="h-4 w-4 mr-1" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.64 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.64 0-8.573-3.007-9.963-7.178z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>' +
@@ -1205,7 +1224,7 @@
   }
 
   function setupSort() {
-    const map = { numero: 'numero', agente: 'agente', proveedor_cliente: 'proveedorCliente', mes: 'mes', estatus: 'estatus', tipo: 'tipo', incoterm: 'incoterm', tipo_exportacion: 'tipoExportacion', escenario: 'escenario' };
+    const map = { numero: 'numero', agente: 'agente', proveedor_cliente: 'proveedorCliente', mes: 'mes', estatus: 'estatus', tipo: 'tipo', tipo_exportacion: 'tipoExportacion', escenario: 'escenario', pedimento: 'pedimento' };
     document.querySelectorAll('#tabla-virtuales th[data-sort]').forEach(th => {
       th.addEventListener('click', () => {
         const col = map[th.dataset.sort] || th.dataset.sort;
@@ -1458,10 +1477,12 @@
     document.getElementById('busqueda-virtuales').addEventListener('input', aplicarFiltros);
     document.getElementById('filtro-mes-virtuales').addEventListener('change', aplicarFiltros);
     document.getElementById('filtro-estatus-virtuales').addEventListener('change', aplicarFiltros);
+    document.getElementById('filtro-tipo-exportacion-virtuales').addEventListener('change', aplicarFiltros);
     document.getElementById('btn-limpiar-virtuales').addEventListener('click', () => {
       document.getElementById('busqueda-virtuales').value = '';
       document.getElementById('filtro-mes-virtuales').value = '';
       document.getElementById('filtro-estatus-virtuales').value = '';
+      document.getElementById('filtro-tipo-exportacion-virtuales').value = '';
       aplicarFiltros();
     });
     document.getElementById('registros-pagina-virtuales').addEventListener('change', (e) => {
