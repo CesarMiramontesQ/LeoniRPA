@@ -5400,9 +5400,17 @@ async def update_master_unificado_virtuales(
     tipo_exportacion: Optional[str] = None,
     escenario: Optional[str] = None,
     user_id: Optional[int] = None,
+    master_id: Optional[int] = None,
 ) -> Optional[MasterUnificadoVirtuales]:
-    """Actualiza un registro de master unificado virtuales. Identificador: numero."""
-    master = await get_master_unificado_virtuales_by_numero(db, numero)
+    """
+    Actualiza un registro de master unificado virtuales.
+    Si se pasa master_id, se usa para identificar el registro (recomendado en la UI).
+    Si no, se busca por numero (el más reciente por created_at).
+    """
+    if master_id is not None:
+        master = await get_master_unificado_virtuales_by_id(db, master_id)
+    else:
+        master = await get_master_unificado_virtuales_by_numero(db, numero)
     if not master:
         return None
 
@@ -5552,6 +5560,16 @@ def _es_tipo_cliente(tipo: Optional[str]) -> bool:
     if not tipo:
         return False
     return "cliente" in str(tipo).lower()
+
+
+async def get_tipo_exportacion_distintos_master_virtuales(db: AsyncSession) -> List[str]:
+    """Obtiene los valores distintos de tipo_exportacion en master_unificado_virtuales (no vacíos), ordenados."""
+    query = (
+        select(MasterUnificadoVirtuales.tipo_exportacion)
+        .distinct()
+    )
+    result = await db.execute(query)
+    return sorted([(r[0] or "").strip() for r in result.all() if (r[0] or "").strip()])
 
 
 async def get_proveedores_distintos_master_virtuales(db: AsyncSession) -> List[tuple]:

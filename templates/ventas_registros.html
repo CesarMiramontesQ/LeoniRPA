@@ -387,6 +387,13 @@
     actualizarContadores();
   }
 
+  /** Formatea periodo YYYY-MM-DD a mes/año en es-MX sin desfase por zona horaria. */
+  function formatearPeriodo(periodo) {
+    if (!periodo) return '-';
+    const d = new Date(periodo + 'T12:00:00');
+    return d.toLocaleDateString('es-MX', { year: 'numeric', month: '2-digit' });
+  }
+
   function renderizarTabla() {
     const tbody = document.getElementById('tabla-ventas-body');
     const inicio = (paginaActual - 1) * registrosPorPagina;
@@ -409,7 +416,7 @@
         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">${venta.cliente || '-'}</td>
         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">${venta.codigo_cliente || '-'}</td>
         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">${venta.grupo || '-'}</td>
-        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">${venta.periodo ? new Date(venta.periodo).toLocaleDateString('es-MX', {year: 'numeric', month: '2-digit'}) : '-'}</td>
+        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">${formatearPeriodo(venta.periodo)}</td>
         <td class="px-6 py-4 text-sm text-gray-900">
           <div class="max-w-xs truncate" title="${venta.producto || ''}">${venta.producto || '-'}</div>
         </td>

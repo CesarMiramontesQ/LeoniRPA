@@ -1594,6 +1594,10 @@
       };
       if (esCreacion) {
         datos.numero = numeroInt;
+      } else {
+        // En edición, enviar id del registro para que el backend actualice el correcto y registre el historial
+        const idVal = (document.getElementById('modal-id') && document.getElementById('modal-id').value) || '';
+        if (idVal) datos.id = idVal;
       }
       
       try {

@@ -1155,10 +1155,8 @@ async def virtuales(request: Request, current_user: User = Depends(get_current_u
     estatus_counts = Counter(v.estatus or "Sin estatus" for v in virtuales_mes_actual)
     estatus_counts = dict(sorted(estatus_counts.items(), key=lambda x: x[1], reverse=True))
 
-    # Valores distintos de tipo_exportacion para el filtro
-    tipo_exportacion_opciones = sorted(
-        {(v.tipo_exportacion or "").strip() for v in virtuales_data if (v.tipo_exportacion or "").strip()}
-    )
+    # Valores distintos de tipo_exportacion para el filtro (desde toda la tabla)
+    tipo_exportacion_opciones = await crud.get_tipo_exportacion_distintos_master_virtuales(db)
 
     # Últimos 10 movimientos del historial
     historial_reciente = await crud.list_master_unificado_virtuales_historial(
@@ -1673,9 +1671,18 @@ async def actualizar_virtual(
             except (ValueError, TypeError):
                 pass
         
+        # Si el frontend envía id del registro, usarlo para identificar (evita ambigüedad cuando hay varios con el mismo numero)
+        master_id = None
+        if data.get("id") is not None and data.get("id") != "":
+            try:
+                master_id = int(data.get("id"))
+            except (ValueError, TypeError):
+                pass
+        
         virtual_actualizado = await crud.update_master_unificado_virtuales(
             db=db,
             numero=numero,
+            master_id=master_id,
             solicitud_previo=solicitud_previo,
             agente=data.get("agente") or None,
             pedimento=pedimento,
