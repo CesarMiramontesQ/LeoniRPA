@@ -1125,6 +1125,21 @@ async def descargar_carga_proveedores_nacional_excel(
     )
 
 
+@app.get("/virtuales/guia")
+async def virtuales_guia(current_user: User = Depends(get_current_user)):
+    """Sirve la guía de materialidad operaciones virtuales (PPTX) para abrir en nueva pestaña."""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base_dir, "MATERIALIDAD OPERACIONES VIRTUALES 2026 (1) 2.pptx")
+    if not os.path.isfile(path):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Guía no encontrada")
+    return FileResponse(
+        path,
+        filename="Materialidad_Operaciones_Virtuales_2026.pptx",
+        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    )
+
+
 @app.get("/virtuales")
 async def virtuales(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Página Virtuales (master unificado) dentro de Aduanas - requiere autenticación."""
@@ -1810,6 +1825,202 @@ async def duplicar_virtual_expo_a_impo(
         return JSONResponse(
             status_code=500,
             content={"error": f"Error al duplicar el registro: {str(e)}"}
+        )
+
+
+@app.post("/api/virtuales/actualizar-desde-excel")
+async def actualizar_virtuales_desde_excel(
+    archivo: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Lee un Excel con columnas Codigo cliente, Impo/Expo, Mes y opcionales patente, aduana, complemento, firma.
+    Para cada fila busca el registro en master_unificado_virtuales por (numero, impo_expo, mes) y actualiza
+    patente, aduana, complemento y firma. Los cambios se registran en el historial.
+    """
+    import tempfile
+    import shutil
+    from pathlib import Path
+    import pandas as pd
+
+    if not archivo.filename:
+        return JSONResponse(status_code=400, content={"error": "No se envió ningún archivo"})
+    ext = Path(archivo.filename).suffix.lower()
+    if ext not in (".xlsx", ".xls"):
+        return JSONResponse(
+            status_code=400,
+            content={"error": "El archivo debe ser Excel (.xlsx o .xls)"},
+        )
+
+    def _norm(s):
+        if s is None or (isinstance(s, float) and pd.isna(s)):
+            return ""
+        return str(s).strip().lower().replace(" ", "_").replace("/", "_")
+
+    def _find_col(df, opciones):
+        cols_lower = {_norm(c): c for c in df.columns}
+        for op in opciones:
+            if _norm(op) in cols_lower:
+                return cols_lower[_norm(op)]
+        return None
+
+    def _int_or_none(val):
+        if val is None or (isinstance(val, float) and pd.isna(val)):
+            return None
+        try:
+            return int(float(val))
+        except (TypeError, ValueError):
+            return None
+
+    def _str_or_none(val):
+        if val is None or (isinstance(val, float) and pd.isna(val)):
+            return None
+        s = str(val).strip()
+        return s if s else None
+
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
+            shutil.copyfileobj(archivo.file, tmp)
+            tmp_path = tmp.name
+        try:
+            engine = "openpyxl" if ext == ".xlsx" else "xlrd"
+            df = pd.read_excel(tmp_path, engine=engine)
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+        col_codigo = _find_col(df, ["Codigo cliente", "codigo cliente", "numero", "codigo_cliente", "número", "numero de cliente"])
+        col_impo = _find_col(df, ["Impo/Expo", "impo/expo", "impo_expo", "impo expo", "tipo"])
+        col_mes = _find_col(df, ["Mes", "mes"])
+        col_patente = _find_col(df, ["patente", "Patente"])
+        col_aduana = _find_col(df, ["aduana", "Aduana"])
+        col_complemento = _find_col(df, ["complemento", "Complemento"])
+        col_firma = _find_col(df, ["firma", "Firma"])
+
+        if not col_codigo or not col_impo or not col_mes:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "El Excel debe tener las columnas: Codigo cliente, Impo/Expo y Mes. No se encontraron todas."
+                },
+            )
+
+        actualizados = 0
+        no_encontrados = []
+
+        for idx, row in df.iterrows():
+            codigo = _int_or_none(row.get(col_codigo))
+            if codigo is None:
+                continue
+            impo_expo_raw = _str_or_none(row.get(col_impo))
+            if not impo_expo_raw:
+                continue
+            impo_expo = impo_expo_raw.strip().upper()
+            if impo_expo not in ("IMPO", "EXPO"):
+                continue
+            mes_raw = _str_or_none(row.get(col_mes))
+            if not mes_raw:
+                continue
+            mes = mes_raw.strip()
+
+            patente = _int_or_none(row.get(col_patente)) if col_patente else None
+            aduana = _int_or_none(row.get(col_aduana)) if col_aduana else None
+            complemento = _str_or_none(row.get(col_complemento)) if col_complemento else None
+            firma = _str_or_none(row.get(col_firma)) if col_firma else None
+
+            if patente is None and aduana is None and complemento is None and firma is None:
+                continue
+
+            master = await crud.update_master_unificado_virtuales_campos_desde_excel(
+                db,
+                numero=codigo,
+                impo_expo=impo_expo,
+                mes=mes,
+                user_id=current_user.id,
+                patente=patente,
+                aduana=aduana,
+                complemento=complemento,
+                firma=firma,
+            )
+            if master:
+                actualizados += 1
+            else:
+                no_encontrados.append({"fila": int(idx) + 2, "codigo": codigo, "impo_expo": impo_expo, "mes": mes})
+
+        await db.commit()
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "success": True,
+                "message": f"Se actualizaron {actualizados} registro(s) desde el Excel.",
+                "actualizados": actualizados,
+                "no_encontrados": no_encontrados,
+            },
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Error al procesar el Excel: {str(e)}"},
+        )
+
+
+@app.post("/api/virtuales/crear-carpeta")
+async def crear_carpeta_virtual(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """Crea una carpeta en el Desktop con nombre [codigo] [nombre] [impo/expo] [mes]."""
+    import re
+    try:
+        data = await request.json()
+        numero = (data.get("numero") or "")
+        nombre = (data.get("proveedor_cliente") or "").strip()
+        impo_expo = (data.get("impo_expo") or "").strip()
+        mes = (data.get("mes") or "").strip()
+        # Nombre de carpeta: cu_[codigo] [nombre] [impo/expo] [mes]_erob1001
+        parte_media = f"{numero} {nombre} {impo_expo} {mes}".strip()
+        # Sanitizar para filesystem: quitar caracteres no válidos \ / : * ? " < > |
+        parte_media = re.sub(r'[\\/:*?"<>|]', " ", parte_media)
+        parte_media = re.sub(r"\s+", " ", parte_media).strip()
+        nombre_carpeta = f"cu_{parte_media}_erob1001" if parte_media else ""
+        if not nombre_carpeta:
+            return JSONResponse(
+                status_code=400,
+                content={"error": "No se pudo generar un nombre de carpeta válido"}
+            )
+        desktop = os.path.expanduser("~/Desktop")
+        ruta_carpeta = os.path.join(desktop, nombre_carpeta)
+        if os.path.isdir(ruta_carpeta):
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": True,
+                    "message": "La carpeta ya existe",
+                    "ruta": ruta_carpeta,
+                    "nombre_carpeta": nombre_carpeta,
+                    "ya_existia": True,
+                }
+            )
+        os.makedirs(ruta_carpeta, exist_ok=False)
+        return JSONResponse(
+            status_code=201,
+            content={
+                "success": True,
+                "message": "Carpeta creada correctamente",
+                "ruta": ruta_carpeta,
+                "nombre_carpeta": nombre_carpeta,
+            }
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Error al crear la carpeta: {str(e)}"}
         )
 
 

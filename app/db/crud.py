@@ -5220,6 +5220,26 @@ async def get_master_unificado_virtuales_by_numero_impoexpo(
     return result.scalar_one_or_none()
 
 
+async def get_master_unificado_virtuales_by_numero_impoexpo_mes(
+    db: AsyncSession,
+    numero: int,
+    impo_expo: str,
+    mes: str,
+) -> Optional[MasterUnificadoVirtuales]:
+    """Obtiene el registro de master unificado virtuales por número, impo_expo y mes (el más reciente si hay varios)."""
+    if not mes or not str(mes).strip():
+        return None
+    result = await db.execute(
+        select(MasterUnificadoVirtuales)
+        .where(MasterUnificadoVirtuales.numero == numero)
+        .where(MasterUnificadoVirtuales.impo_expo == impo_expo)
+        .where(MasterUnificadoVirtuales.mes.ilike(str(mes).strip()))
+        .order_by(desc(MasterUnificadoVirtuales.created_at))
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
 async def list_master_unificado_virtuales(
     db: AsyncSession,
     limit: int = 100,
@@ -5302,6 +5322,49 @@ async def count_master_unificado_virtuales(
     
     result = await db.execute(query)
     return result.scalar() or 0
+
+
+async def update_master_unificado_virtuales_campos_desde_excel(
+    db: AsyncSession,
+    numero: int,
+    impo_expo: str,
+    mes: str,
+    user_id: int,
+    *,
+    patente: Optional[int] = None,
+    aduana: Optional[int] = None,
+    complemento: Optional[str] = None,
+    firma: Optional[str] = None,
+) -> Optional[MasterUnificadoVirtuales]:
+    """
+    Busca el registro por numero, impo_expo y mes; actualiza patente, aduana, complemento y firma;
+    registra el cambio en el historial. No hace commit (lo debe hacer el llamador).
+    """
+    master = await get_master_unificado_virtuales_by_numero_impoexpo_mes(db, numero, impo_expo, mes)
+    if not master:
+        return None
+    datos_antes = master_unificado_virtual_to_dict(master)
+    if patente is not None:
+        master.patente = patente
+    if aduana is not None:
+        master.aduana = aduana
+    if complemento is not None:
+        master.complemento = complemento
+    if firma is not None:
+        master.firma = firma
+    datos_despues = master_unificado_virtual_to_dict(master)
+    campos_modificados = [k for k in datos_antes if datos_antes.get(k) != datos_despues.get(k)]
+    _add_master_unificado_virtual_historial_entry(
+        db,
+        numero=master.numero,
+        operacion=MasterUnificadoVirtualOperacion.UPDATE,
+        user_id=user_id,
+        datos_antes=datos_antes,
+        datos_despues=datos_despues,
+        campos_modificados=campos_modificados if campos_modificados else None,
+        comentario="Actualización desde Excel (patente, aduana, complemento, firma)",
+    )
+    return master
 
 
 async def update_master_unificado_virtuales(
