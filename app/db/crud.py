@@ -643,9 +643,9 @@ async def delete_all_bom_flat(db: AsyncSession) -> int:
 
 # ==================== CRUD para Proveedores ====================
 
-async def get_proveedor_by_codigo_proveedor(db: AsyncSession, codigo_proveedor: str) -> Optional[Proveedor]:
+async def get_proveedor_by_codigo_proveedor(db: AsyncSession, codigo_proveedor) -> Optional[Proveedor]:
     """Obtiene un proveedor por código de proveedor."""
-    result = await db.execute(select(Proveedor).where(Proveedor.codigo_proveedor == codigo_proveedor))
+    result = await db.execute(select(Proveedor).where(Proveedor.codigo_proveedor == int(codigo_proveedor)))
     return result.scalar_one_or_none()
 
 
@@ -787,7 +787,7 @@ async def delete_proveedor(
     # Guardar datos antes de eliminar
     datos_antes = _proveedor_to_dict(proveedor)
     
-    stmt = delete(Proveedor).where(Proveedor.codigo_proveedor == codigo_proveedor)
+    stmt = delete(Proveedor).where(Proveedor.codigo_proveedor == int(codigo_proveedor))
     await db.execute(stmt)
     
     # Registrar en historial
@@ -828,7 +828,7 @@ async def list_proveedores(
         query = query.where(
             or_(
                 Proveedor.nombre.ilike(search_pattern),
-                Proveedor.codigo_proveedor.ilike(search_pattern),
+                Proveedor.codigo_proveedor.cast(String).ilike(search_pattern),
                 Proveedor.domicilio.ilike(search_pattern)
             )
         )
@@ -859,7 +859,7 @@ async def count_proveedores(
         query = query.where(
             or_(
                 Proveedor.nombre.ilike(search_pattern),
-                Proveedor.codigo_proveedor.ilike(search_pattern),
+                Proveedor.codigo_proveedor.cast(String).ilike(search_pattern),
                 Proveedor.domicilio.ilike(search_pattern)
             )
         )
@@ -882,7 +882,7 @@ async def list_proveedor_historial(
     query = select(ProveedorHistorial).options(selectinload(ProveedorHistorial.user))
     
     if codigo_proveedor:
-        query = query.where(ProveedorHistorial.codigo_proveedor == codigo_proveedor)
+        query = query.where(ProveedorHistorial.codigo_proveedor == int(codigo_proveedor))
     
     if operacion:
         query = query.where(ProveedorHistorial.operacion == operacion)
@@ -917,7 +917,7 @@ async def count_proveedor_historial(
     query = select(func.count(ProveedorHistorial.id))
     
     if codigo_proveedor:
-        query = query.where(ProveedorHistorial.codigo_proveedor == codigo_proveedor)
+        query = query.where(ProveedorHistorial.codigo_proveedor == int(codigo_proveedor))
     
     if operacion:
         query = query.where(ProveedorHistorial.operacion == operacion)
@@ -956,8 +956,7 @@ async def sincronizar_proveedores_desde_compras(
             Compra.codigo_proveedor,
             func.max(Compra.nombre_proveedor).label('nombre_proveedor')
         ).where(
-            Compra.codigo_proveedor.isnot(None),
-            Compra.codigo_proveedor != ''
+            Compra.codigo_proveedor.isnot(None)
         ).group_by(Compra.codigo_proveedor)
         
         result = await db.execute(query_codigos)
@@ -972,7 +971,7 @@ async def sincronizar_proveedores_desde_compras(
         
         # 3. Para cada codigo_proveedor, verificar si existe en proveedores
         for codigo_proveedor, nombre_proveedor in proveedores_en_compras:
-            if not codigo_proveedor or codigo_proveedor.strip() == '':
+            if codigo_proveedor is None or str(codigo_proveedor).strip() == '':
                 continue
             
             # Verificar si el proveedor ya existe (usando el set para mejor rendimiento)
@@ -1618,13 +1617,30 @@ async def sincronizar_paises_origen_desde_compras(
     nuevos_creados = 0
     
     try:
+        # 0. Asegurar que la secuencia y DEFAULT del id existen (evita NULL identity key)
+        try:
+            await db.execute(text("CREATE SEQUENCE IF NOT EXISTS pais_origen_material_id_seq"))
+            await db.execute(text("""
+                SELECT setval('pais_origen_material_id_seq',
+                    COALESCE((SELECT MAX(id) FROM pais_origen_material), 0) + 1,
+                    false)
+            """))
+            await db.execute(text("""
+                ALTER TABLE pais_origen_material
+                ALTER COLUMN id SET DEFAULT nextval('pais_origen_material_id_seq'::regclass)
+            """))
+            await db.commit()
+        except Exception as seq_err:
+            await db.rollback()
+            # Continuar; si falla el insert se manejará en el except del loop
+            pass
+
         # 1. Obtener todas las combinaciones únicas de proveedor/material en compras
         query_pares = select(
             Compra.codigo_proveedor,
             Compra.numero_material
         ).where(
             Compra.codigo_proveedor.isnot(None),
-            Compra.codigo_proveedor != '',
             Compra.numero_material.isnot(None),
             Compra.numero_material != ''
         ).group_by(Compra.codigo_proveedor, Compra.numero_material)
@@ -1671,8 +1687,9 @@ async def sincronizar_paises_origen_desde_compras(
                 continue
             
             try:
+                codigo_int = int(codigo_proveedor)
                 pais_origen_material = PaisOrigenMaterial(
-                    codigo_proveedor=codigo_proveedor,
+                    codigo_proveedor=codigo_int,
                     numero_material=numero_material,
                     pais_origen="Pendiente"
                 )
@@ -1684,7 +1701,7 @@ async def sincronizar_paises_origen_desde_compras(
                 if user_id is not None:
                     historial = PaisOrigenMaterialHistorial(
                         pais_origen_id=pais_origen_material.id,
-                        codigo_proveedor=codigo_proveedor,
+                        codigo_proveedor=codigo_int,
                         numero_material=numero_material,
                         operacion=PaisOrigenMaterialOperacion.CREATE,
                         user_id=user_id,
@@ -1704,6 +1721,54 @@ async def sincronizar_paises_origen_desde_compras(
                 except Exception:
                     pass
                 
+                # Si es NULL identity key, asegurar que la secuencia existe y es DEFAULT del id
+                is_null_identity = "NULL identity key" in error_str or "has a NULL identity" in error_str
+                if is_null_identity:
+                    try:
+                        await db.execute(text("CREATE SEQUENCE IF NOT EXISTS pais_origen_material_id_seq"))
+                        await db.execute(text("""
+                            SELECT setval('pais_origen_material_id_seq',
+                                COALESCE((SELECT MAX(id) FROM pais_origen_material), 0) + 1,
+                                false)
+                        """))
+                        await db.execute(text("""
+                            ALTER TABLE pais_origen_material
+                            ALTER COLUMN id SET DEFAULT nextval('pais_origen_material_id_seq'::regclass)
+                        """))
+                        await db.commit()
+                        # Reintentar crear este registro
+                        try:
+                            codigo_int = int(codigo_proveedor)
+                            pais_origen_material = PaisOrigenMaterial(
+                                codigo_proveedor=codigo_int,
+                                numero_material=numero_material,
+                                pais_origen="Pendiente"
+                            )
+                            db.add(pais_origen_material)
+                            await db.flush()
+                            await db.refresh(pais_origen_material)
+                            if user_id is not None:
+                                historial = PaisOrigenMaterialHistorial(
+                                    pais_origen_id=pais_origen_material.id,
+                                    codigo_proveedor=codigo_int,
+                                    numero_material=numero_material,
+                                    operacion=PaisOrigenMaterialOperacion.CREATE,
+                                    user_id=user_id,
+                                    datos_antes=None,
+                                    datos_despues=_pais_origen_material_to_dict(pais_origen_material),
+                                    campos_modificados=None
+                                )
+                                db.add(historial)
+                            await db.commit()
+                            nuevos_creados += 1
+                            existentes.add((codigo_proveedor, numero_material))
+                            continue
+                        except Exception as e2:
+                            await db.rollback()
+                            error_str = str(e2)
+                    except Exception as seq_err:
+                        await db.rollback()
+                
                 # Si es un error de secuencia, intentar corregirla
                 if "duplicate key value violates unique constraint" in error_str and "pais_origen_material_pkey" in error_str:
                     try:
@@ -1721,8 +1786,9 @@ async def sincronizar_paises_origen_desde_compras(
                         
                         # Intentar crear el registro nuevamente
                         try:
+                            codigo_int = int(codigo_proveedor)
                             pais_origen_material = PaisOrigenMaterial(
-                                codigo_proveedor=codigo_proveedor,
+                                codigo_proveedor=codigo_int,
                                 numero_material=numero_material,
                                 pais_origen="Pendiente"
                             )
@@ -1734,7 +1800,7 @@ async def sincronizar_paises_origen_desde_compras(
                             if user_id is not None:
                                 historial = PaisOrigenMaterialHistorial(
                                     pais_origen_id=pais_origen_material.id,
-                                    codigo_proveedor=codigo_proveedor,
+                                    codigo_proveedor=codigo_int,
                                     numero_material=numero_material,
                                     operacion=PaisOrigenMaterialOperacion.CREATE,
                                     user_id=user_id,
@@ -1817,7 +1883,7 @@ async def get_precio_material_by_proveedor_material(
     """Obtiene un precio de material por código de proveedor y número de material."""
     result = await db.execute(
         select(PrecioMaterial).where(
-            PrecioMaterial.codigo_proveedor == codigo_proveedor,
+            PrecioMaterial.codigo_proveedor == int(codigo_proveedor),
             PrecioMaterial.numero_material == numero_material
         )
     )
@@ -1981,7 +2047,7 @@ async def list_precios_materiales(
     )
     
     if codigo_proveedor:
-        query = query.where(PrecioMaterial.codigo_proveedor == codigo_proveedor)
+        query = query.where(PrecioMaterial.codigo_proveedor == int(codigo_proveedor))
     
     if numero_material:
         query = query.where(PrecioMaterial.numero_material == numero_material)
@@ -1990,7 +2056,7 @@ async def list_precios_materiales(
         search_pattern = f"%{search}%"
         query = query.where(
             or_(
-                PrecioMaterial.codigo_proveedor.ilike(search_pattern),
+                PrecioMaterial.codigo_proveedor.cast(String).ilike(search_pattern),
                 PrecioMaterial.numero_material.ilike(search_pattern),
                 PrecioMaterial.currency_uom.ilike(search_pattern),
                 PrecioMaterial.country_origin.ilike(search_pattern)
@@ -2013,7 +2079,7 @@ async def count_precios_materiales(
     query = select(func.count(PrecioMaterial.id))
     
     if codigo_proveedor:
-        query = query.where(PrecioMaterial.codigo_proveedor == codigo_proveedor)
+        query = query.where(PrecioMaterial.codigo_proveedor == int(codigo_proveedor))
     
     if numero_material:
         query = query.where(PrecioMaterial.numero_material == numero_material)
@@ -2022,7 +2088,7 @@ async def count_precios_materiales(
         search_pattern = f"%{search}%"
         query = query.where(
             or_(
-                PrecioMaterial.codigo_proveedor.ilike(search_pattern),
+                PrecioMaterial.codigo_proveedor.cast(String).ilike(search_pattern),
                 PrecioMaterial.numero_material.ilike(search_pattern),
                 PrecioMaterial.currency_uom.ilike(search_pattern),
                 PrecioMaterial.country_origin.ilike(search_pattern)
@@ -2055,13 +2121,27 @@ async def sincronizar_precios_materiales_desde_compras(
     actualizados = 0
     
     try:
+        # 0. Corregir la secuencia de precios_materiales para evitar errores de clave duplicada
+        # (puede ocurrir si hubo inserciones manuales o importaciones con IDs explícitos)
+        try:
+            result_max_id = await db.execute(select(func.max(PrecioMaterial.id)))
+            max_id = result_max_id.scalar() or 0
+            await db.execute(
+                text(f"SELECT setval('precios_materiales_id_seq', {max_id + 1}, false)")
+            )
+            await db.commit()
+        except Exception as seq_error:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+        
         # 1. Obtener todas las combinaciones únicas de proveedor/material con precio válido
         query_pares = select(
             Compra.codigo_proveedor,
             Compra.numero_material
         ).where(
             Compra.codigo_proveedor.isnot(None),
-            Compra.codigo_proveedor != '',
             Compra.numero_material.isnot(None),
             Compra.numero_material != '',
             Compra.price.isnot(None),
@@ -2246,8 +2326,8 @@ async def actualizar_pais_origen_en_precios_materiales(
                 # Buscar en pais_origen_material
                 result_pais = await db.execute(
                     select(PaisOrigenMaterial.pais_origen).where(
-                        PaisOrigenMaterial.codigo_proveedor == codigo_proveedor,
-                        PaisOrigenMaterial.numero_material == numero_material
+                        PaisOrigenMaterial.codigo_proveedor == int(codigo_proveedor),
+                        PaisOrigenMaterial.numero_material == str(numero_material)
                     )
                 )
                 pais_origen_valor = result_pais.scalar_one_or_none()
@@ -2395,7 +2475,7 @@ async def list_precio_material_historial(
         query = query.where(PrecioMaterialHistorial.precio_material_id == precio_material_id)
     
     if codigo_proveedor:
-        query = query.where(PrecioMaterialHistorial.codigo_proveedor == codigo_proveedor)
+        query = query.where(PrecioMaterialHistorial.codigo_proveedor == int(codigo_proveedor))
     
     if numero_material:
         query = query.where(PrecioMaterialHistorial.numero_material == numero_material)
@@ -2438,7 +2518,7 @@ async def count_precio_material_historial(
         query = query.where(PrecioMaterialHistorial.precio_material_id == precio_material_id)
     
     if codigo_proveedor:
-        query = query.where(PrecioMaterialHistorial.codigo_proveedor == codigo_proveedor)
+        query = query.where(PrecioMaterialHistorial.codigo_proveedor == int(codigo_proveedor))
     
     if numero_material:
         query = query.where(PrecioMaterialHistorial.numero_material == numero_material)
@@ -2689,7 +2769,7 @@ async def list_compras(
         conditions.append(Compra.posting_date <= fecha_fin_con_hora)
     
     if codigo_proveedor:
-        conditions.append(Compra.codigo_proveedor == codigo_proveedor)
+        conditions.append(Compra.codigo_proveedor == int(codigo_proveedor))
     
     if numero_material:
         conditions.append(Compra.numero_material.ilike(f"%{numero_material}%"))
@@ -2748,7 +2828,7 @@ async def count_compras(
         conditions.append(Compra.posting_date <= fecha_fin_con_hora)
     
     if codigo_proveedor:
-        conditions.append(Compra.codigo_proveedor == codigo_proveedor)
+        conditions.append(Compra.codigo_proveedor == int(codigo_proveedor))
     
     if numero_material:
         conditions.append(Compra.numero_material.ilike(f"%{numero_material}%"))
@@ -2794,8 +2874,8 @@ async def get_pais_origen_material_by_proveedor_material(
     """Obtiene un país de origen por código de proveedor y número de material."""
     result = await db.execute(
         select(PaisOrigenMaterial).where(
-            PaisOrigenMaterial.codigo_proveedor == codigo_proveedor,
-            PaisOrigenMaterial.numero_material == numero_material
+            PaisOrigenMaterial.codigo_proveedor == int(codigo_proveedor),
+            PaisOrigenMaterial.numero_material == str(numero_material)
         )
     )
     return result.scalar_one_or_none()
@@ -2922,7 +3002,7 @@ async def list_paises_origen_material(
     )
     
     if codigo_proveedor:
-        query = query.where(PaisOrigenMaterial.codigo_proveedor == codigo_proveedor)
+        query = query.where(PaisOrigenMaterial.codigo_proveedor == int(codigo_proveedor))
     
     if numero_material:
         query = query.where(PaisOrigenMaterial.numero_material == numero_material)
@@ -2931,7 +3011,7 @@ async def list_paises_origen_material(
         search_pattern = f"%{search}%"
         query = query.where(
             or_(
-                PaisOrigenMaterial.codigo_proveedor.ilike(search_pattern),
+                PaisOrigenMaterial.codigo_proveedor.cast(String).ilike(search_pattern),
                 PaisOrigenMaterial.numero_material.ilike(search_pattern),
                 PaisOrigenMaterial.pais_origen.ilike(search_pattern)
             )
@@ -2953,7 +3033,7 @@ async def count_paises_origen_material(
     query = select(func.count(PaisOrigenMaterial.id))
     
     if codigo_proveedor:
-        query = query.where(PaisOrigenMaterial.codigo_proveedor == codigo_proveedor)
+        query = query.where(PaisOrigenMaterial.codigo_proveedor == int(codigo_proveedor))
     
     if numero_material:
         query = query.where(PaisOrigenMaterial.numero_material == numero_material)
@@ -2962,7 +3042,7 @@ async def count_paises_origen_material(
         search_pattern = f"%{search}%"
         query = query.where(
             or_(
-                PaisOrigenMaterial.codigo_proveedor.ilike(search_pattern),
+                PaisOrigenMaterial.codigo_proveedor.cast(String).ilike(search_pattern),
                 PaisOrigenMaterial.numero_material.ilike(search_pattern),
                 PaisOrigenMaterial.pais_origen.ilike(search_pattern)
             )
@@ -3029,7 +3109,7 @@ async def list_pais_origen_material_historial(
         query = query.where(PaisOrigenMaterialHistorial.pais_origen_id == pais_origen_id)
     
     if codigo_proveedor:
-        query = query.where(PaisOrigenMaterialHistorial.codigo_proveedor == codigo_proveedor)
+        query = query.where(PaisOrigenMaterialHistorial.codigo_proveedor == int(codigo_proveedor))
     
     if numero_material:
         query = query.where(PaisOrigenMaterialHistorial.numero_material == numero_material)
@@ -3072,7 +3152,7 @@ async def count_pais_origen_material_historial(
         query = query.where(PaisOrigenMaterialHistorial.pais_origen_id == pais_origen_id)
     
     if codigo_proveedor:
-        query = query.where(PaisOrigenMaterialHistorial.codigo_proveedor == codigo_proveedor)
+        query = query.where(PaisOrigenMaterialHistorial.codigo_proveedor == int(codigo_proveedor))
     
     if numero_material:
         query = query.where(PaisOrigenMaterialHistorial.numero_material == numero_material)
@@ -3494,7 +3574,7 @@ async def get_carga_proveedor_by_codigo(db: AsyncSession, codigo_proveedor: str)
     """Obtiene un registro de carga de proveedor por código de proveedor."""
     result = await db.execute(
         select(CargaProveedor)
-        .where(CargaProveedor.codigo_proveedor == codigo_proveedor)
+        .where(CargaProveedor.codigo_proveedor == int(codigo_proveedor))
         .options(selectinload(CargaProveedor.proveedor))
         .order_by(desc(CargaProveedor.created_at))
         .limit(1)
@@ -3514,7 +3594,7 @@ async def list_carga_proveedores(
     query = select(CargaProveedor).options(selectinload(CargaProveedor.proveedor))
     
     if codigo_proveedor:
-        query = query.where(CargaProveedor.codigo_proveedor.ilike(f"%{codigo_proveedor}%"))
+        query = query.where(CargaProveedor.codigo_proveedor.cast(String).ilike(f"%{codigo_proveedor}%"))
     
     if cliente_proveedor:
         query = query.where(CargaProveedor.cliente_proveedor.ilike(f"%{cliente_proveedor}%"))
@@ -3538,7 +3618,7 @@ async def count_carga_proveedores(
     query = select(func.count(CargaProveedor.id))
     
     if codigo_proveedor:
-        query = query.where(CargaProveedor.codigo_proveedor.ilike(f"%{codigo_proveedor}%"))
+        query = query.where(CargaProveedor.codigo_proveedor.cast(String).ilike(f"%{codigo_proveedor}%"))
     
     if cliente_proveedor:
         query = query.where(CargaProveedor.cliente_proveedor.ilike(f"%{cliente_proveedor}%"))
@@ -3606,7 +3686,7 @@ async def obtener_fecha_ultimo_cambio_estatus_proveedor(db: AsyncSession, codigo
     cambió a un estatus específico. Retorna None si no hay registro.
     """
     query = select(CargaProveedorHistorial).where(
-        CargaProveedorHistorial.codigo_proveedor == codigo_proveedor,
+        CargaProveedorHistorial.codigo_proveedor == int(codigo_proveedor),
         CargaProveedorHistorial.estatus_nuevo == estatus
     ).order_by(desc(CargaProveedorHistorial.created_at)).limit(1)
     
@@ -3950,7 +4030,7 @@ async def actualizar_estatus_carga_proveedores_por_compras(
 async def obtener_fecha_ultimo_cambio_estatus_proveedor_nacional(db: AsyncSession, codigo_proveedor: str, estatus: str) -> Optional[date]:
     """Obtiene la fecha del último registro en el historial nacional donde el proveedor cambió al estatus dado."""
     query = select(CargaProveedoresNacionalHistorial).where(
-        CargaProveedoresNacionalHistorial.codigo_proveedor == codigo_proveedor,
+        CargaProveedoresNacionalHistorial.codigo_proveedor == int(codigo_proveedor),
         CargaProveedoresNacionalHistorial.estatus_nuevo == estatus
     ).order_by(desc(CargaProveedoresNacionalHistorial.created_at)).limit(1)
     result = await db.execute(query)
@@ -4204,7 +4284,7 @@ async def list_carga_proveedor_historial(
     query = select(CargaProveedorHistorial)
     
     if codigo_proveedor:
-        query = query.where(CargaProveedorHistorial.codigo_proveedor.ilike(f"%{codigo_proveedor}%"))
+        query = query.where(CargaProveedorHistorial.codigo_proveedor.cast(String).ilike(f"%{codigo_proveedor}%"))
     
     if operacion:
         query = query.where(CargaProveedorHistorial.operacion == operacion)
@@ -4224,7 +4304,7 @@ async def count_carga_proveedor_historial(
     query = select(func.count(CargaProveedorHistorial.id))
     
     if codigo_proveedor:
-        query = query.where(CargaProveedorHistorial.codigo_proveedor.ilike(f"%{codigo_proveedor}%"))
+        query = query.where(CargaProveedorHistorial.codigo_proveedor.cast(String).ilike(f"%{codigo_proveedor}%"))
     
     if operacion:
         query = query.where(CargaProveedorHistorial.operacion == operacion)
@@ -4251,7 +4331,7 @@ async def get_historial_por_proveedor(
 ) -> List[CargaProveedorHistorial]:
     """Obtiene el historial de un proveedor específico."""
     query = select(CargaProveedorHistorial).where(
-        CargaProveedorHistorial.codigo_proveedor == codigo_proveedor
+        CargaProveedorHistorial.codigo_proveedor == int(codigo_proveedor)
     ).order_by(desc(CargaProveedorHistorial.created_at)).limit(limit)
     
     result = await db.execute(query)
@@ -4273,7 +4353,7 @@ async def list_carga_proveedores_nacional(
     """Lista registros de carga de proveedores nacionales con filtros opcionales."""
     query = select(CargaProveedoresNacional)
     if codigo_proveedor:
-        query = query.where(CargaProveedoresNacional.codigo_proveedor.ilike(f"%{codigo_proveedor}%"))
+        query = query.where(CargaProveedoresNacional.codigo_proveedor.cast(String).ilike(f"%{codigo_proveedor}%"))
     if estatus:
         query = query.where(CargaProveedoresNacional.estatus == estatus)
     if operacion:
@@ -4292,7 +4372,7 @@ async def count_carga_proveedores_nacional(
     """Cuenta el total de registros de carga de proveedores nacionales con filtros opcionales."""
     query = select(func.count(CargaProveedoresNacional.id))
     if codigo_proveedor:
-        query = query.where(CargaProveedoresNacional.codigo_proveedor.ilike(f"%{codigo_proveedor}%"))
+        query = query.where(CargaProveedoresNacional.codigo_proveedor.cast(String).ilike(f"%{codigo_proveedor}%"))
     if estatus:
         query = query.where(CargaProveedoresNacional.estatus == estatus)
     if operacion:
@@ -4311,7 +4391,7 @@ async def list_carga_proveedores_nacional_historial(
     """Lista el historial de cambios en carga_proveedores_nacional."""
     query = select(CargaProveedoresNacionalHistorial)
     if codigo_proveedor:
-        query = query.where(CargaProveedoresNacionalHistorial.codigo_proveedor.ilike(f"%{codigo_proveedor}%"))
+        query = query.where(CargaProveedoresNacionalHistorial.codigo_proveedor.cast(String).ilike(f"%{codigo_proveedor}%"))
     if operacion:
         query = query.where(CargaProveedoresNacionalHistorial.operacion == operacion)
     query = query.order_by(desc(CargaProveedoresNacionalHistorial.created_at)).limit(limit).offset(offset)
@@ -4327,7 +4407,7 @@ async def count_carga_proveedores_nacional_historial(
     """Cuenta el total de registros en el historial de carga proveedores nacionales."""
     query = select(func.count(CargaProveedoresNacionalHistorial.id))
     if codigo_proveedor:
-        query = query.where(CargaProveedoresNacionalHistorial.codigo_proveedor.ilike(f"%{codigo_proveedor}%"))
+        query = query.where(CargaProveedoresNacionalHistorial.codigo_proveedor.cast(String).ilike(f"%{codigo_proveedor}%"))
     if operacion:
         query = query.where(CargaProveedoresNacionalHistorial.operacion == operacion)
     result = await db.execute(query)
@@ -5691,7 +5771,6 @@ async def get_proveedores_con_compras_en_mes(
             Compra.posting_date >= inicio_dt,
             Compra.posting_date < fin_dt,
             Compra.codigo_proveedor.isnot(None),
-            Compra.codigo_proveedor != "",
             Proveedor.pais == "MX"
         )
         .distinct()
@@ -5789,7 +5868,6 @@ async def get_proveedores_nuevos_desde_compras(
             Compra.posting_date >= inicio_dt,
             Compra.posting_date < fin_dt,
             Compra.codigo_proveedor.isnot(None),
-            Compra.codigo_proveedor != "",
             Proveedor.pais == "MX"
         )
         .distinct()

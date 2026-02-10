@@ -7,20 +7,20 @@ from enum import Enum as PyEnum
 from app.db.base import Base
 
 
-class CodigoProveedorStr(TypeDecorator):
-    """Asegura que codigo_proveedor se maneje siempre como str (la DB puede devolver int)."""
-    impl = String
+class CodigoProveedorInt(TypeDecorator):
+    """codigo_proveedor como INTEGER. Acepta str o int al insertar (ej. desde CSV/API)."""
+    impl = Integer
     cache_ok = True
 
     def process_bind_param(self, value, dialect):
         if value is None:
             return None
-        return str(value)
+        return int(value)
 
     def process_result_value(self, value, dialect):
         if value is None:
             return None
-        return str(value)
+        return value
 
 
 class User(Base):
@@ -255,8 +255,8 @@ class Proveedor(Base):
     """Modelo para proveedores."""
     __tablename__ = "proveedores"
     
-    # Código Proveedor (clave primaria)
-    codigo_proveedor = Column(CodigoProveedorStr, primary_key=True, index=True)
+    # Código Proveedor (clave primaria, INTEGER)
+    codigo_proveedor = Column(CodigoProveedorInt, primary_key=True, index=True)
     
     # Nombre del proveedor
     nombre = Column(String, nullable=False, index=True)
@@ -301,7 +301,7 @@ class ProveedorHistorial(Base):
     id = Column(Integer, primary_key=True, index=True)
     
     # Código del proveedor (puede ser NULL si se elimina)
-    codigo_proveedor = Column(String, nullable=True, index=True)
+    codigo_proveedor = Column(CodigoProveedorInt, nullable=True, index=True)
     
     # Tipo de operación
     operacion = Column(
@@ -412,7 +412,7 @@ class PrecioMaterial(Base):
     id = Column(Integer, primary_key=True, index=True)
     
     # Claves foráneas
-    codigo_proveedor = Column(CodigoProveedorStr, ForeignKey("proveedores.codigo_proveedor"), nullable=False, index=True)
+    codigo_proveedor = Column(CodigoProveedorInt, ForeignKey("proveedores.codigo_proveedor"), nullable=False, index=True)
     numero_material = Column(String, ForeignKey("materiales.numero_material"), nullable=False, index=True)
     
     # Precio
@@ -519,8 +519,8 @@ class Compra(Base):
     # nombre_proveedor
     nombre_proveedor = Column(String, nullable=True, index=True)
     
-    # codigo_proveedor
-    codigo_proveedor = Column(String, nullable=True, index=True)
+    # codigo_proveedor (INTEGER)
+    codigo_proveedor = Column(CodigoProveedorInt, nullable=True, index=True)
     
     # price
     price = Column(Numeric(18, 6), nullable=True)
@@ -537,10 +537,10 @@ class PaisOrigenMaterial(Base):
     """Modelo para país de origen de materiales por proveedor."""
     __tablename__ = "pais_origen_material"
     
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     
     # Claves foráneas
-    codigo_proveedor = Column(CodigoProveedorStr, ForeignKey("proveedores.codigo_proveedor"), nullable=False, index=True)
+    codigo_proveedor = Column(CodigoProveedorInt, ForeignKey("proveedores.codigo_proveedor"), nullable=False, index=True)
     numero_material = Column(String, ForeignKey("materiales.numero_material"), nullable=False, index=True)
     
     # País de origen
@@ -578,13 +578,13 @@ class PaisOrigenMaterialHistorial(Base):
     """Modelo para el historial de cambios en países de origen de materiales."""
     __tablename__ = "pais_origen_material_historial"
     
-    id = Column(Integer, primary_key=True, index=True)
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     
     # ID del país de origen (puede ser NULL si se elimina)
     pais_origen_id = Column(Integer, nullable=True, index=True)
     
     # Código del proveedor (puede ser NULL si se elimina)
-    codigo_proveedor = Column(String, nullable=True, index=True)
+    codigo_proveedor = Column(CodigoProveedorInt, nullable=True, index=True)
     
     # Número del material (puede ser NULL si se elimina)
     numero_material = Column(String, nullable=True, index=True)
@@ -636,7 +636,7 @@ class PrecioMaterialHistorial(Base):
     precio_material_id = Column(Integer, nullable=True, index=True)
     
     # Código del proveedor (puede ser NULL si se elimina)
-    codigo_proveedor = Column(String, nullable=True, index=True)
+    codigo_proveedor = Column(CodigoProveedorInt, nullable=True, index=True)
     
     # Número del material (puede ser NULL si se elimina)
     numero_material = Column(String, nullable=True, index=True)
@@ -797,7 +797,7 @@ class CargaProveedor(Base):
     id = Column(Integer, primary_key=True, index=True)
     
     # Clave foránea a proveedores
-    codigo_proveedor = Column(CodigoProveedorStr, ForeignKey("proveedores.codigo_proveedor"), nullable=False, index=True)
+    codigo_proveedor = Column(CodigoProveedorInt, ForeignKey("proveedores.codigo_proveedor"), nullable=False, index=True)
     
     # Nombre (referencia a proveedores.nombre a través de la relación)
     nombre = Column(String, nullable=True)
@@ -846,7 +846,7 @@ class CargaProveedorHistorial(Base):
     carga_proveedor_id = Column(Integer, nullable=True, index=True)
     
     # Código del proveedor
-    codigo_proveedor = Column(String, nullable=True, index=True)
+    codigo_proveedor = Column(CodigoProveedorInt, nullable=True, index=True)
     
     # Tipo de operación
     operacion = Column(
@@ -883,7 +883,7 @@ class CargaProveedoresNacional(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    codigo_proveedor = Column(String, nullable=True, index=True)
+    codigo_proveedor = Column(CodigoProveedorInt, nullable=True, index=True)
     nombre = Column(String, nullable=True)
     apellido_paterno = Column(String, nullable=True)
     apellido_materno = Column(String, nullable=True)
@@ -908,7 +908,7 @@ class CargaProveedoresNacionalHistorial(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     carga_proveedores_nacional_id = Column(Integer, nullable=True, index=True)
-    codigo_proveedor = Column(String, nullable=True, index=True)
+    codigo_proveedor = Column(CodigoProveedorInt, nullable=True, index=True)
     operacion = Column(String, nullable=False, index=True)  # CREATE, UPDATE, DELETE
     estatus_anterior = Column(String, nullable=True)
     estatus_nuevo = Column(String, nullable=True)

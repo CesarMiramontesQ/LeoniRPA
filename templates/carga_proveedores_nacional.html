@@ -486,17 +486,17 @@ async function actualizarNacional() {
   var iconA = document.getElementById('icon-actualizar');
   var iconL = document.getElementById('icon-loading');
   var txt = document.getElementById('btn-text');
+  var originalText = txt ? txt.textContent : 'Actualizar';
+
   btn.disabled = true;
-  iconA.classList.add('hidden');
-  iconL.classList.remove('hidden');
-  txt.textContent = 'Actualizando...';
+  if (iconA) iconA.classList.add('hidden');
+  if (iconL) iconL.classList.remove('hidden');
+  if (txt) txt.textContent = 'Actualizando...';
+
   try {
     var response = await fetch('/carga-proveedores-nacional/actualizar', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
     var data = await response.json();
-    btn.disabled = false;
-    iconA.classList.remove('hidden');
-    iconL.classList.add('hidden');
-    txt.textContent = 'Actualizar';
+
     if (data.ya_actualizado) {
       mostrarModalYaActualizado(data.message || 'Ese mes ya se actualizaron los registros.');
     } else {
@@ -504,10 +504,11 @@ async function actualizarNacional() {
     }
   } catch (e) {
     mostrarToastError('Error de conexión: ' + e.message);
+  } finally {
     btn.disabled = false;
-    iconA.classList.remove('hidden');
-    iconL.classList.add('hidden');
-    txt.textContent = 'Actualizar';
+    if (iconA) iconA.classList.remove('hidden');
+    if (iconL) iconL.classList.add('hidden');
+    if (txt) txt.textContent = originalText;
   }
 }
 </script>

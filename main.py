@@ -418,8 +418,8 @@ async def proveedores(request: Request, current_user: User = Depends(get_current
     proveedores_activos = await crud.count_proveedores(db, estatus=True)
     proveedores_inactivos = await crud.count_proveedores(db, estatus=False)
     
-    # Obtener los últimos 5 movimientos del historial
-    historial_reciente = await crud.list_proveedor_historial(db, limit=5, offset=0)
+    # Obtener los últimos 10 movimientos del historial
+    historial_reciente = await crud.list_proveedor_historial(db, limit=10, offset=0)
     
     return templates.TemplateResponse(
         "proveedores.html",
@@ -445,8 +445,8 @@ async def materiales(request: Request, current_user: User = Depends(get_current_
     # Calcular estadísticas
     total_materiales = await crud.count_materiales(db)
     
-    # Obtener los últimos 5 movimientos del historial
-    historial_reciente = await crud.list_material_historial(db, limit=5, offset=0)
+    # Obtener los últimos 10 movimientos del historial
+    historial_reciente = await crud.list_material_historial(db, limit=10, offset=0)
     
     return templates.TemplateResponse(
         "materiales.html",
@@ -471,7 +471,7 @@ async def precios_compra(request: Request, current_user: User = Depends(get_curr
     total_precios = await crud.count_precios_materiales(db)
     
     # Obtener los últimos 5 movimientos del historial
-    historial_reciente = await crud.list_precio_material_historial(db, limit=5, offset=0)
+    historial_reciente = await crud.list_precio_material_historial(db, limit=10, offset=0)
     
     return templates.TemplateResponse(
         "precios_compra.html",
@@ -706,7 +706,7 @@ async def paises_origen(request: Request, current_user: User = Depends(get_curre
     materiales_pendientes = result_pendientes.scalar() or 0
     
     # Obtener los últimos 5 movimientos del historial
-    historial_reciente = await crud.list_pais_origen_material_historial(db, limit=5, offset=0)
+    historial_reciente = await crud.list_pais_origen_material_historial(db, limit=10, offset=0)
     
     return templates.TemplateResponse(
         "paises_origen.html",

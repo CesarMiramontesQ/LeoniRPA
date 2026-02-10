@@ -657,14 +657,13 @@ async function actualizarClientes() {
   const iconActualizar = document.getElementById('icon-actualizar');
   const iconLoading = document.getElementById('icon-loading');
   const btnText = document.getElementById('btn-text');
-  
-  // Deshabilitar botón y mostrar loading
+  const originalText = btnText ? btnText.textContent : 'Actualizar';
+
   btn.disabled = true;
-  btn.classList.add('opacity-50', 'cursor-not-allowed');
-  iconActualizar.classList.add('hidden');
-  iconLoading.classList.remove('hidden');
-  btnText.textContent = 'Actualizando...';
-  
+  if (iconActualizar) iconActualizar.classList.add('hidden');
+  if (iconLoading) iconLoading.classList.remove('hidden');
+  if (btnText) btnText.textContent = 'Actualizando...';
+
   try {
     const response = await fetch('/carga-cliente/actualizar', {
       method: 'POST',
@@ -672,30 +671,21 @@ async function actualizarClientes() {
         'Content-Type': 'application/json',
       }
     });
-    
+
     const data = await response.json();
-    
-    // Restaurar botón
-    btn.disabled = false;
-    btn.classList.remove('opacity-50', 'cursor-not-allowed');
-    iconActualizar.classList.remove('hidden');
-    iconLoading.classList.add('hidden');
-    btnText.textContent = 'Actualizar';
-    
+
     if (data.ya_actualizado) {
       mostrarModalYaActualizado(data.message || 'Ese mes ya se actualizaron los registros.');
     } else {
       mostrarModal(data);
     }
-    
   } catch (error) {
     mostrarToastError('Error de conexión: ' + error.message);
-    // Restaurar botón
+  } finally {
     btn.disabled = false;
-    btn.classList.remove('opacity-50', 'cursor-not-allowed');
-    iconActualizar.classList.remove('hidden');
-    iconLoading.classList.add('hidden');
-    btnText.textContent = 'Actualizar';
+    if (iconActualizar) iconActualizar.classList.remove('hidden');
+    if (iconLoading) iconLoading.classList.add('hidden');
+    if (btnText) btnText.textContent = originalText;
   }
 }
 
