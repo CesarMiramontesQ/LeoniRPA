@@ -1221,7 +1221,7 @@ async def descargar_virtuales_excel(
 
     columnas = [
         "numero", "proveedor_cliente", "impo_expo", "agente", "mes", "estatus", "tipo",
-        "incoterm", "tipo_exportacion", "escenario", "plazo", "pedimento", "aduana", "patente",
+        "incoterm", "tipo_exportacion", "escenario", "materialidad", "plazo", "pedimento", "aduana", "patente",
         "destino", "cliente_space", "complemento", "tipo_immex", "factura", "fecha_pago",
         "informacion", "servicio_cliente", "firma", "solicitud_previo", "op_regular", "carretes",
         "created_at",
@@ -1239,6 +1239,7 @@ async def descargar_virtuales_excel(
             "incoterm": _valor(r.incoterm),
             "tipo_exportacion": _valor(r.tipo_exportacion),
             "escenario": _valor(r.escenario),
+            "materialidad": _valor(r.materialidad),
             "plazo": _valor(r.plazo),
             "pedimento": _valor(r.pedimento),
             "aduana": _valor(r.aduana),
@@ -1392,6 +1393,7 @@ async def crear_virtual(
             incoterm=parse_str(data.get("incoterm")),
             tipo_exportacion=parse_str(data.get("tipo_exportacion")),
             escenario=parse_str(data.get("escenario")),
+            materialidad=parse_bool(data.get("materialidad")),
             user_id=current_user.id
         )
     except Exception as exc:
@@ -1642,6 +1644,14 @@ async def actualizar_virtual(
         if data.get("carretes"):
             carretes = data.get("carretes") == "Sí"
         
+        materialidad = None
+        if "materialidad" in data:
+            val = data.get("materialidad")
+            if val is True or (isinstance(val, str) and str(val).strip().lower() in ("si", "sí", "true", "1")):
+                materialidad = True
+            elif val is False or (isinstance(val, str) and str(val).strip().lower() in ("no", "false", "0")):
+                materialidad = False
+        
         # Convertir valores numéricos
         pedimento = None
         if data.get("pedimento"):
@@ -1707,6 +1717,7 @@ async def actualizar_virtual(
             incoterm=data.get("incoterm") or None,
             tipo_exportacion=data.get("tipo_exportacion") or None,
             escenario=data.get("escenario") or None,
+            materialidad=materialidad,
             user_id=current_user.id
         )
         
@@ -1808,6 +1819,7 @@ async def duplicar_virtual_expo_a_impo(
             incoterm=registro_expo.incoterm,
             tipo_exportacion=registro_expo.tipo_exportacion,
             escenario=registro_expo.escenario,
+            materialidad=registro_expo.materialidad,
             user_id=current_user.id
         )
         

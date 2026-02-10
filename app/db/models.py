@@ -1092,6 +1092,9 @@ class MasterUnificadoVirtuales(Base):
     # Escenario
     escenario = Column(String, nullable=True)
     
+    # Materialidad
+    materialidad = Column(Boolean, nullable=True)
+    
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
