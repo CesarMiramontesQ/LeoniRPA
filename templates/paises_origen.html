@@ -507,8 +507,8 @@
        data-codigo-proveedor="{{ pais.codigo_proveedor or '' }}"
        data-numero-material="{{ pais.numero_material or '' }}"
        data-pais-origen="{{ pais.pais_origen or '' }}"
-       data-updated-at="{% if pais.updated_at %}{{ pais.updated_at.isoformat() }}{% else %}{% endif %}"
-       data-created-at="{% if pais.created_at %}{{ pais.created_at.isoformat() }}{% else %}{% endif %}"
+       data-updated-at="{{ pais.updated_at | to_iso }}"
+       data-created-at="{{ pais.created_at | to_iso }}"
        data-proveedor-nombre="{% if pais.proveedor %}{{ pais.proveedor.nombre }}{% else %}{% endif %}"
        data-material-descripcion="{% if pais.material %}{{ pais.material.descripcion_material or '' }}{% else %}{% endif %}">
   </div>

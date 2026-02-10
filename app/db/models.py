@@ -1,10 +1,26 @@
 """Modelos de base de datos."""
-from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Boolean, ForeignKey, Text, Enum as SQLEnum, Numeric, Index, UniqueConstraint, CheckConstraint, Date
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Boolean, ForeignKey, Text, Enum as SQLEnum, Numeric, Index, UniqueConstraint, CheckConstraint, Date, TypeDecorator
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from enum import Enum as PyEnum
 from app.db.base import Base
+
+
+class CodigoProveedorStr(TypeDecorator):
+    """Asegura que codigo_proveedor se maneje siempre como str (la DB puede devolver int)."""
+    impl = String
+    cache_ok = True
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        return str(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        return str(value)
 
 
 class User(Base):
@@ -240,7 +256,7 @@ class Proveedor(Base):
     __tablename__ = "proveedores"
     
     # Código Proveedor (clave primaria)
-    codigo_proveedor = Column(String, primary_key=True, index=True)
+    codigo_proveedor = Column(CodigoProveedorStr, primary_key=True, index=True)
     
     # Nombre del proveedor
     nombre = Column(String, nullable=False, index=True)
@@ -396,7 +412,7 @@ class PrecioMaterial(Base):
     id = Column(Integer, primary_key=True, index=True)
     
     # Claves foráneas
-    codigo_proveedor = Column(String, ForeignKey("proveedores.codigo_proveedor"), nullable=False, index=True)
+    codigo_proveedor = Column(CodigoProveedorStr, ForeignKey("proveedores.codigo_proveedor"), nullable=False, index=True)
     numero_material = Column(String, ForeignKey("materiales.numero_material"), nullable=False, index=True)
     
     # Precio
@@ -524,7 +540,7 @@ class PaisOrigenMaterial(Base):
     id = Column(Integer, primary_key=True, index=True)
     
     # Claves foráneas
-    codigo_proveedor = Column(String, ForeignKey("proveedores.codigo_proveedor"), nullable=False, index=True)
+    codigo_proveedor = Column(CodigoProveedorStr, ForeignKey("proveedores.codigo_proveedor"), nullable=False, index=True)
     numero_material = Column(String, ForeignKey("materiales.numero_material"), nullable=False, index=True)
     
     # País de origen
@@ -781,7 +797,7 @@ class CargaProveedor(Base):
     id = Column(Integer, primary_key=True, index=True)
     
     # Clave foránea a proveedores
-    codigo_proveedor = Column(String, ForeignKey("proveedores.codigo_proveedor"), nullable=False, index=True)
+    codigo_proveedor = Column(CodigoProveedorStr, ForeignKey("proveedores.codigo_proveedor"), nullable=False, index=True)
     
     # Nombre (referencia a proveedores.nombre a través de la relación)
     nombre = Column(String, nullable=True)

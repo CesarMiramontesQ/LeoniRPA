@@ -310,8 +310,18 @@ def datetime_cdmx_filter(dt: Optional[datetime], format_str: str = '%d/%m/%Y %H:
     return dt_cdmx.strftime(format_str)
 
 
+def to_iso_filter(value):
+    """Filtro Jinja2: convierte datetime a ISO string; si ya es str o otro tipo, lo devuelve como string."""
+    if value is None:
+        return ''
+    if hasattr(value, 'isoformat'):
+        return value.isoformat()
+    return str(value)
+
+
 # Registrar el filtro en el entorno de templates
 templates.env.filters['datetime_cdmx'] = datetime_cdmx_filter
+templates.env.filters['to_iso'] = to_iso_filter
 
 
 @app.get("/compras")
