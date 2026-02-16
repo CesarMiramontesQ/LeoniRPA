@@ -361,6 +361,30 @@
   </div>
 </div>
 
+<!-- Modal Procesando / Proceso terminado -->
+<div id="modal-descarga-compras" class="fixed inset-0 z-50 hidden" aria-hidden="true">
+  <div class="fixed inset-0 bg-gray-500/75 transition-opacity" aria-hidden="true"></div>
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="relative w-full max-w-sm rounded-lg bg-white shadow-xl">
+      <div class="p-6 text-center">
+        <div id="modal-descarga-spinner" class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#003D89]/10">
+          <svg class="h-6 w-6 animate-spin text-[#003D89]" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        </div>
+        <h3 id="modal-descarga-titulo" class="text-lg font-semibold text-gray-900">Procesando</h3>
+        <p id="modal-descarga-mensaje" class="mt-2 text-sm text-gray-600">Descargando compras desde SAP. No cierre la ventana de SAP hasta que finalice.</p>
+        <div id="modal-descarga-ok" class="mt-6 hidden">
+          <button type="button" id="modal-descarga-btn-cerrar" class="rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white hover:bg-[#003070]">
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
   // Funcionalidad para limpiar el formulario
   document.getElementById('btn-limpiar').addEventListener('click', function() {
@@ -369,31 +393,58 @@
     document.getElementById('fecha-fin').value = '';
   });
   
+  // Modal de descarga: referencias
+  const modalDescarga = document.getElementById('modal-descarga-compras');
+  const modalDescargaSpinner = document.getElementById('modal-descarga-spinner');
+  const modalDescargaTitulo = document.getElementById('modal-descarga-titulo');
+  const modalDescargaMensaje = document.getElementById('modal-descarga-mensaje');
+  const modalDescargaOk = document.getElementById('modal-descarga-ok');
+  const modalDescargaBtnCerrar = document.getElementById('modal-descarga-btn-cerrar');
+
+  function mostrarModalProcesando() {
+    modalDescarga.classList.remove('hidden');
+    modalDescargaTitulo.textContent = 'Procesando';
+    modalDescargaMensaje.textContent = 'Descargando compras desde SAP. No cierre la ventana de SAP hasta que finalice.';
+    modalDescargaSpinner.classList.remove('hidden');
+    modalDescargaOk.classList.add('hidden');
+  }
+
+  function mostrarModalTerminado(titulo, mensaje) {
+    modalDescargaTitulo.textContent = titulo;
+    modalDescargaMensaje.textContent = mensaje;
+    modalDescargaSpinner.classList.add('hidden');
+    modalDescargaOk.classList.remove('hidden');
+  }
+
+  function cerrarModalDescarga() {
+    modalDescarga.classList.add('hidden');
+    window.location.reload();
+  }
+
+  modalDescargaBtnCerrar.addEventListener('click', cerrarModalDescarga);
+
   // Funcionalidad para iniciar descarga
   document.getElementById('btn-iniciar-descarga').addEventListener('click', async function() {
     const btn = document.getElementById('btn-iniciar-descarga');
     const fechaInicio = document.getElementById('fecha-inicio').value;
     const fechaFin = document.getElementById('fecha-fin').value;
     
-    // Validaciones
     if (!fechaInicio || !fechaFin) {
       alert('Por favor, selecciona las fechas de inicio y fin del periodo');
       return;
     }
     
-    // Deshabilitar el botón mientras se procesa
     btn.disabled = true;
     const textoOriginal = btn.textContent;
     btn.textContent = 'Iniciando...';
+    mostrarModalProcesando();
     
     try {
-      // Crear FormData para enviar los datos (carpeta de salida por defecto)
       const formData = new FormData();
       formData.append('fecha_inicio', fechaInicio);
       formData.append('fecha_fin', fechaFin);
       formData.append('carpeta_salida', 'C:\\Users\\anad5004\\Documents\\Leoni_RPA');
       
-      // Enviar petición al backend
       const response = await fetch('/api/compras/iniciar-descarga', {
         method: 'POST',
         body: formData
@@ -402,20 +453,17 @@
       const data = await response.json();
       
       if (response.ok && data.success) {
-        // Mostrar mensaje de éxito
-        alert(`Proceso iniciado exitosamente.\nEl script SAP se está ejecutando con las fechas seleccionadas.\nArchivos: ${data.archivo_esperado}\nCarpeta: C:\\Users\\anad5004\\Documents\\Leoni_RPA`);
-        
-        // Recargar la página para actualizar la tabla de ejecuciones
-        window.location.reload();
+        mostrarModalTerminado(
+          'Proceso terminado',
+          'La descarga desde SAP finalizó correctamente. Archivos: ' + (data.archivo_esperado || 'compras_local.txt, historial_compras.txt') + '. Carpeta: C:\\Users\\anad5004\\Documents\\Leoni_RPA'
+        );
       } else {
-        // Mostrar error
-        alert('Error: ' + (data.error || 'Error desconocido al iniciar la descarga'));
+        mostrarModalTerminado('Error', data.error || 'Error desconocido al iniciar la descarga.');
       }
     } catch (error) {
       console.error('Error al iniciar descarga:', error);
-      alert('Error al conectar con el servidor. Por favor, intenta nuevamente.');
+      mostrarModalTerminado('Error', 'No se pudo conectar con el servidor. Por favor, intenta nuevamente.');
     } finally {
-      // Rehabilitar el botón
       btn.disabled = false;
       btn.textContent = textoOriginal;
     }

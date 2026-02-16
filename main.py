@@ -2543,8 +2543,9 @@ async def iniciar_descarga(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Inicia el proceso de descarga de compras ejecutando compras_local.vbs con SAP GUI y registra la actividad."""
+    """Inicia el proceso de descarga de compras ejecutando compras_local.vbs con SAP GUI y espera a que termine."""
     import subprocess
+    import asyncio
     from pathlib import Path
     try:
         # Validar y convertir fechas
@@ -2601,25 +2602,61 @@ async def iniciar_descarga(
                 status_code=500,
                 content={"error": f"No se encontró el script compras_local.vbs en {script_dir}"}
             )
-        subprocess.Popen(
-            ["cscript", "//nologo", str(vbs_path), fecha_inicio_str, fecha_fin_str],
-            cwd=str(script_dir),
-        )
-        
-        # Actualizar con la información del archivo esperado
+
+        # Actualizar con la información del archivo esperado (estado PENDING mientras corre)
         await crud.update_execution_status(
             db=db,
             execution_id=execution.id,
-            estado=execution.estado,  # Mantener PENDING
+            estado=execution.estado,
             archivo_ruta=ruta_completa,
             archivo_nombre=nombre_archivo
         )
-        
+
+        # Ejecutar el script y esperar a que termine (timeout 5 min) sin bloquear el event loop
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ["cscript", "//nologo", str(vbs_path), fecha_inicio_str, fecha_fin_str],
+                cwd=str(script_dir),
+                capture_output=True,
+                timeout=300,
+            )
+        except subprocess.TimeoutExpired:
+            await crud.update_execution_status(
+                db=db, execution_id=execution.id, estado=ExecutionStatus.FAILED
+            )
+            return JSONResponse(
+                status_code=500,
+                content={"error": "El proceso de descarga superó el tiempo máximo (5 minutos)."}
+            )
+        except Exception as e:
+            await crud.update_execution_status(
+                db=db, execution_id=execution.id, estado=ExecutionStatus.FAILED
+            )
+            return JSONResponse(
+                status_code=500,
+                content={"error": f"Error al ejecutar el script: {str(e)}"}
+            )
+
+        if result.returncode != 0:
+            await crud.update_execution_status(
+                db=db, execution_id=execution.id, estado=ExecutionStatus.FAILED
+            )
+            err_msg = (result.stderr or result.stdout or b"").decode("utf-8", errors="replace").strip() or f"Código de salida: {result.returncode}"
+            return JSONResponse(
+                status_code=500,
+                content={"error": f"El script SAP finalizó con error. {err_msg}"}
+            )
+
+        await crud.update_execution_status(
+            db=db, execution_id=execution.id, estado=ExecutionStatus.SUCCESS
+        )
+
         return JSONResponse(
             status_code=200,
             content={
                 "success": True,
-                "message": "Proceso de descarga iniciado",
+                "message": "Proceso de descarga terminado",
                 "execution_id": execution.id,
                 "archivo_esperado": nombre_archivo,
                 "ruta_completa": ruta_completa
