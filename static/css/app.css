@@ -292,14 +292,8 @@
   .right-4 {
     right: calc(var(--spacing) * 4);
   }
-  .-bottom-6 {
-    bottom: calc(var(--spacing) * -6);
-  }
   .bottom-4 {
     bottom: calc(var(--spacing) * 4);
-  }
-  .left-0 {
-    left: calc(var(--spacing) * 0);
   }
   .left-4 {
     left: calc(var(--spacing) * 4);
@@ -346,14 +340,14 @@
   .mx-1 {
     margin-inline: calc(var(--spacing) * 1);
   }
-  .mx-2 {
-    margin-inline: calc(var(--spacing) * 2);
-  }
   .mx-auto {
     margin-inline: auto;
   }
   .-my-2 {
     margin-block: calc(var(--spacing) * -2);
+  }
+  .-mt-0\.5 {
+    margin-top: calc(var(--spacing) * -0.5);
   }
   .mt-1 {
     margin-top: calc(var(--spacing) * 1);
@@ -430,9 +424,6 @@
   .ml-3 {
     margin-left: calc(var(--spacing) * 3);
   }
-  .ml-6 {
-    margin-left: calc(var(--spacing) * 6);
-  }
   .ml-auto {
     margin-left: auto;
   }
@@ -459,10 +450,6 @@
   }
   .inline-flex {
     display: inline-flex;
-  }
-  .size-1\.5 {
-    width: calc(var(--spacing) * 1.5);
-    height: calc(var(--spacing) * 1.5);
   }
   .size-5 {
     width: calc(var(--spacing) * 5);
@@ -615,12 +602,6 @@
   .flex-1 {
     flex: 1;
   }
-  .flex-auto {
-    flex: auto;
-  }
-  .flex-none {
-    flex: none;
-  }
   .flex-shrink-0 {
     flex-shrink: 0;
   }
@@ -638,9 +619,6 @@
   }
   .animate-spin {
     animation: var(--animate-spin);
-  }
-  .cursor-not-allowed {
-    cursor: not-allowed;
   }
   .cursor-pointer {
     cursor: pointer;
@@ -866,9 +844,6 @@
   .border-\[\#003D89\] {
     border-color: #003D89;
   }
-  .border-amber-500 {
-    border-color: var(--color-amber-500);
-  }
   .border-blue-200 {
     border-color: var(--color-blue-200);
   }
@@ -914,8 +889,8 @@
   .bg-\[\#003D89\] {
     background-color: #003D89;
   }
-  .bg-amber-50 {
-    background-color: var(--color-amber-50);
+  .bg-\[\#003D89\]\/10 {
+    background-color: color-mix(in oklab, #003D89 10%, transparent);
   }
   .bg-amber-500 {
     background-color: var(--color-amber-500);
@@ -943,6 +918,12 @@
   }
   .bg-gray-500 {
     background-color: var(--color-gray-500);
+  }
+  .bg-gray-500\/75 {
+    background-color: color-mix(in srgb, oklch(55.1% 0.027 264.364) 75%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      background-color: color-mix(in oklab, var(--color-gray-500) 75%, transparent);
+    }
   }
   .bg-gray-900\/80 {
     background-color: color-mix(in srgb, oklch(21% 0.034 264.665) 80%, transparent);
@@ -1145,10 +1126,6 @@
     font-size: var(--text-xs);
     line-height: var(--tw-leading, var(--text-xs--line-height));
   }
-  .text-xs\/5 {
-    font-size: var(--text-xs);
-    line-height: calc(var(--spacing) * 5);
-  }
   .leading-6 {
     --tw-leading: calc(var(--spacing) * 6);
     line-height: calc(var(--spacing) * 6);
@@ -1181,9 +1158,6 @@
   }
   .text-\[\#003D89\] {
     color: #003D89;
-  }
-  .text-amber-700 {
-    color: var(--color-amber-700);
   }
   .text-blue-400 {
     color: var(--color-blue-400);
@@ -1292,9 +1266,6 @@
   .opacity-25 {
     opacity: 25%;
   }
-  .opacity-50 {
-    opacity: 50%;
-  }
   .opacity-75 {
     opacity: 75%;
   }
@@ -1316,10 +1287,6 @@
   }
   .shadow-xs {
     --tw-shadow: 0 1px 2px 0 var(--tw-shadow-color, rgb(0 0 0 / 0.05));
-    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
-  }
-  .ring {
-    --tw-ring-shadow: var(--tw-ring-inset,) 0 0 0 calc(1px + var(--tw-ring-offset-width)) var(--tw-ring-color, currentcolor);
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
   }
   .ring-1 {
@@ -1470,13 +1437,6 @@
     &:hover {
       @media (hover: hover) {
         background-color: #f1f5ff;
-      }
-    }
-  }
-  .hover\:bg-amber-100 {
-    &:hover {
-      @media (hover: hover) {
-        background-color: var(--color-amber-100);
       }
     }
   }
@@ -1675,6 +1635,11 @@
   .focus\:outline-\[\#003D89\] {
     &:focus {
       outline-color: #003D89;
+    }
+  }
+  .focus\:outline-indigo-600 {
+    &:focus {
+      outline-color: var(--color-indigo-600);
     }
   }
   .focus\:outline-none {

@@ -99,80 +99,18 @@
           </h2>
 
         <div class="space-y-4">
-          <!-- Rango de fechas -->
+          <!-- Mes y año -->
           <div>
-            <label class="block text-sm/6 font-medium text-gray-900"
-              >Rango de fechas</label
-            >
-            <div class="mt-2 flex gap-2">
-              <div class="flex-1">
-                <label for="fecha-inicio" class="block text-sm/6 font-medium text-gray-900">Fecha inicio</label>
-                <div class="mt-2">
-                  <div class="flex rounded-md bg-white outline-1 -outline-offset-1 outline-gray-300 focus-within:outline-2 focus-within:-outline-offset-2 focus-within:outline-[#003D89]">
-                    <input
-                      type="date"
-                      id="fecha-inicio"
-                      class="block min-w-0 grow px-3 py-1.5 text-base text-gray-900 placeholder:text-gray-400 focus:outline-none sm:text-sm/6"
-                    />
-                  </div>
-                </div>
-              </div>
-              <div class="flex-1">
-                <label for="fecha-fin" class="block text-sm/6 font-medium text-gray-900">Fecha fin</label>
-                <div class="mt-2">
-                  <div class="flex rounded-md bg-white outline-1 -outline-offset-1 outline-gray-300 focus-within:outline-2 focus-within:-outline-offset-2 focus-within:outline-[#003D89]">
-                    <input
-                      type="date"
-                      id="fecha-fin"
-                      class="block min-w-0 grow px-3 py-1.5 text-base text-gray-900 placeholder:text-gray-400 focus:outline-none sm:text-sm/6"
-                    />
-                  </div>
-                </div>
+            <label for="periodo-mes-anio" class="block text-sm/6 font-medium text-gray-900">Mes y año</label>
+            <div class="mt-2">
+              <div class="flex rounded-md bg-white outline-1 -outline-offset-1 outline-gray-300 focus-within:outline-2 focus-within:-outline-offset-2 focus-within:outline-[#003D89]">
+                <input
+                  type="month"
+                  id="periodo-mes-anio"
+                  class="block min-w-0 grow px-3 py-1.5 text-base text-gray-900 placeholder:text-gray-400 focus:outline-none sm:text-sm/6"
+                />
               </div>
             </div>
-          </div>
-
-          <!-- Carpeta de salida -->
-          <div>
-            <label for="carpeta-salida" class="block text-sm/6 font-medium text-gray-900">Carpeta de salida</label>
-            <div class="mt-2 flex gap-2">
-              <input
-                type="text"
-                id="carpeta-salida"
-                value="C:\Reportes\Ventas\"
-                class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6"
-              />
-              <button
-                id="btn-cambiar-carpeta"
-                type="button"
-                class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                Cambiar
-              </button>
-            </div>
-          </div>
-
-          <!-- Filename -->
-          <div class="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked
-              class="h-4 w-4 rounded border-gray-300 text-[#003D89] focus:ring-[#003D89]"
-            />
-            <label class="text-sm font-medium text-gray-700">Filename:</label>
-            <span id="filename-ventas-display" class="text-sm text-gray-600">ventas_.xlsx</span>
-          </div>
-
-          <!-- Sobrescribir si existe -->
-          <div class="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked
-              class="h-4 w-4 rounded border-gray-300 text-[#003D89] focus:ring-[#003D89]"
-            />
-            <label class="text-sm font-medium text-gray-700"
-              >Sobrescribir si existe</label
-            >
           </div>
 
           <!-- Botones de acción -->
@@ -382,112 +320,29 @@
 </div>
 
 <script>
-  function actualizarFilenames() {
-    const fechaInicio = document.getElementById('fecha-inicio').value;
-    const fechaFin = document.getElementById('fecha-fin').value;
-    const filenameVentasDisplay = document.getElementById('filename-ventas-display');
-    
-    if (fechaInicio && fechaFin) {
-      // Convertir formato YYYY-MM-DD a YYYYMMDD
-      const fechaInicioFormato = fechaInicio.replace(/-/g, '');
-      const fechaFinFormato = fechaFin.replace(/-/g, '');
-      filenameVentasDisplay.textContent = `ventas_${fechaInicioFormato}_${fechaFinFormato}.xlsx`;
-    } else if (fechaInicio || fechaFin) {
-      // Si solo hay una fecha, mostrar lo que hay
-      const fecha = fechaInicio || fechaFin;
-      const fechaFormato = fecha.replace(/-/g, '');
-      filenameVentasDisplay.textContent = `ventas_${fechaFormato}_.xlsx`;
-    } else {
-      filenameVentasDisplay.textContent = 'ventas_.xlsx';
-    }
-  }
-  
-  // Agregar event listeners a los inputs de fecha
-  document.getElementById('fecha-inicio').addEventListener('change', actualizarFilenames);
-  document.getElementById('fecha-fin').addEventListener('change', actualizarFilenames);
-  
-  // Funcionalidad para cambiar carpeta de salida
-  document.getElementById('btn-cambiar-carpeta').addEventListener('click', async function() {
-    const carpetaInput = document.getElementById('carpeta-salida');
-    const btn = document.getElementById('btn-cambiar-carpeta');
-    
-    // Deshabilitar el botón mientras se procesa
-    btn.disabled = true;
-    btn.textContent = 'Abriendo...';
-    
-    try {
-      // Llamar al endpoint del backend que abre el diálogo nativo
-      const response = await fetch('/api/select-folder');
-      const data = await response.json();
-      
-      if (response.ok && data.folder_path) {
-        // Actualizar el input con la ruta seleccionada
-        carpetaInput.value = data.folder_path;
-      } else {
-        // Si hay un error o el usuario canceló
-        if (data.error && !data.error.includes('No se seleccionó')) {
-          alert('Error: ' + data.error);
-        }
-        // Si el usuario canceló, no hacer nada (no mostrar error)
-      }
-    } catch (error) {
-      console.error('Error al seleccionar carpeta:', error);
-      alert('Error al conectar con el servidor. Por favor, ingresa la ruta manualmente.');
-      carpetaInput.focus();
-      carpetaInput.select();
-    } finally {
-      // Rehabilitar el botón
-      btn.disabled = false;
-      btn.textContent = 'Cambiar';
-    }
-  });
-  
   // Funcionalidad para limpiar el formulario
   document.getElementById('btn-limpiar').addEventListener('click', function() {
-    // Limpiar inputs de fecha
-    document.getElementById('fecha-inicio').value = '';
-    document.getElementById('fecha-fin').value = '';
-    
-    // Restablecer carpeta de salida al valor por defecto
-    document.getElementById('carpeta-salida').value = 'C:\\Reportes\\Ventas\\';
-    
-    // Actualizar el filename display
-    document.getElementById('filename-ventas-display').textContent = 'ventas_.xlsx';
-    
-    // El checkbox de "Sobrescribir si existe" ya está marcado por defecto, no necesita cambios
+    document.getElementById('periodo-mes-anio').value = '';
   });
   
   // Funcionalidad para iniciar descarga
   document.getElementById('btn-iniciar-descarga').addEventListener('click', async function() {
     const btn = document.getElementById('btn-iniciar-descarga');
-    const fechaInicio = document.getElementById('fecha-inicio').value;
-    const fechaFin = document.getElementById('fecha-fin').value;
-    const carpetaSalida = document.getElementById('carpeta-salida').value;
+    const periodoMesAnio = document.getElementById('periodo-mes-anio').value;
     
-    // Validaciones
-    if (!fechaInicio || !fechaFin) {
-      alert('Por favor, selecciona las fechas de inicio y fin del periodo');
+    if (!periodoMesAnio) {
+      alert('Por favor, selecciona el mes y año del periodo');
       return;
     }
     
-    if (!carpetaSalida || carpetaSalida.trim() === '') {
-      alert('Por favor, especifica la carpeta de salida');
-      return;
-    }
-    
-    // Deshabilitar el botón mientras se procesa
     btn.disabled = true;
     const textoOriginal = btn.textContent;
     btn.textContent = 'Iniciando...';
     
     try {
-      // Crear FormData para enviar los datos
       const formData = new FormData();
-      formData.append('fecha_inicio', fechaInicio);
-      formData.append('fecha_fin', fechaFin);
-      formData.append('carpeta_salida', carpetaSalida);
+      formData.append('periodo_mes_anio', periodoMesAnio);
       
-      // Enviar petición al backend
       const response = await fetch('/api/ventas/iniciar-descarga', {
         method: 'POST',
         body: formData
@@ -497,17 +352,12 @@
       try {
         data = await response.json();
       } catch (jsonError) {
-        // Si la respuesta no es JSON válido, mostrar error
         console.error('Error al parsear respuesta JSON:', jsonError);
-        mensajeTexto.textContent = 'Error: La respuesta del servidor no es válida. Por favor, intenta nuevamente.';
-        mensajeProcesamiento.classList.remove('bg-blue-50', 'border-blue-200', 'bg-green-50', 'border-green-200');
-        mensajeProcesamiento.classList.add('bg-red-50', 'border-red-200');
-        mensajeTexto.classList.remove('text-blue-800', 'text-green-800');
-        mensajeTexto.classList.add('text-red-800');
+        alert('Error: La respuesta del servidor no es válida. Por favor, intenta nuevamente.');
         return;
       }
       
-      if (response.ok && (data.success || data.registros_insertados > 0)) {
+      if (response.ok && data.success) {
         // Mostrar mensaje de éxito
         alert(`Proceso iniciado exitosamente.\nArchivo esperado: ${data.archivo_esperado}`);
         

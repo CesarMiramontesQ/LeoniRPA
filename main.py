@@ -3233,32 +3233,30 @@ async def procesar_archivos(
 @app.post("/api/ventas/iniciar-descarga")
 async def iniciar_descarga_ventas(
     request: Request,
-    fecha_inicio: str = Form(...),
-    fecha_fin: str = Form(...),
-    carpeta_salida: str = Form(...),
+    periodo_mes_anio: str = Form(...),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Inicia el proceso de descarga de ventas y registra la actividad."""
+    """Inicia el proceso de descarga de ventas ejecutando ventas.vbs con SAP GUI. periodo_mes_anio en formato YYYY-MM. El script recibe el periodo en formato PPP.YYYY (ej. 001.2026)."""
+    import subprocess
+    import asyncio
+    from pathlib import Path
     try:
-        # Validar y convertir fechas
-        # El input type="date" devuelve formato YYYY-MM-DD
+        # Validar y convertir periodo (YYYY-MM) a primer/último día y a formato SAP PPP.YYYY
         try:
-            fecha_inicio_dt = datetime.strptime(fecha_inicio, "%Y-%m-%d")
-            fecha_fin_dt = datetime.strptime(fecha_fin, "%Y-%m-%d")
-            # Agregar hora al final del día para fecha_fin para incluir todo el día
-            fecha_fin_dt = fecha_fin_dt.replace(hour=23, minute=59, second=59)
-        except ValueError as e:
+            from calendar import monthrange
+            anio, mes = int(periodo_mes_anio[:4]), int(periodo_mes_anio[5:7])
+            if mes < 1 or mes > 12:
+                raise ValueError("Mes inválido")
+            ultimo_dia = monthrange(anio, mes)[1]
+            fecha_inicio_dt = datetime(anio, mes, 1)
+            fecha_fin_dt = datetime(anio, mes, ultimo_dia, 23, 59, 59)
+            # Formato SAP: PPP.YYYY (001 = enero, 002 = febrero, ... 012 = diciembre)
+            periodo_sap = f"{mes:03d}.{anio}"
+        except (ValueError, IndexError) as e:
             return JSONResponse(
                 status_code=400,
-                content={"error": f"Formato de fecha inválido: {str(e)}. Use formato YYYY-MM-DD"}
-            )
-        
-        # Validar que fecha fin sea posterior a fecha inicio
-        if fecha_fin_dt < fecha_inicio_dt:
-            return JSONResponse(
-                status_code=400,
-                content={"error": "La fecha fin debe ser posterior a la fecha inicio"}
+                content={"error": f"Formato de periodo inválido. Use formato YYYY-MM (mes y año). {str(e)}"}
             )
         
         # Obtener información de la máquina
@@ -3273,34 +3271,85 @@ async def iniciar_descarga_ventas(
             user_id=current_user.id,
             fecha_inicio_periodo=fecha_inicio_dt,
             fecha_fin_periodo=fecha_fin_dt,
-            sistema_sap="SAP ECC",  # Valor por defecto, puede actualizarse después
-            transaccion="ME23N",  # Valor por defecto, puede actualizarse después
+            sistema_sap="SAP ECC",
+            transaccion="KE30",
             maquina=hostname
         )
         
-        # Construir el nombre del archivo esperado
+        carpeta_salida = "C:\\Users\\anad5004\\Documents\\Leoni_RPA"
         fecha_inicio_str = fecha_inicio_dt.strftime("%Y%m%d")
         fecha_fin_str = fecha_fin_dt.strftime("%Y%m%d")
-        nombre_archivo = f"ventas_{fecha_inicio_str}_{fecha_fin_str}.xlsx"
+        nombre_archivo = "ventas.DAT"
         ruta_completa = f"{carpeta_salida.rstrip('/').rstrip('\\')}{os.sep}{nombre_archivo}"
         
-        # Actualizar con la información del archivo esperado
         await crud.update_sales_execution_status(
             db=db,
             execution_id=execution.id,
-            estado=execution.estado,  # Mantener PENDING
+            estado=execution.estado,
             archivo_ruta=ruta_completa,
             archivo_nombre=nombre_archivo
+        )
+        
+        # Ejecutar ventas.vbs con el periodo en formato PPP.YYYY
+        script_dir = Path(__file__).resolve().parent
+        vbs_path = script_dir / "ventas.vbs"
+        if not vbs_path.exists():
+            await crud.update_execution_status(
+                db=db, execution_id=execution.id, estado=ExecutionStatus.FAILED
+            )
+            return JSONResponse(
+                status_code=500,
+                content={"error": f"No se encontró el script ventas.vbs en {script_dir}"}
+            )
+        
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ["cscript", "//nologo", str(vbs_path), periodo_sap],
+                cwd=str(script_dir),
+                capture_output=True,
+                timeout=300,
+            )
+        except subprocess.TimeoutExpired:
+            await crud.update_execution_status(
+                db=db, execution_id=execution.id, estado=ExecutionStatus.FAILED
+            )
+            return JSONResponse(
+                status_code=500,
+                content={"error": "El proceso de descarga superó el tiempo máximo (5 minutos)."}
+            )
+        except Exception as e:
+            await crud.update_execution_status(
+                db=db, execution_id=execution.id, estado=ExecutionStatus.FAILED
+            )
+            return JSONResponse(
+                status_code=500,
+                content={"error": f"Error al ejecutar el script: {str(e)}"}
+            )
+        
+        if result.returncode != 0:
+            await crud.update_execution_status(
+                db=db, execution_id=execution.id, estado=ExecutionStatus.FAILED
+            )
+            err_msg = (result.stderr or result.stdout or b"").decode("utf-8", errors="replace").strip() or f"Código de salida: {result.returncode}"
+            return JSONResponse(
+                status_code=500,
+                content={"error": f"El script SAP finalizó con error. {err_msg}"}
+            )
+        
+        await crud.update_execution_status(
+            db=db, execution_id=execution.id, estado=ExecutionStatus.SUCCESS
         )
         
         return JSONResponse(
             status_code=200,
             content={
                 "success": True,
-                "message": "Proceso de descarga iniciado",
+                "message": "Proceso de descarga finalizado correctamente",
                 "execution_id": execution.id,
                 "archivo_esperado": nombre_archivo,
-                "ruta_completa": ruta_completa
+                "ruta_completa": ruta_completa,
+                "periodo_sap": periodo_sap,
             }
         )
         
