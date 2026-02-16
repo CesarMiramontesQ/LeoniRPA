@@ -33,7 +33,7 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 Set shell = CreateObject("WScript.Shell")
 
 ' Modal inicial: avisar que va a procesar
-MsgBox "Procesando descarga de ventas (KE30)." & vbCrLf & vbCrLf & "Periodo: " & periodo & vbCrLf & vbCrLf & "Haga clic en Aceptar para iniciar. No cierre SAP hasta que vea el mensaje de finalización.", vbInformation + vbOKOnly, "Leoni RPA - Ventas"
+MsgBox "Procesando descarga de ventas (KE30)." & vbCrLf & vbCrLf & "Periodo: " & periodo & vbCrLf & vbCrLf & "Haga clic en Aceptar para iniciar. No cierre SAP hasta que vea el mensaje de finalizaci?n.", vbInformation + vbOKOnly, "Leoni RPA - Ventas"
 
 Sub Esperar(segundos)
    WScript.Sleep segundos * 1000
@@ -128,7 +128,7 @@ For intentoWnd = 1 To 20
    Esperar 2
 Next
 If errWnd <> 0 Then
-   WScript.Echo "ERROR: No se pudo acceder a la ventana de SAP. ¿Esta ya logueado en P01?"
+   WScript.Echo "ERROR: No se pudo acceder a la ventana de SAP. ?Esta ya logueado en P01?"
    WScript.Quit 1
 End If
 Esperar 1
@@ -149,7 +149,7 @@ If errOkcd <> 0 Then
    WScript.Quit 1
 End If
 
-' Ejecutar transaccion KE30 (ventas)
+' Ejecutar transaccion KE30 (ventas) - igual que compras_local: /n + codigo + Enter
 On Error Resume Next
 session.findById("wnd[0]/tbar[0]/okcd").text = "/nke30"
 session.findById("wnd[0]").sendVKey 0
@@ -162,29 +162,22 @@ Esperar 3
 
 session.findById("wnd[1]/usr/ctxtRKEA2-ERKRS").text = "us10"
 session.findById("wnd[1]/usr/ctxtRKEA2-ERKRS").caretPosition = 4
-session.findById("wnd[1]").sendVKey 0
-Esperar 2
+session.findById("wnd[1]/tbar[0]/btn[0]").press
 session.findById("wnd[0]/shellcont/shell").selectedNode = "000000001010"
 session.findById("wnd[0]/shellcont/shell").doubleClickNode "000000001010"
-' Periodo en formato PPP.YYYY (ej. 001.2026)
 session.findById("wnd[0]/usr/ctxtPAR_08").text = periodo
 session.findById("wnd[0]/usr/ctxtPAR_09").text = periodo
 session.findById("wnd[0]/usr/ctxtPAR_09").setFocus
 session.findById("wnd[0]/usr/ctxtPAR_09").caretPosition = 8
 session.findById("wnd[0]/tbar[1]/btn[8]").press
-Esperar 3
 session.findById("wnd[0]/usr/lbl[1,3]").setFocus
-session.findById("wnd[0]/usr/lbl[1,3]").caretPosition = 7
+session.findById("wnd[0]/usr/lbl[1,3]").caretPosition = 6
 session.findById("wnd[0]").sendVKey 2
-session.findById("wnd[0]/tbar[1]/btn[30]").press
 session.findById("wnd[0]/tbar[0]/btn[3]").press
 session.findById("wnd[0]/tbar[1]/btn[48]").press
 session.findById("wnd[1]/usr/btnD2000_PUSH_03").press
-session.findById("wnd[1]").sendVKey 4
-session.findById("wnd[2]/usr/ctxtDY_PATH").text = carpetaSalida & "\ventas.DAT"
-session.findById("wnd[2]/usr/ctxtDY_PATH").setFocus
-session.findById("wnd[2]/usr/ctxtDY_PATH").caretPosition = Len(carpetaSalida) + 10
-session.findById("wnd[2]/tbar[0]/btn[0]").press
+session.findById("wnd[1]/usr/ctxtCFDOWNLOAD-FILE").text = carpetaSalida & "\ventas.DAT"
+session.findById("wnd[1]/usr/ctxtCFDOWNLOAD-FILE").caretPosition = 48
 session.findById("wnd[1]/tbar[0]/btn[0]").press
 
 ' Modal final
