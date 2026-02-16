@@ -2539,11 +2539,13 @@ async def iniciar_descarga(
     request: Request,
     fecha_inicio: str = Form(...),
     fecha_fin: str = Form(...),
-    carpeta_salida: str = Form(...),
+    carpeta_salida: str = Form(default="C:\\Users\\anad5004\\Documents\\Leoni_RPA"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Inicia el proceso de descarga de compras y registra la actividad."""
+    """Inicia el proceso de descarga de compras ejecutando compras_local.vbs con SAP GUI y registra la actividad."""
+    import subprocess
+    from pathlib import Path
     try:
         # Validar y convertir fechas
         # El input type="date" devuelve formato YYYY-MM-DD
@@ -2565,6 +2567,9 @@ async def iniciar_descarga(
                 content={"error": "La fecha fin debe ser posterior a la fecha inicio"}
             )
         
+        # Carpeta de salida fija para el script VBS
+        carpeta_salida = "C:\\Users\\anad5004\\Documents\\Leoni_RPA"
+        
         # Obtener información de la máquina
         try:
             hostname = socket.gethostname()
@@ -2578,15 +2583,28 @@ async def iniciar_descarga(
             fecha_inicio_periodo=fecha_inicio_dt,
             fecha_fin_periodo=fecha_fin_dt,
             sistema_sap="SAP ECC",  # Valor por defecto, puede actualizarse después
-            transaccion="ME23N",  # Valor por defecto, puede actualizarse después
+            transaccion="ME80FN",  # Transaccion del script compras_local.vbs
             maquina=hostname
         )
         
-        # Construir el nombre del archivo esperado
+        # Construir el nombre del archivo esperado (el VBS exporta .txt)
         fecha_inicio_str = fecha_inicio_dt.strftime("%Y%m%d")
         fecha_fin_str = fecha_fin_dt.strftime("%Y%m%d")
-        nombre_archivo = f"compras_{fecha_inicio_str}_{fecha_fin_str}.xlsx"
-        ruta_completa = f"{carpeta_salida.rstrip('/').rstrip('\\')}{os.sep}{nombre_archivo}"
+        nombre_archivo = "compras_local.txt, historial_compras.txt"
+        ruta_completa = f"{carpeta_salida.rstrip('/').rstrip(chr(92))}{os.sep}{nombre_archivo}"
+        
+        # Ejecutar compras_local.vbs con las fechas seleccionadas
+        script_dir = Path(__file__).resolve().parent
+        vbs_path = script_dir / "compras_local.vbs"
+        if not vbs_path.exists():
+            return JSONResponse(
+                status_code=500,
+                content={"error": f"No se encontró el script compras_local.vbs en {script_dir}"}
+            )
+        subprocess.Popen(
+            ["cscript", "//nologo", str(vbs_path), fecha_inicio_str, fecha_fin_str],
+            cwd=str(script_dir),
+        )
         
         # Actualizar con la información del archivo esperado
         await crud.update_execution_status(
