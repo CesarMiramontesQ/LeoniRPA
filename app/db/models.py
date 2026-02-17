@@ -94,6 +94,9 @@ class ExecutionHistory(Base):
     mensaje_error = Column(Text, nullable=True)  # Mensaje de error descriptivo
     stack_trace = Column(Text, nullable=True)  # Stack trace completo del error
     
+    # Detalles del procesamiento (descarga + procesamiento automático)
+    detalles = Column(Text, nullable=True)  # Resumen: "N insertados, M actualizados" o error de procesamiento
+    
     def __repr__(self):
         return f"<ExecutionHistory(id={self.id}, user_id={self.user_id}, estado={self.estado.value}, created_at={self.created_at})>"
 

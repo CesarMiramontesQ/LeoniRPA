@@ -37,8 +37,7 @@ End If
 ' Nombre Excel: KE30_US10_PPP_YYYY.xlsx (ej. KE30_US10_001_2026.xlsx)
 outFile = carpetaSalida & "\KE30_US10_" & Replace(periodo, ".", "_") & ".xlsx"
 
-' Modal inicial: avisar que va a procesar
-MsgBox "Procesando descarga de ventas (KE30) a Excel." & vbCrLf & vbCrLf & "Periodo: " & periodo & vbCrLf & vbCrLf & "Haga clic en Aceptar para iniciar. No cierre SAP hasta que vea el mensaje de finalizaci?n.", vbInformation + vbOKOnly, "Leoni RPA - Ventas"
+' Sin MsgBox: el usuario ve el estado en la plataforma web (servidor sin operador)
 
 Sub Esperar(segundos)
    WScript.Sleep segundos * 1000
@@ -228,7 +227,7 @@ session.findById("wnd[0]/tbar[1]/btn[48]").press
 session.findById("wnd[1]/usr/btnD2000_PUSH_01").press
 session.findById("wnd[1]/tbar[0]/btn[6]").press
 
-' Opciones de columnas para la exportación
+' Opciones de columnas para la exportaci?n
 session.findById("wnd[1]/usr/sub:SAPLKEC1:0100/chkCEC01-CHOICE[0,0]").selected = True
 session.findById("wnd[1]/usr/sub:SAPLKEC1:0100/chkCEC01-CHOICE[1,0]").selected = True
 session.findById("wnd[1]/usr/sub:SAPLKEC1:0100/chkCEC01-CHOICE[8,0]").selected = True
@@ -251,10 +250,9 @@ session.findById("wnd[1]/usr/subSUBSCREEN_STEPLOOP:SAPLSPO5:0150/sub:SAPLSPO5:01
 session.findById("wnd[1]/tbar[0]/btn[0]").press
 session.findById("wnd[1]/tbar[0]/btn[0]").press
 
-' Guardar el libro que SAP abrió en Excel como .xlsx
+' Guardar el libro que SAP abri? en Excel como .xlsx
 Esperar 2
 DeleteIfExists outFile
 SaveLatestExcelAs outFile
 
-' Modal final
-MsgBox "Proceso terminado correctamente." & vbCrLf & vbCrLf & "Archivo Excel guardado en:" & vbCrLf & outFile, vbInformation + vbOKOnly, "Leoni RPA - Ventas"
+' Sin MsgBox final: el resultado se muestra en la plataforma web

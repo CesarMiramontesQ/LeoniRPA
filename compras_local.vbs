@@ -33,8 +33,7 @@ If Not fso.FolderExists(carpetaSalida) Then
    fso.CreateFolder carpetaSalida
 End If
 
-' Modal inicial: avisar que va a procesar
-MsgBox "Procesando descarga de compras (ME80FN) a Excel." & vbCrLf & vbCrLf & "Haga clic en Aceptar para iniciar. No cierre SAP hasta que vea el mensaje de finalización.", vbInformation + vbOKOnly, "Leoni RPA - Compras"
+' Sin MsgBox: el usuario ve el estado en la plataforma web (servidor sin operador)
 
 Sub Esperar(segundos)
    WScript.Sleep segundos * 1000
@@ -297,5 +296,4 @@ GuardarExportacionExcel carpetaSalida, "historial_compras_" & fechaInicio & "_" 
 Esperar 2
 CerrarExcelesAbiertos
 
-' Modal final: avisar que el proceso terminó
-MsgBox "Proceso terminado correctamente." & vbCrLf & vbCrLf & "Archivos Excel guardados en:" & vbCrLf & carpetaSalida & vbCrLf & vbCrLf & "• compras_local_" & fechaInicio & "_" & fechaFin & ".xlsx" & vbCrLf & "• historial_compras_" & fechaInicio & "_" & fechaFin & ".xlsx", vbInformation + vbOKOnly, "Leoni RPA - Compras"
+' Sin MsgBox final: el resultado se muestra en la plataforma web
