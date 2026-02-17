@@ -1,9 +1,9 @@
 ' Parametro: periodo en formato PPP.YYYY (ej. 001.2026 = enero 2026)
-' Carpeta de salida fija: C:\Users\anad5004\Documents\Leoni_RPA
-' Abre SAP sistema P01, cliente 400 (misma logica que compras_local.vbs)
+' Exporta a Excel (.xlsx) via "Copy to XXL" (misma logica que compras_local para conexion SAP)
+' Carpeta de salida: C:\Users\anad5004\Documents\Leoni_RPA
 Option Explicit
 
-Dim periodo, carpetaSalida
+Dim periodo, carpetaSalida, outFile
 Dim SapGuiAuto, application, connection, session
 Dim fso, shell, intentoConex, errGetObj, errDescObj, sapPath
 Dim errEngine, errEngineDesc, errConn, nombresIntento, ni
@@ -31,12 +31,60 @@ End If
 
 Set fso = CreateObject("Scripting.FileSystemObject")
 Set shell = CreateObject("WScript.Shell")
+If Not fso.FolderExists(carpetaSalida) Then
+   fso.CreateFolder carpetaSalida
+End If
+' Nombre Excel: KE30_US10_PPP_YYYY.xlsx (ej. KE30_US10_001_2026.xlsx)
+outFile = carpetaSalida & "\KE30_US10_" & Replace(periodo, ".", "_") & ".xlsx"
 
 ' Modal inicial: avisar que va a procesar
-MsgBox "Procesando descarga de ventas (KE30)." & vbCrLf & vbCrLf & "Periodo: " & periodo & vbCrLf & vbCrLf & "Haga clic en Aceptar para iniciar. No cierre SAP hasta que vea el mensaje de finalizaci?n.", vbInformation + vbOKOnly, "Leoni RPA - Ventas"
+MsgBox "Procesando descarga de ventas (KE30) a Excel." & vbCrLf & vbCrLf & "Periodo: " & periodo & vbCrLf & vbCrLf & "Haga clic en Aceptar para iniciar. No cierre SAP hasta que vea el mensaje de finalizaci?n.", vbInformation + vbOKOnly, "Leoni RPA - Ventas"
 
 Sub Esperar(segundos)
    WScript.Sleep segundos * 1000
+End Sub
+
+' --- Excel: esperar que SAP abra Excel tras "Copy to XXL" ---
+Function WaitForExcelApp(maxSeconds)
+   Dim xlApp, i
+   Set xlApp = Nothing
+   For i = 1 To maxSeconds
+      On Error Resume Next
+      Set xlApp = GetObject(, "Excel.Application")
+      On Error GoTo 0
+      If Not xlApp Is Nothing Then
+         Set WaitForExcelApp = xlApp
+         Exit Function
+      End If
+      WScript.Sleep 1000
+   Next
+   Set WaitForExcelApp = Nothing
+End Function
+
+Sub DeleteIfExists(filePath)
+   Dim fsoD
+   Set fsoD = CreateObject("Scripting.FileSystemObject")
+   On Error Resume Next
+   If fsoD.FileExists(filePath) Then fsoD.DeleteFile filePath, True
+   On Error GoTo 0
+   Set fsoD = Nothing
+End Sub
+
+Sub SaveLatestExcelAs(fullPathXlsx)
+   Dim xlApp, wb
+   Set xlApp = WaitForExcelApp(60)
+   If xlApp Is Nothing Then
+      WScript.Echo "ERROR: No se detect? Excel despu?s de 'Copy to XXL'. Guarde el libro manualmente."
+      Exit Sub
+   End If
+   xlApp.DisplayAlerts = False
+   xlApp.Visible = False
+   Set wb = xlApp.ActiveWorkbook
+   wb.SaveAs fullPathXlsx, 51
+   wb.Close False
+   If xlApp.Workbooks.Count = 0 Then xlApp.Quit
+   Set wb = Nothing
+   Set xlApp = Nothing
 End Sub
 
 ' --- FASE 1: Obtener SAP GUI ---
@@ -174,11 +222,39 @@ session.findById("wnd[0]/usr/lbl[1,3]").setFocus
 session.findById("wnd[0]/usr/lbl[1,3]").caretPosition = 6
 session.findById("wnd[0]").sendVKey 2
 session.findById("wnd[0]/tbar[0]/btn[3]").press
+
+' --- Exportar a Excel: Copy to XXL (en lugar de descarga .DAT) ---
 session.findById("wnd[0]/tbar[1]/btn[48]").press
-session.findById("wnd[1]/usr/btnD2000_PUSH_03").press
-session.findById("wnd[1]/usr/ctxtCFDOWNLOAD-FILE").text = carpetaSalida & "\ventas.DAT"
-session.findById("wnd[1]/usr/ctxtCFDOWNLOAD-FILE").caretPosition = 48
+session.findById("wnd[1]/usr/btnD2000_PUSH_01").press
+session.findById("wnd[1]/tbar[0]/btn[6]").press
+
+' Opciones de columnas para la exportación
+session.findById("wnd[1]/usr/sub:SAPLKEC1:0100/chkCEC01-CHOICE[0,0]").selected = True
+session.findById("wnd[1]/usr/sub:SAPLKEC1:0100/chkCEC01-CHOICE[1,0]").selected = True
+session.findById("wnd[1]/usr/sub:SAPLKEC1:0100/chkCEC01-CHOICE[8,0]").selected = True
+session.findById("wnd[1]/usr/sub:SAPLKEC1:0100/chkCEC01-CHOICE[10,0]").selected = True
+session.findById("wnd[1]/usr/sub:SAPLKEC1:0100/chkCEC01-CHOICE[11,0]").selected = True
+session.findById("wnd[1]/usr/sub:SAPLKEC1:0100/chkCEC01-CHOICE[11,0]").setFocus
+session.findById("wnd[1]/usr").verticalScrollbar.position = 9
+session.findById("wnd[1]/usr/sub:SAPLKEC1:0100/chkCEC01-CHOICE[3,0]").selected = True
+session.findById("wnd[1]/usr/sub:SAPLKEC1:0100/chkCEC01-CHOICE[7,0]").selected = True
+session.findById("wnd[1]/usr/sub:SAPLKEC1:0100/chkCEC01-CHOICE[7,0]").setFocus
+session.findById("wnd[1]/usr").verticalScrollbar.position = 16
+session.findById("wnd[1]/usr/sub:SAPLKEC1:0100/chkCEC01-CHOICE[10,0]").selected = True
+session.findById("wnd[1]/usr/sub:SAPLKEC1:0100/chkCEC01-CHOICE[10,0]").setFocus
+session.findById("wnd[1]/usr").verticalScrollbar.position = 18
+
 session.findById("wnd[1]/tbar[0]/btn[0]").press
 
+' Seleccionar "Copy to XXL" y confirmar
+session.findById("wnd[1]/usr/subSUBSCREEN_STEPLOOP:SAPLSPO5:0150/sub:SAPLSPO5:0150/radSPOPLI-SELFLAG[0,0]").select
+session.findById("wnd[1]/tbar[0]/btn[0]").press
+session.findById("wnd[1]/tbar[0]/btn[0]").press
+
+' Guardar el libro que SAP abrió en Excel como .xlsx
+Esperar 2
+DeleteIfExists outFile
+SaveLatestExcelAs outFile
+
 ' Modal final
-MsgBox "Proceso terminado correctamente." & vbCrLf & vbCrLf & "Archivo guardado en:" & vbCrLf & carpetaSalida & "\ventas.DAT", vbInformation + vbOKOnly, "Leoni RPA - Ventas"
+MsgBox "Proceso terminado correctamente." & vbCrLf & vbCrLf & "Archivo Excel guardado en:" & vbCrLf & outFile, vbInformation + vbOKOnly, "Leoni RPA - Ventas"

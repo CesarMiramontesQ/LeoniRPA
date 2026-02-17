@@ -2588,11 +2588,11 @@ async def iniciar_descarga(
             maquina=hostname
         )
         
-        # Construir el nombre del archivo esperado (el VBS exporta .txt)
+        # Construir el nombre del archivo esperado (el VBS exporta .xlsx)
         fecha_inicio_str = fecha_inicio_dt.strftime("%Y%m%d")
         fecha_fin_str = fecha_fin_dt.strftime("%Y%m%d")
-        nombre_archivo = "compras_local.txt, historial_compras.txt"
-        ruta_completa = f"{carpeta_salida.rstrip('/').rstrip(chr(92))}{os.sep}{nombre_archivo}"
+        nombre_archivo = f"compras_local_{fecha_inicio_str}_{fecha_fin_str}.xlsx, historial_compras_{fecha_inicio_str}_{fecha_fin_str}.xlsx"
+        ruta_completa = f"{carpeta_salida.rstrip('/').rstrip(chr(92))}{os.sep}(archivos .xlsx)"
         
         # Ejecutar compras_local.vbs con las fechas seleccionadas
         script_dir = Path(__file__).resolve().parent
@@ -2652,16 +2652,36 @@ async def iniciar_descarga(
             db=db, execution_id=execution.id, estado=ExecutionStatus.SUCCESS
         )
 
-        return JSONResponse(
-            status_code=200,
-            content={
-                "success": True,
-                "message": "Proceso de descarga terminado",
-                "execution_id": execution.id,
-                "archivo_esperado": nombre_archivo,
-                "ruta_completa": ruta_completa
-            }
-        )
+        # Procesamiento automático: leer los Excel descargados e insertar/actualizar compras
+        content_response = {
+            "success": True,
+            "message": "Proceso de descarga terminado",
+            "execution_id": execution.id,
+            "archivo_esperado": nombre_archivo,
+            "ruta_completa": ruta_completa,
+            "procesamiento_automatico": False,
+        }
+        path_base = Path(carpeta_salida)
+        path_compras_xlsx = path_base / f"compras_local_{fecha_inicio_str}_{fecha_fin_str}.xlsx"
+        path_historial_xlsx = path_base / f"historial_compras_{fecha_inicio_str}_{fecha_fin_str}.xlsx"
+        if path_compras_xlsx.exists() and path_historial_xlsx.exists():
+            resultado_proc = await _procesar_compras_historial_desde_rutas(db, path_compras_xlsx, path_historial_xlsx)
+            content_response["procesamiento_automatico"] = True
+            if resultado_proc.get("success"):
+                content_response["message"] = f"Descarga y procesamiento completados. {resultado_proc.get('message', '')}"
+                content_response["insertados"] = resultado_proc.get("insertados", 0)
+                content_response["actualizados"] = resultado_proc.get("actualizados", 0)
+                # Borrar los Excel ya procesados
+                for p in (path_compras_xlsx, path_historial_xlsx):
+                    try:
+                        if p.exists():
+                            p.unlink()
+                    except Exception:
+                        pass
+            else:
+                content_response["procesamiento_error"] = resultado_proc.get("error", "Error desconocido")
+
+        return JSONResponse(status_code=200, content=content_response)
         
     except Exception as e:
         return JSONResponse(
@@ -3412,6 +3432,178 @@ def _procesar_df_historial(df: "pd.DataFrame") -> "pd.DataFrame":
     return df
 
 
+async def _procesar_compras_historial_desde_rutas(db: AsyncSession, path_compras, path_historial):
+    """
+    Procesa los dos Excel de compras e historial desde rutas en disco (Path o str).
+    Retorna dict: {success, insertados?, actualizados?, message?} o {success: False, error}.
+    """
+    from pathlib import Path
+    import pandas as pd
+    path_compras = Path(path_compras)
+    path_historial = Path(path_historial)
+    from decimal import Decimal
+    from datetime import datetime as dt
+
+    def col(df, name):
+        name = name.strip().lower()
+        for c in df.columns:
+            if str(c).strip().lower() == name:
+                return c
+        return None
+
+    ext_ok = ['.xlsx', '.xls']
+    e_compras = path_compras.suffix.lower()
+    e_hist = path_historial.suffix.lower()
+    if e_compras not in ext_ok or e_hist not in ext_ok:
+        return {"success": False, "error": "Ambos archivos deben ser Excel (.xlsx o .xls)"}
+
+    try:
+        df_compras = pd.read_excel(path_compras, engine='openpyxl' if e_compras == '.xlsx' else 'xlrd')
+        df = pd.read_excel(path_historial, engine='openpyxl' if e_hist == '.xlsx' else 'xlrd')
+    except Exception as e:
+        return {"success": False, "error": f"Error al leer archivos Excel: {str(e)}"}
+
+    pc = col(df_compras, 'Purchasing Document')
+    sc = col(df_compras, 'Supplier')
+    n1 = col(df_compras, 'Name 1')
+    if not all([pc, sc, n1]):
+        return {"success": False, "error": "El archivo Compras debe tener columnas: Purchasing Document, Supplier, Name 1"}
+
+    def to_int_codigo(v):
+        if pd.isna(v) or v == '' or v is None:
+            return pd.NA
+        try:
+            return int(pd.to_numeric(v, errors='raise'))
+        except (ValueError, TypeError):
+            return pd.NA
+
+    mapa = {}
+    for _, row in df_compras.iterrows():
+        k = str(row[pc]).strip() if pd.notna(row[pc]) else None
+        if not k or k in mapa:
+            continue
+        mapa[k] = (
+            to_int_codigo(row[sc]),
+            str(row[n1]).strip() if pd.notna(row[n1]) else ''
+        )
+
+    df = _procesar_df_historial(df)
+
+    col_pd = col(df, 'Purchasing Document')
+    if col_pd is None:
+        return {"success": False, "error": "El archivo Historial debe tener la columna Purchasing Document"}
+
+    def lookup(key):
+        k = str(key).strip() if pd.notna(key) else None
+        return mapa.get(k, (pd.NA, ''))
+
+    codigos = df[col_pd].map(lambda x: lookup(x)[0])
+    df['codigo proveedor'] = codigos.astype('Int64')
+    df['nombre proveedor'] = df[col_pd].map(lambda x: lookup(x)[1])
+
+    col_pd_map = col(df, 'Purchasing Document')
+    col_item = col(df, 'Item')
+    col_mdy = col(df, 'Material Doc. Year')
+    col_md = col(df, 'Material Document')
+    col_mdi = col(df, 'Material Doc.Item')
+    col_mt = col(df, 'Movement Type')
+    col_post = col(df, 'Posting Date')
+    col_qty = col(df, 'Quantity')
+    col_ou = col(df, 'Order Unit')
+    col_qop = col(df, 'Quantity in OPUn')
+    col_opu = col(df, 'Order Price Unit')
+    col_alc = col(df, 'Amount in LC')
+    col_lc = col(df, 'Local currency')
+    col_amt = col(df, 'Amount')
+    col_curr = col(df, 'Currency')
+    col_grir = col(df, 'GR/IR clearing value in local currency')
+    col_inv = col(df, 'Invoice Value')
+    col_mat = col(df, 'Material')
+    col_plant = col(df, 'Plant')
+    col_desc = col(df, 'Short Text') or col(df, 'descripcion_material') or col(df, 'Material Description') or col(df, 'Short text')
+    col_nom_prov = col(df, 'nombre proveedor')
+    col_cod_prov = col(df, 'codigo proveedor')
+    col_price = col(df, 'precio unitario')
+
+    def safe_int(val):
+        if pd.isna(val) or val == '' or val is None:
+            return None
+        try:
+            return int(pd.to_numeric(val, errors='raise'))
+        except (ValueError, TypeError):
+            return None
+
+    def safe_decimal(val):
+        if pd.isna(val) or val == '' or val is None:
+            return None
+        try:
+            return Decimal(str(val))
+        except (ValueError, TypeError):
+            return None
+
+    def safe_str(val):
+        if pd.isna(val) or val == '' or val is None:
+            return None
+        return str(val).strip()
+
+    def safe_date(val):
+        if pd.isna(val) or val == '' or val is None:
+            return None
+        try:
+            if isinstance(val, pd.Timestamp):
+                dt_val = val.to_pydatetime()
+            elif isinstance(val, dt):
+                dt_val = val
+            else:
+                dt_val = pd.to_datetime(val).to_pydatetime()
+            if dt_val.tzinfo is None:
+                dt_val = dt_val.replace(tzinfo=ZoneInfo('America/Mexico_City'))
+            return dt_val
+        except Exception:
+            return None
+
+    compras_data = []
+    for _, row in df.iterrows():
+        compra_dict = {
+            'purchasing_document': safe_int(row[col_pd_map]) if col_pd_map else None,
+            'item': safe_int(row[col_item]) if col_item else None,
+            'material_doc_year': safe_int(row[col_mdy]) if col_mdy else None,
+            'material_document': safe_int(row[col_md]) if col_md else None,
+            'material_doc_item': safe_int(row[col_mdi]) if col_mdi else None,
+            'movement_type': safe_str(row[col_mt]) if col_mt else None,
+            'posting_date': safe_date(row[col_post]) if col_post else None,
+            'quantity': safe_int(row[col_qty]) if col_qty else None,
+            'order_unit': safe_str(row[col_ou]) if col_ou else None,
+            'quantity_in_opun': safe_int(row[col_qop]) if col_qop else None,
+            'order_price_unit': safe_str(row[col_opu]) if col_opu else None,
+            'amount_in_lc': safe_decimal(row[col_alc]) if col_alc else None,
+            'local_currency': safe_str(row[col_lc]) if col_lc else None,
+            'amount': safe_decimal(row[col_amt]) if col_amt else None,
+            'currency': safe_str(row[col_curr]) if col_curr else None,
+            'gr_ir_clearing_value_lc': safe_decimal(row[col_grir]) if col_grir else None,
+            'invoice_value': safe_decimal(row[col_inv]) if col_inv else None,
+            'numero_material': safe_str(row[col_mat]) if col_mat else None,
+            'plant': safe_str(row[col_plant]) if col_plant else None,
+            'descripcion_material': safe_str(row[col_desc]) if col_desc else None,
+            'nombre_proveedor': safe_str(row[col_nom_prov]) if col_nom_prov else None,
+            'codigo_proveedor': safe_str(row[col_cod_prov]) if col_cod_prov and pd.notna(row[col_cod_prov]) else None,
+            'price': safe_decimal(row[col_price]) if col_price else None,
+        }
+        if compra_dict.get('purchasing_document') or compra_dict.get('numero_material'):
+            compras_data.append(compra_dict)
+
+    if not compras_data:
+        return {"success": False, "error": "No se encontraron datos válidos para insertar"}
+
+    resultado = await crud.bulk_create_or_update_compras(db, compras_data)
+    return {
+        "success": True,
+        "insertados": resultado['insertados'],
+        "actualizados": resultado['actualizados'],
+        "message": f"Procesamiento completado: {resultado['insertados']} registros insertados, {resultado['actualizados']} registros actualizados",
+    }
+
+
 @app.post("/api/compras/procesar-compras-historial")
 async def procesar_compras_historial(
     request: Request,
@@ -3425,8 +3617,6 @@ async def procesar_compras_historial(
     import shutil
     from pathlib import Path
     import pandas as pd
-    from decimal import Decimal
-    from datetime import datetime as dt
 
     ext_ok = ['.xlsx', '.xls']
     n_compras = archivo_compras.filename or ''
@@ -3448,177 +3638,20 @@ async def procesar_compras_historial(
             with open(path_hist, "wb") as f:
                 shutil.copyfileobj(archivo_historial.file, f)
 
-            df_compras = pd.read_excel(path_compras, engine='openpyxl' if e_compras == '.xlsx' else 'xlrd')
-            df = pd.read_excel(path_hist, engine='openpyxl' if e_hist == '.xlsx' else 'xlrd')
+            resultado = await _procesar_compras_historial_desde_rutas(db, path_compras, path_hist)
 
-            def col(df, name):
-                name = name.strip().lower()
-                for c in df.columns:
-                    if str(c).strip().lower() == name:
-                        return c
-                return None
-
-            pc = col(df_compras, 'Purchasing Document')
-            sc = col(df_compras, 'Supplier')
-            n1 = col(df_compras, 'Name 1')
-            if not all([pc, sc, n1]):
-                return JSONResponse(
-                    status_code=400,
-                    content={"error": "El archivo Compras debe tener columnas: Purchasing Document, Supplier, Name 1"}
-                )
-
-            def to_int_codigo(v):
-                if pd.isna(v) or v == '' or v is None:
-                    return pd.NA
-                try:
-                    return int(pd.to_numeric(v, errors='raise'))
-                except (ValueError, TypeError):
-                    return pd.NA
-
-            mapa = {}
-            for _, row in df_compras.iterrows():
-                k = str(row[pc]).strip() if pd.notna(row[pc]) else None
-                if not k or k in mapa:
-                    continue
-                mapa[k] = (
-                    to_int_codigo(row[sc]),
-                    str(row[n1]).strip() if pd.notna(row[n1]) else ''
-                )
-
-            df = _procesar_df_historial(df)
-
-            col_pd = col(df, 'Purchasing Document')
-            if col_pd is None:
-                return JSONResponse(
-                    status_code=400,
-                    content={"error": "El archivo Historial debe tener la columna Purchasing Document"}
-                )
-
-            def lookup(key):
-                k = str(key).strip() if pd.notna(key) else None
-                return mapa.get(k, (pd.NA, ''))
-
-            codigos = df[col_pd].map(lambda x: lookup(x)[0])
-            df['codigo proveedor'] = codigos.astype('Int64')
-            df['nombre proveedor'] = df[col_pd].map(lambda x: lookup(x)[1])
-
-            # Buscar todas las columnas necesarias una sola vez
-            col_pd_map = col(df, 'Purchasing Document')
-            col_item = col(df, 'Item')
-            col_mdy = col(df, 'Material Doc. Year')
-            col_md = col(df, 'Material Document')
-            col_mdi = col(df, 'Material Doc.Item')
-            col_mt = col(df, 'Movement Type')
-            col_post = col(df, 'Posting Date')
-            col_qty = col(df, 'Quantity')
-            col_ou = col(df, 'Order Unit')
-            col_qop = col(df, 'Quantity in OPUn')
-            col_opu = col(df, 'Order Price Unit')
-            col_alc = col(df, 'Amount in LC')
-            col_lc = col(df, 'Local currency')
-            col_amt = col(df, 'Amount')
-            col_curr = col(df, 'Currency')
-            col_grir = col(df, 'GR/IR clearing value in local currency')
-            col_inv = col(df, 'Invoice Value')
-            col_mat = col(df, 'Material')
-            col_plant = col(df, 'Plant')
-            # Buscar "Short Text" primero, luego otras variantes
-            col_desc = col(df, 'Short Text') or col(df, 'descripcion_material') or col(df, 'Material Description') or col(df, 'Short text')
-            col_nom_prov = col(df, 'nombre proveedor')
-            col_cod_prov = col(df, 'codigo proveedor')
-            col_price = col(df, 'precio unitario')
-
-            # Funciones auxiliares para conversión segura
-            def safe_int(val):
-                if pd.isna(val) or val == '' or val is None:
-                    return None
-                try:
-                    return int(pd.to_numeric(val, errors='raise'))
-                except (ValueError, TypeError):
-                    return None
-
-            def safe_decimal(val):
-                if pd.isna(val) or val == '' or val is None:
-                    return None
-                try:
-                    return Decimal(str(val))
-                except (ValueError, TypeError):
-                    return None
-
-            def safe_str(val):
-                if pd.isna(val) or val == '' or val is None:
-                    return None
-                return str(val).strip()
-
-            def safe_date(val):
-                if pd.isna(val) or val == '' or val is None:
-                    return None
-                try:
-                    # Convertir a datetime si es necesario
-                    if isinstance(val, pd.Timestamp):
-                        dt_val = val.to_pydatetime()
-                    elif isinstance(val, dt):
-                        dt_val = val
-                    else:
-                        dt_val = pd.to_datetime(val).to_pydatetime()
-                    
-                    # Si no tiene zona horaria, agregar zona horaria de México (CDMX)
-                    if dt_val.tzinfo is None:
-                        dt_val = dt_val.replace(tzinfo=ZoneInfo('America/Mexico_City'))
-                    
-                    return dt_val
-                except Exception:
-                    return None
-
-            # Convertir DataFrame a lista de diccionarios
-            compras_data = []
-            for _, row in df.iterrows():
-                compra_dict = {
-                    'purchasing_document': safe_int(row[col_pd_map]) if col_pd_map else None,
-                    'item': safe_int(row[col_item]) if col_item else None,
-                    'material_doc_year': safe_int(row[col_mdy]) if col_mdy else None,
-                    'material_document': safe_int(row[col_md]) if col_md else None,
-                    'material_doc_item': safe_int(row[col_mdi]) if col_mdi else None,
-                    'movement_type': safe_str(row[col_mt]) if col_mt else None,
-                    'posting_date': safe_date(row[col_post]) if col_post else None,
-                    'quantity': safe_int(row[col_qty]) if col_qty else None,
-                    'order_unit': safe_str(row[col_ou]) if col_ou else None,
-                    'quantity_in_opun': safe_int(row[col_qop]) if col_qop else None,
-                    'order_price_unit': safe_str(row[col_opu]) if col_opu else None,
-                    'amount_in_lc': safe_decimal(row[col_alc]) if col_alc else None,
-                    'local_currency': safe_str(row[col_lc]) if col_lc else None,
-                    'amount': safe_decimal(row[col_amt]) if col_amt else None,
-                    'currency': safe_str(row[col_curr]) if col_curr else None,
-                    'gr_ir_clearing_value_lc': safe_decimal(row[col_grir]) if col_grir else None,
-                    'invoice_value': safe_decimal(row[col_inv]) if col_inv else None,
-                    'numero_material': safe_str(row[col_mat]) if col_mat else None,
-                    'plant': safe_str(row[col_plant]) if col_plant else None,
-                    'descripcion_material': safe_str(row[col_desc]) if col_desc else None,
-                    'nombre_proveedor': safe_str(row[col_nom_prov]) if col_nom_prov else None,
-                    'codigo_proveedor': safe_str(row[col_cod_prov]) if col_cod_prov and pd.notna(row[col_cod_prov]) else None,
-                    'price': safe_decimal(row[col_price]) if col_price else None,
+        if resultado["success"]:
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": True,
+                    "message": resultado["message"],
+                    "insertados": resultado["insertados"],
+                    "actualizados": resultado["actualizados"],
                 }
-                # Solo agregar si tiene al menos purchasing_document o numero_material
-                if compra_dict.get('purchasing_document') or compra_dict.get('numero_material'):
-                    compras_data.append(compra_dict)
-
-            # Insertar o actualizar en la base de datos
-            if compras_data:
-                resultado = await crud.bulk_create_or_update_compras(db, compras_data)
-                return JSONResponse(
-                    status_code=200,
-                    content={
-                        "success": True,
-                        "message": f"Procesamiento completado: {resultado['insertados']} registros insertados, {resultado['actualizados']} registros actualizados",
-                        "insertados": resultado['insertados'],
-                        "actualizados": resultado['actualizados']
-                    }
-                )
-            else:
-                return JSONResponse(
-                    status_code=400,
-                    content={"error": "No se encontraron datos válidos para insertar"}
-                )
+            )
+        status_code = 400 if "columnas" in resultado.get("error", "") or "datos válidos" in resultado.get("error", "") else 500
+        return JSONResponse(status_code=status_code, content={"error": resultado["error"]})
 
     except Exception as e:
         import traceback

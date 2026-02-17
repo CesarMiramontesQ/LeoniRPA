@@ -118,6 +118,30 @@ Sub GuardarExportacionExcel(exportFolder, fileName)
    On Error GoTo 0
 End Sub
 
+' --- Cerrar las instancias de Excel abiertas por las exportaciones &XXL (al final del proceso) ---
+Sub CerrarExcelesAbiertos()
+   Dim xlApp, intento, maxIntentos
+   maxIntentos = 3
+   For intento = 1 To maxIntentos
+      On Error Resume Next
+      Set xlApp = Nothing
+      Set xlApp = GetObject(, "Excel.Application")
+      If Err.Number <> 0 Or xlApp Is Nothing Then
+         Err.Clear
+         Exit Sub
+      End If
+      xlApp.DisplayAlerts = False
+      While xlApp.Workbooks.Count > 0
+         xlApp.Workbooks(1).Close False
+      Wend
+      xlApp.Quit
+      Set xlApp = Nothing
+      Err.Clear
+      On Error GoTo 0
+      Esperar 1
+   Next
+End Sub
+
 ' --- FASE 1: Obtener SAP GUI ---
 Set SapGuiAuto = Nothing
 For intentoConex = 1 To MAX_INTENTOS_CONEXION
@@ -268,6 +292,10 @@ session.findById("wnd[0]/usr/cntlMEALV_GRID_CONTROL_80FN/shellcont/shell").selec
 session.findById("wnd[0]/usr/cntlMEALV_GRID_CONTROL_80FN_HIST/shellcont/shell").pressToolbarContextButton "&MB_EXPORT"
 session.findById("wnd[0]/usr/cntlMEALV_GRID_CONTROL_80FN_HIST/shellcont/shell").selectContextMenuItem "&XXL"
 GuardarExportacionExcel carpetaSalida, "historial_compras_" & fechaInicio & "_" & fechaFin & ".xlsx"
+
+' Cerrar los dos Excel abiertos por las exportaciones (al final, sin interrumpir el proceso)
+Esperar 2
+CerrarExcelesAbiertos
 
 ' Modal final: avisar que el proceso terminó
 MsgBox "Proceso terminado correctamente." & vbCrLf & vbCrLf & "Archivos Excel guardados en:" & vbCrLf & carpetaSalida & vbCrLf & vbCrLf & "• compras_local_" & fechaInicio & "_" & fechaFin & ".xlsx" & vbCrLf & "• historial_compras_" & fechaInicio & "_" & fechaFin & ".xlsx", vbInformation + vbOKOnly, "Leoni RPA - Compras"

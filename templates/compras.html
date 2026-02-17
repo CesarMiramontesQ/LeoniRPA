@@ -89,10 +89,10 @@
 
   <!-- Grid principal: Parámetros y Estado del Proceso en primera fila -->
   <div class="space-y-6">
-    <!-- Primera fila: Seleccionar Parámetros y Estado del Proceso -->
-    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-      <!-- Panel izquierdo: Seleccionar Parámetros -->
-      <div class="lg:col-span-2">
+    <!-- Primera fila: Seleccionar Parámetros (descarga + procesamiento automático) -->
+    <div class="grid grid-cols-1 gap-6">
+      <!-- Panel: Seleccionar Parámetros -->
+      <div>
         <div class="rounded-lg bg-white p-6 shadow-sm">
           <h2 class="mb-4 text-lg font-medium text-gray-900">
             Seleccionar Parámetros
@@ -157,106 +157,6 @@
                 />
               </svg>
             </button>
-          </div>
-        </div>
-      </div>
-      </div>
-
-      <!-- Panel derecho: Procesar Compras e Historial -->
-      <div class="lg:col-span-1">
-        <div class="rounded-lg bg-white p-6 shadow-sm">
-          <h2 class="mb-4 text-lg font-medium text-gray-900">
-            Procesar Compras e Historial
-          </h2>
-
-          <div class="space-y-4">
-            <!-- Archivo: Compras -->
-            <div>
-              <label class="block text-sm font-medium text-gray-900 mb-2">
-                Compras
-              </label>
-              <div class="mt-1 flex gap-2">
-                <input
-                  type="file"
-                  id="archivo-compras"
-                  accept=".xlsx,.xls"
-                  class="hidden"
-                />
-                <input
-                  type="text"
-                  id="nombre-archivo-compras-display"
-                  readonly
-                  placeholder="Ningún archivo seleccionado"
-                  class="block flex-1 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:border-transparent"
-                />
-                <button
-                  type="button"
-                  id="btn-seleccionar-compras"
-                  class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
-                >
-                  Seleccionar
-                </button>
-                <button
-                  type="button"
-                  id="btn-borrar-compras"
-                  class="hidden rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
-                >
-                  Borrar
-                </button>
-              </div>
-            </div>
-
-            <!-- Archivo: Historial de Compras -->
-            <div>
-              <label class="block text-sm font-medium text-gray-900 mb-2">
-                Historial de Compras
-              </label>
-              <div class="mt-1 flex gap-2">
-                <input
-                  type="file"
-                  id="archivo-historial"
-                  accept=".xlsx,.xls"
-                  class="hidden"
-                />
-                <input
-                  type="text"
-                  id="nombre-archivo-historial-display"
-                  readonly
-                  placeholder="Ningún archivo seleccionado"
-                  class="block flex-1 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:border-transparent"
-                />
-                <button
-                  type="button"
-                  id="btn-seleccionar-historial"
-                  class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
-                >
-                  Seleccionar
-                </button>
-                <button
-                  type="button"
-                  id="btn-borrar-historial"
-                  class="hidden rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
-                >
-                  Borrar
-                </button>
-              </div>
-            </div>
-
-            <!-- Botón de procesar -->
-            <div class="pt-4 border-t border-gray-200">
-              <button
-                id="btn-procesar"
-                type="button"
-                class="w-full rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white hover:bg-[#003070] disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Procesar
-              </button>
-            </div>
-
-            <!-- Mensaje de estado -->
-            <div id="mensaje-procesamiento" class="hidden mt-2 p-3 rounded-md bg-blue-50 border border-blue-200">
-              <p class="text-sm text-blue-800 whitespace-pre-line"></p>
-            </div>
           </div>
         </div>
       </div>
@@ -453,137 +353,19 @@
       const data = await response.json();
       
       if (response.ok && data.success) {
-        mostrarModalTerminado(
-          'Proceso terminado',
-          'La descarga desde SAP finalizó correctamente. Archivos: ' + (data.archivo_esperado || 'compras_local.txt, historial_compras.txt') + '. Carpeta: C:\\Users\\anad5004\\Documents\\Leoni_RPA'
-        );
+        let mensaje = data.message || ('La descarga desde SAP finalizó correctamente. Archivos: ' + (data.archivo_esperado || '') + '. Carpeta: C:\\Users\\anad5004\\Documents\\Leoni_RPA');
+        if (data.procesamiento_automatico && data.procesamiento_error) {
+          mensaje += '\n\nProcesamiento automático: ' + data.procesamiento_error;
+        } else if (data.procesamiento_automatico && (data.insertados !== undefined || data.actualizados !== undefined)) {
+          mensaje += '\n\nProcesamiento automático: ' + (data.insertados || 0) + ' insertados, ' + (data.actualizados || 0) + ' actualizados.';
+        }
+        mostrarModalTerminado('Proceso terminado', mensaje);
       } else {
         mostrarModalTerminado('Error', data.error || 'Error desconocido al iniciar la descarga.');
       }
     } catch (error) {
       console.error('Error al iniciar descarga:', error);
       mostrarModalTerminado('Error', 'No se pudo conectar con el servidor. Por favor, intenta nuevamente.');
-    } finally {
-      btn.disabled = false;
-      btn.textContent = textoOriginal;
-    }
-  });
-  
-  // Funcionalidad para seleccionar archivos: Compras e Historial
-  const archivoComprasInput = document.getElementById('archivo-compras');
-  const btnSeleccionarCompras = document.getElementById('btn-seleccionar-compras');
-  const btnBorrarCompras = document.getElementById('btn-borrar-compras');
-  const nombreArchivoComprasDisplay = document.getElementById('nombre-archivo-compras-display');
-  
-  function actualizarEstadoCompras(archivo) {
-    if (archivo) {
-      nombreArchivoComprasDisplay.value = archivo.name;
-      btnSeleccionarCompras.textContent = 'Cambiar';
-      btnSeleccionarCompras.classList.remove('hidden');
-      btnBorrarCompras.classList.remove('hidden');
-    } else {
-      nombreArchivoComprasDisplay.value = '';
-      btnSeleccionarCompras.textContent = 'Seleccionar';
-      btnBorrarCompras.classList.add('hidden');
-      archivoComprasInput.value = '';
-    }
-  }
-  
-  btnSeleccionarCompras.addEventListener('click', () => archivoComprasInput.click());
-  btnBorrarCompras.addEventListener('click', () => actualizarEstadoCompras(null));
-  archivoComprasInput.addEventListener('change', function(e) {
-    actualizarEstadoCompras(e.target.files?.[0] || null);
-  });
-  
-  const archivoHistorialInput = document.getElementById('archivo-historial');
-  const btnSeleccionarHistorial = document.getElementById('btn-seleccionar-historial');
-  const btnBorrarHistorial = document.getElementById('btn-borrar-historial');
-  const nombreArchivoHistorialDisplay = document.getElementById('nombre-archivo-historial-display');
-  
-  function actualizarEstadoHistorial(archivo) {
-    if (archivo) {
-      nombreArchivoHistorialDisplay.value = archivo.name;
-      btnSeleccionarHistorial.textContent = 'Cambiar';
-      btnSeleccionarHistorial.classList.remove('hidden');
-      btnBorrarHistorial.classList.remove('hidden');
-    } else {
-      nombreArchivoHistorialDisplay.value = '';
-      btnSeleccionarHistorial.textContent = 'Seleccionar';
-      btnBorrarHistorial.classList.add('hidden');
-      archivoHistorialInput.value = '';
-    }
-  }
-  
-  btnSeleccionarHistorial.addEventListener('click', () => archivoHistorialInput.click());
-  btnBorrarHistorial.addEventListener('click', () => actualizarEstadoHistorial(null));
-  archivoHistorialInput.addEventListener('change', function(e) {
-    actualizarEstadoHistorial(e.target.files?.[0] || null);
-  });
-  
-  // Procesar Compras e Historial
-  document.getElementById('btn-procesar').addEventListener('click', async function() {
-    const btn = document.getElementById('btn-procesar');
-    const archivoCompras = document.getElementById('archivo-compras').files[0];
-    const archivoHistorial = document.getElementById('archivo-historial').files[0];
-    const mensajeProcesamiento = document.getElementById('mensaje-procesamiento');
-    const mensajeTexto = mensajeProcesamiento.querySelector('p');
-    
-    if (!archivoCompras) {
-      alert('Por favor, selecciona el archivo Compras');
-      return;
-    }
-    if (!archivoHistorial) {
-      alert('Por favor, selecciona el archivo Historial de Compras');
-      return;
-    }
-    
-    const ext = ['.xlsx', '.xls'];
-    const e1 = (archivoCompras.name || '').substring((archivoCompras.name || '').lastIndexOf('.')).toLowerCase();
-    const e2 = (archivoHistorial.name || '').substring((archivoHistorial.name || '').lastIndexOf('.')).toLowerCase();
-    if (!ext.includes(e1) || !ext.includes(e2)) {
-      alert('Ambos archivos deben ser Excel (.xlsx o .xls)');
-      return;
-    }
-    
-    btn.disabled = true;
-    const textoOriginal = btn.textContent;
-    btn.textContent = 'Procesando...';
-    mensajeProcesamiento.classList.remove('hidden');
-    mensajeTexto.textContent = 'Procesando e insertando en la base de datos...';
-    mensajeProcesamiento.classList.remove('bg-red-50', 'border-red-200', 'bg-green-50', 'border-green-200');
-    mensajeProcesamiento.classList.add('bg-blue-50', 'border-blue-200');
-    mensajeTexto.classList.remove('text-red-800', 'text-green-800');
-    mensajeTexto.classList.add('text-blue-800');
-    
-    try {
-      const formData = new FormData();
-      formData.append('archivo_compras', archivoCompras);
-      formData.append('archivo_historial', archivoHistorial);
-      
-      const response = await fetch('/api/compras/procesar-compras-historial', { method: 'POST', body: formData });
-      const data = await response.json();
-      
-      if (response.ok && data.success) {
-        const mensaje = data.message || `Procesamiento completado: ${data.insertados || 0} registros insertados, ${data.actualizados || 0} registros actualizados`;
-        mensajeTexto.textContent = mensaje;
-        mensajeProcesamiento.classList.remove('bg-blue-50', 'border-blue-200', 'bg-red-50', 'border-red-200');
-        mensajeProcesamiento.classList.add('bg-green-50', 'border-green-200');
-        mensajeTexto.classList.remove('text-blue-800', 'text-red-800');
-        mensajeTexto.classList.add('text-green-800');
-      } else {
-        mensajeTexto.textContent = data.error || 'Error al procesar';
-        mensajeProcesamiento.classList.remove('bg-blue-50', 'border-blue-200', 'bg-green-50', 'border-green-200');
-        mensajeProcesamiento.classList.add('bg-red-50', 'border-red-200');
-        mensajeTexto.classList.remove('text-blue-800', 'text-green-800');
-        mensajeTexto.classList.add('text-red-800');
-      }
-    } catch (error) {
-      console.error('Error al procesar:', error);
-      mensajeTexto.textContent = error.message || 'Error al conectar con el servidor';
-      mensajeProcesamiento.classList.remove('bg-blue-50', 'border-blue-200', 'bg-green-50', 'border-green-200');
-      mensajeProcesamiento.classList.add('bg-red-50', 'border-red-200');
-      mensajeTexto.classList.remove('text-blue-800', 'text-green-800');
-      mensajeTexto.classList.add('text-red-800');
     } finally {
       btn.disabled = false;
       btn.textContent = textoOriginal;
