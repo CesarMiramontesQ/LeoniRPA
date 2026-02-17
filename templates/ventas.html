@@ -7,92 +7,10 @@
     </h1>
   </div>
 
-  <!-- Sección de Operación Mensual / Ventas -->
-  <div class="rounded-lg bg-white p-6 shadow-sm">
-    <div class="mb-4">
-      <h2 class="text-lg font-medium text-gray-900">
-        Operación mensual / Ventas
-      </h2>
-      <p class="mt-1 text-sm text-gray-600">
-        Descarga las ventas del mes desde SAP GUI y guarda el archivo en una
-        carpeta indicada.
-      </p>
-    </div>
-
-    <div class="flex items-center justify-between">
-      <div class="flex flex-wrap gap-4">
-        <div class="flex items-center gap-2">
-          <svg
-            class="h-5 w-5 text-green-500"
-            fill="currentColor"
-            viewBox="0 0 20 20"
-          >
-            <path
-              fill-rule="evenodd"
-              d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-              clip-rule="evenodd"
-            />
-          </svg>
-          <span class="text-sm font-medium text-gray-700">SAP GUI abierto</span>
-        </div>
-        <div class="flex items-center gap-2">
-          <svg
-            class="h-5 w-5 text-green-500"
-            fill="currentColor"
-            viewBox="0 0 20 20"
-          >
-            <path
-              fill-rule="evenodd"
-              d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-              clip-rule="evenodd"
-            />
-          </svg>
-          <span class="text-sm font-medium text-gray-700">Sesión iniciada</span>
-        </div>
-        <div class="flex items-center gap-2">
-          <svg
-            class="h-5 w-5 text-green-500"
-            fill="currentColor"
-            viewBox="0 0 20 20"
-          >
-            <path
-              fill-rule="evenodd"
-              d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-              clip-rule="evenodd"
-            />
-          </svg>
-          <span class="text-sm font-medium text-gray-700"
-            >Conexión correcta</span
-          >
-        </div>
-      </div>
-      <button
-        class="inline-flex items-center gap-2 rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white hover:bg-[#003070]"
-      >
-        Validar conexión
-        <svg
-          class="h-4 w-4"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            stroke-width="2"
-            d="M19 9l-7 7-7-7"
-          />
-        </svg>
-      </button>
-    </div>
-  </div>
-
-  <!-- Grid principal: Parámetros y Estado del Proceso en primera fila -->
+  <!-- Parámetros y Registro de Actividad -->
   <div class="space-y-6">
-    <!-- Primera fila: Seleccionar Parámetros y Estado del Proceso -->
-    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-      <!-- Panel izquierdo: Seleccionar Parámetros -->
-      <div class="lg:col-span-2">
+    <!-- Seleccionar Parámetros -->
+    <div>
         <div class="rounded-lg bg-white p-6 shadow-sm">
           <h2 class="mb-4 text-lg font-medium text-gray-900">
             Seleccionar Parámetros
@@ -141,83 +59,6 @@
           </div>
         </div>
       </div>
-      </div>
-
-      <!-- Panel derecho: Procesar Archivos -->
-      <div class="lg:col-span-1">
-        <div class="rounded-lg bg-white p-6 shadow-sm">
-          <h2 class="mb-4 text-lg font-medium text-gray-900">
-            Procesar Archivos
-          </h2>
-
-          <div class="space-y-4">
-            <!-- Archivo: Reporte de ventas -->
-            <div>
-              <label class="block text-sm font-medium text-gray-900 mb-2">
-                Reporte de ventas
-              </label>
-              <div class="mt-1 flex gap-2">
-                <input
-                  type="file"
-                  id="archivo-ventas"
-                  accept=".xlsx,.xls"
-                  class="hidden"
-                />
-                <input
-                  type="text"
-                  id="nombre-archivo-ventas-display"
-                  readonly
-                  placeholder="Ningún archivo seleccionado"
-                  class="block flex-1 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:border-transparent"
-                />
-                <button
-                  type="button"
-                  id="btn-seleccionar-ventas"
-                  class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
-                >
-                  Seleccionar
-                </button>
-                <button
-                  type="button"
-                  id="btn-borrar-ventas"
-                  class="hidden rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
-                >
-                  Borrar
-                </button>
-              </div>
-            </div>
-
-
-            <!-- Botón de procesar -->
-            <div class="pt-4 border-t border-gray-200">
-              <button
-                id="btn-procesar-archivos"
-                type="button"
-                class="w-full rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white hover:bg-[#003070] disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Procesar archivos
-              </button>
-            </div>
-
-            <!-- Mensaje de estado (opcional) -->
-            <div id="mensaje-procesamiento" class="hidden mt-2 p-3 rounded-md bg-blue-50 border border-blue-200">
-              <p class="text-sm text-blue-800"></p>
-              <!-- Área para mostrar errores detallados -->
-              <div id="errores-detallados" class="hidden mt-3">
-                <button id="btn-ver-errores" class="text-sm font-medium text-yellow-800 hover:text-yellow-900 underline">
-                  Ver errores detallados
-                </button>
-                <div id="lista-errores" class="hidden mt-2 max-h-96 overflow-y-auto rounded border border-yellow-300 bg-yellow-50 p-3">
-                  <div class="mb-2 text-xs font-semibold text-yellow-900">
-                    Errores encontrados (mostrando primeros 100):
-                  </div>
-                  <div id="contenido-errores" class="space-y-1 text-xs text-yellow-900"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
 
     <!-- Segunda fila: Registro de Actividad -->
@@ -255,6 +96,11 @@
                   class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
                 >
                   Usuario
+                </th>
+                <th
+                  class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500"
+                >
+                  Detalles
                 </th>
               </tr>
             </thead>
@@ -302,11 +148,20 @@
                   <td class="whitespace-nowrap px-3 py-2 text-sm text-gray-900">
                     {{ exec.user.email if exec.user else 'N/A' }}
                   </td>
+                  <td class="px-3 py-2 text-sm text-gray-600 max-w-xs">
+                    {% set texto_detalles = exec.detalles or exec.mensaje_error %}
+                    {% if texto_detalles %}
+                      <span class="line-clamp-2" title="{{ texto_detalles }}">{{ texto_detalles[:80] }}{% if texto_detalles|length > 80 %}...{% endif %}</span>
+                      <button type="button" class="mt-1 text-[#003D89] hover:underline text-xs font-medium ver-detalles-btn" data-detalles="{{ texto_detalles|e }}">Ver detalles</button>
+                    {% else %}
+                      —
+                    {% endif %}
+                  </td>
                 </tr>
                 {% endfor %}
               {% else %}
                 <tr>
-                  <td colspan="5" class="px-3 py-4 text-center text-sm text-gray-500">
+                  <td colspan="6" class="px-3 py-4 text-center text-sm text-gray-500">
                     No hay ejecuciones registradas
                   </td>
                 </tr>
@@ -319,7 +174,89 @@
   </div>
 </div>
 
+<!-- Modal Procesando / Proceso terminado (descarga ventas, igual que compras) -->
+<div id="modal-descarga-ventas" class="fixed inset-0 z-50 hidden" aria-hidden="true">
+  <div class="fixed inset-0 bg-gray-500/75 transition-opacity" aria-hidden="true"></div>
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="relative w-full max-w-sm rounded-lg bg-white shadow-xl">
+      <div class="p-6 text-center">
+        <div id="modal-descarga-ventas-spinner" class="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#003D89]/10">
+          <svg class="h-6 w-6 animate-spin text-[#003D89]" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        </div>
+        <h3 id="modal-descarga-ventas-titulo" class="text-lg font-semibold text-gray-900">Procesando</h3>
+        <p id="modal-descarga-ventas-mensaje" class="mt-2 text-sm text-gray-600">Descargando ventas desde SAP. No cierre la ventana de SAP hasta que finalice.</p>
+        <div id="modal-descarga-ventas-ok" class="mt-6 hidden">
+          <button type="button" id="modal-descarga-ventas-btn-cerrar" class="rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white hover:bg-[#003070]">
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Ver detalles de ejecución -->
+<div id="modal-detalles-ejecucion-ventas" class="fixed inset-0 z-50 hidden" aria-hidden="true">
+  <div class="fixed inset-0 bg-gray-500/75 transition-opacity" aria-hidden="true"></div>
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="relative w-full max-w-lg rounded-lg bg-white shadow-xl">
+      <div class="p-6">
+        <h3 class="text-lg font-semibold text-gray-900">Detalles del registro</h3>
+        <p id="modal-detalles-texto-ventas" class="mt-3 text-sm text-gray-600 whitespace-pre-wrap"></p>
+        <div class="mt-4 flex justify-end">
+          <button type="button" id="modal-detalles-btn-cerrar-ventas" class="rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white hover:bg-[#003070]">Cerrar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
+  // Ver detalles de ejecución (registro de actividad)
+  document.querySelectorAll('.ver-detalles-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var texto = this.getAttribute('data-detalles') || '';
+      document.getElementById('modal-detalles-texto-ventas').textContent = texto;
+      document.getElementById('modal-detalles-ejecucion-ventas').classList.remove('hidden');
+    });
+  });
+  document.getElementById('modal-detalles-btn-cerrar-ventas').addEventListener('click', function() {
+    document.getElementById('modal-detalles-ejecucion-ventas').classList.add('hidden');
+  });
+
+  // Modal de descarga ventas (igual que compras: mismo estilo en la app, no alert)
+  const modalDescargaVentas = document.getElementById('modal-descarga-ventas');
+  const modalDescargaVentasSpinner = document.getElementById('modal-descarga-ventas-spinner');
+  const modalDescargaVentasTitulo = document.getElementById('modal-descarga-ventas-titulo');
+  const modalDescargaVentasMensaje = document.getElementById('modal-descarga-ventas-mensaje');
+  const modalDescargaVentasOk = document.getElementById('modal-descarga-ventas-ok');
+  const modalDescargaVentasBtnCerrar = document.getElementById('modal-descarga-ventas-btn-cerrar');
+
+  function mostrarModalVentasProcesando() {
+    modalDescargaVentas.classList.remove('hidden');
+    modalDescargaVentasTitulo.textContent = 'Procesando';
+    modalDescargaVentasMensaje.textContent = 'Descargando ventas desde SAP. No cierre la ventana de SAP hasta que finalice.';
+    modalDescargaVentasSpinner.classList.remove('hidden');
+    modalDescargaVentasOk.classList.add('hidden');
+  }
+
+  function mostrarModalVentasTerminado(titulo, mensaje) {
+    modalDescargaVentasTitulo.textContent = titulo;
+    modalDescargaVentasMensaje.textContent = mensaje;
+    modalDescargaVentasSpinner.classList.add('hidden');
+    modalDescargaVentasOk.classList.remove('hidden');
+  }
+
+  function cerrarModalDescargaVentas() {
+    modalDescargaVentas.classList.add('hidden');
+    window.location.reload();
+  }
+
+  modalDescargaVentasBtnCerrar.addEventListener('click', cerrarModalDescargaVentas);
+
   // Funcionalidad para limpiar el formulario
   document.getElementById('btn-limpiar').addEventListener('click', function() {
     document.getElementById('periodo-mes-anio').value = '';
@@ -338,6 +275,7 @@
     btn.disabled = true;
     const textoOriginal = btn.textContent;
     btn.textContent = 'Iniciando...';
+    mostrarModalVentasProcesando();
     
     try {
       const formData = new FormData();
@@ -353,284 +291,28 @@
         data = await response.json();
       } catch (jsonError) {
         console.error('Error al parsear respuesta JSON:', jsonError);
-        alert('Error: La respuesta del servidor no es válida. Por favor, intenta nuevamente.');
+        mostrarModalVentasTerminado('Error', 'La respuesta del servidor no es válida. Por favor, intenta nuevamente.');
+        btn.disabled = false;
+        btn.textContent = textoOriginal;
         return;
       }
       
       if (response.ok && data.success) {
-        // Mostrar mensaje de éxito
-        alert(`Proceso iniciado exitosamente.\nArchivo esperado: ${data.archivo_esperado}`);
-        
-        // Recargar la página para actualizar la tabla de ejecuciones
-        window.location.reload();
+        let mensaje = data.message || ('La descarga desde SAP finalizó correctamente. Archivo: ' + (data.archivo_esperado || '') + '. Carpeta: C:\\Users\\anad5004\\Documents\\Leoni_RPA');
+        if (data.procesamiento_automatico && data.error_procesamiento) {
+          mensaje += '\n\nProcesamiento automático: ' + data.error_procesamiento;
+        } else if (data.procesamiento_automatico && (data.registros_insertados !== undefined || data.registros_duplicados !== undefined)) {
+          mensaje += '\n\nProcesamiento automático: ' + (data.registros_insertados || 0) + ' insertados, ' + (data.registros_duplicados || 0) + ' duplicados omitidos.';
+          if (data.message_procesamiento) mensaje += '\n' + data.message_procesamiento;
+        }
+        mostrarModalVentasTerminado('Proceso terminado', mensaje);
       } else {
-        // Mostrar error
-        alert('Error: ' + (data.error || 'Error desconocido al iniciar la descarga'));
+        mostrarModalVentasTerminado('Error', data.error || 'Error desconocido al iniciar la descarga.');
       }
     } catch (error) {
       console.error('Error al iniciar descarga:', error);
-      alert('Error al conectar con el servidor. Por favor, intenta nuevamente.');
+      mostrarModalVentasTerminado('Error', 'No se pudo conectar con el servidor. Por favor, intenta nuevamente.');
     } finally {
-      // Rehabilitar el botón
-      btn.disabled = false;
-      btn.textContent = textoOriginal;
-    }
-  });
-  
-  // Funcionalidad para seleccionar archivos con botones personalizados
-  // Archivo 1: Reporte de ventas
-  const archivoVentasInput = document.getElementById('archivo-ventas');
-  const btnSeleccionarVentas = document.getElementById('btn-seleccionar-ventas');
-  const btnBorrarVentas = document.getElementById('btn-borrar-ventas');
-  const nombreArchivoVentasDisplay = document.getElementById('nombre-archivo-ventas-display');
-  
-  function actualizarEstadoVentas(archivoSeleccionado) {
-    if (archivoSeleccionado) {
-      nombreArchivoVentasDisplay.value = archivoSeleccionado.name;
-      btnSeleccionarVentas.textContent = 'Cambiar';
-      btnSeleccionarVentas.classList.remove('hidden');
-      btnBorrarVentas.classList.remove('hidden');
-    } else {
-      nombreArchivoVentasDisplay.value = '';
-      btnSeleccionarVentas.textContent = 'Seleccionar';
-      btnSeleccionarVentas.classList.remove('hidden');
-      btnBorrarVentas.classList.add('hidden');
-      archivoVentasInput.value = ''; // Limpiar el input file
-    }
-  }
-  
-  btnSeleccionarVentas.addEventListener('click', function() {
-    archivoVentasInput.click();
-  });
-  
-  btnBorrarVentas.addEventListener('click', function() {
-    actualizarEstadoVentas(null);
-  });
-  
-  archivoVentasInput.addEventListener('change', function(e) {
-    if (e.target.files && e.target.files.length > 0) {
-      actualizarEstadoVentas(e.target.files[0]);
-    } else {
-      actualizarEstadoVentas(null);
-    }
-  });
-  
-  
-  // Funcionalidad para procesar archivos
-  document.getElementById('btn-procesar-archivos').addEventListener('click', async function() {
-    const btn = document.getElementById('btn-procesar-archivos');
-    const archivoVentas = document.getElementById('archivo-ventas').files[0];
-    const mensajeProcesamiento = document.getElementById('mensaje-procesamiento');
-    const mensajeTexto = mensajeProcesamiento.querySelector('p');
-    
-    // Validaciones
-    if (!archivoVentas) {
-      alert('Por favor, selecciona el archivo de Reporte de ventas');
-      return;
-    }
-    
-    // Validar que sea un archivo Excel
-    const extensionesPermitidas = ['.xlsx', '.xls'];
-    const extensionVentas = archivoVentas.name.substring(archivoVentas.name.lastIndexOf('.')).toLowerCase();
-    
-    if (!extensionesPermitidas.includes(extensionVentas)) {
-      alert('El archivo de Reporte de ventas debe ser un archivo Excel (.xlsx o .xls)');
-      return;
-    }
-    
-    // Deshabilitar el botón mientras se procesa
-    btn.disabled = true;
-    const textoOriginal = btn.textContent;
-    btn.textContent = 'Procesando...';
-    
-    // Mostrar mensaje de procesamiento
-    mensajeProcesamiento.classList.remove('hidden');
-    mensajeTexto.textContent = 'Procesando archivo y subiendo a la base de datos...';
-    // Limpiar todas las clases de color y agregar las del estado de procesamiento
-    mensajeProcesamiento.classList.remove('bg-red-50', 'border-red-200', 'bg-green-50', 'border-green-200', 'bg-yellow-50', 'border-yellow-200');
-    mensajeProcesamiento.classList.add('bg-blue-50', 'border-blue-200');
-    mensajeTexto.classList.remove('text-red-800', 'text-green-800', 'text-yellow-800');
-    mensajeTexto.classList.add('text-blue-800');
-    
-    // Ocultar área de errores al iniciar nuevo procesamiento
-    const erroresDetallados = document.getElementById('errores-detallados');
-    if (erroresDetallados) {
-      erroresDetallados.classList.add('hidden');
-    }
-    const listaErrores = document.getElementById('lista-errores');
-    if (listaErrores) {
-      listaErrores.classList.add('hidden');
-    }
-    
-    try {
-      // Crear FormData para enviar el archivo
-      const formData = new FormData();
-      formData.append('archivo_ventas', archivoVentas);
-      
-      // Enviar petición al backend
-      const response = await fetch('/api/ventas/procesar-archivos', {
-        method: 'POST',
-        body: formData
-      });
-      
-      let data;
-      try {
-        data = await response.json();
-      } catch (jsonError) {
-        // Si la respuesta no es JSON válido, mostrar error
-        console.error('Error al parsear respuesta JSON:', jsonError);
-        mensajeTexto.textContent = 'Error: La respuesta del servidor no es válida. Por favor, intenta nuevamente.';
-        mensajeProcesamiento.classList.remove('bg-blue-50', 'border-blue-200', 'bg-green-50', 'border-green-200', 'bg-yellow-50', 'border-yellow-200');
-        mensajeProcesamiento.classList.add('bg-red-50', 'border-red-200');
-        mensajeTexto.classList.remove('text-blue-800', 'text-green-800', 'text-yellow-800');
-        mensajeTexto.classList.add('text-red-800');
-        return;
-      }
-      
-      // Manejar respuesta exitosa o con errores parciales (código 207 Multi-Status)
-      if (response.ok || response.status === 207 || (data && (data.registros_insertados !== undefined || data.errores !== undefined))) {
-        // Mostrar mensaje de éxito (puede tener advertencias)
-        let mensaje = `Archivo procesado. ${data.registros_insertados || 0} registros insertados.`;
-        if (data.registros_duplicados && data.registros_duplicados > 0) {
-          mensaje += ` ${data.registros_duplicados} registros duplicados fueron omitidos (ya existían con la misma combinación de código cliente, producto y período).`;
-        }
-        if (data.errores && data.errores.length > 0) {
-          mensaje += ` Se encontraron ${data.errores.length} error(es) al procesar algunos registros.`;
-          
-          // Mostrar errores en consola de manera más detallada
-          console.group('🔴 Errores al procesar registros de ventas');
-          console.log(`Total de errores: ${data.errores.length}`);
-          console.log('Primeros 50 errores:');
-          data.errores.slice(0, 50).forEach((error, idx) => {
-            console.log(`\n${idx + 1}. Fila ${error.fila || 'N/A'}:`, {
-              error: error.error,
-              error_tecnico: error.error_tecnico,
-              codigo_cliente: error.codigo_cliente,
-              producto: error.producto,
-              periodo: error.periodo
-            });
-          });
-          if (data.errores.length > 50) {
-            console.log(`\n... y ${data.errores.length - 50} errores más.`);
-          }
-          console.groupEnd();
-          
-          // Mostrar área de errores en la interfaz
-          const erroresDetallados = document.getElementById('errores-detallados');
-          const listaErrores = document.getElementById('lista-errores');
-          const contenidoErrores = document.getElementById('contenido-errores');
-          
-          if (erroresDetallados && listaErrores && contenidoErrores) {
-            erroresDetallados.classList.remove('hidden');
-            
-            // Limpiar contenido anterior
-            contenidoErrores.innerHTML = '';
-            
-            // Mostrar primeros 100 errores
-            const erroresAMostrar = data.errores.slice(0, 100);
-            erroresAMostrar.forEach((error, idx) => {
-              const errorDiv = document.createElement('div');
-              errorDiv.className = 'rounded bg-white p-2 border border-yellow-200';
-              errorDiv.innerHTML = `
-                <div class="font-semibold">Error ${idx + 1} - Fila ${error.fila || 'N/A'}:</div>
-                <div class="mt-1">${error.error || 'Error desconocido'}</div>
-                ${error.codigo_cliente ? `<div class="mt-1 text-xs text-gray-600">Código Cliente: ${error.codigo_cliente}</div>` : ''}
-                ${error.producto ? `<div class="text-xs text-gray-600">Producto: ${error.producto}</div>` : ''}
-                ${error.periodo ? `<div class="text-xs text-gray-600">Período: ${error.periodo}</div>` : ''}
-                ${error.error_tecnico && error.error_tecnico !== error.error ? `<div class="mt-1 text-xs text-gray-500 italic">Detalle técnico: ${error.error_tecnico}</div>` : ''}
-              `;
-              contenidoErrores.appendChild(errorDiv);
-            });
-            
-            if (data.errores.length > 100) {
-              const masErrores = document.createElement('div');
-              masErrores.className = 'mt-2 text-xs font-semibold text-yellow-900';
-              masErrores.textContent = `... y ${data.errores.length - 100} errores más (revisa la consola para ver todos)`;
-              contenidoErrores.appendChild(masErrores);
-            }
-            
-            // Agregar evento al botón para mostrar/ocultar errores
-            const btnVerErrores = document.getElementById('btn-ver-errores');
-            if (btnVerErrores) {
-              btnVerErrores.onclick = function() {
-                if (listaErrores.classList.contains('hidden')) {
-                  listaErrores.classList.remove('hidden');
-                  btnVerErrores.textContent = 'Ocultar errores detallados';
-                } else {
-                  listaErrores.classList.add('hidden');
-                  btnVerErrores.textContent = 'Ver errores detallados';
-                }
-              };
-            }
-          }
-        } else {
-          // Ocultar área de errores si no hay errores
-          const erroresDetallados = document.getElementById('errores-detallados');
-          if (erroresDetallados) {
-            erroresDetallados.classList.add('hidden');
-          }
-        }
-        mensajeTexto.textContent = mensaje;
-        // Si hay errores pero también éxitos, mostrar en amarillo (advertencia)
-        if (data.errores && data.errores.length > 0) {
-          mensajeProcesamiento.classList.remove('bg-blue-50', 'border-blue-200', 'bg-red-50', 'border-red-200', 'bg-green-50', 'border-green-200');
-          mensajeProcesamiento.classList.add('bg-yellow-50', 'border-yellow-200');
-          mensajeTexto.classList.remove('text-blue-800', 'text-red-800', 'text-green-800');
-          mensajeTexto.classList.add('text-yellow-800');
-        } else {
-          mensajeProcesamiento.classList.remove('bg-blue-50', 'border-blue-200', 'bg-red-50', 'border-red-200');
-          mensajeProcesamiento.classList.add('bg-green-50', 'border-green-200');
-          mensajeTexto.classList.remove('text-blue-800', 'text-red-800');
-          mensajeTexto.classList.add('text-green-800');
-        }
-      } else {
-        // Mostrar error detallado en español
-        let mensajeError = 'Error desconocido al procesar los archivos';
-        
-        // Intentar obtener el mensaje de error de diferentes campos
-        if (data.error) {
-          mensajeError = data.error;
-        } else if (data.message) {
-          mensajeError = data.message;
-        } else if (data.detalle_tecnico) {
-          mensajeError = `Error técnico: ${data.detalle_tecnico}`;
-        } else if (data.tipo_error) {
-          mensajeError = `Error de tipo: ${data.tipo_error}`;
-        }
-        
-        // Si hay detalles técnicos, agregarlos al mensaje para debugging
-        if (data.detalle_tecnico && data.detalle_tecnico !== mensajeError) {
-          console.error('Detalle técnico del error:', data.detalle_tecnico);
-          console.error('Tipo de error:', data.tipo_error || 'Desconocido');
-          if (data.traceback) {
-            console.error('Traceback completo:', data.traceback);
-          }
-        }
-        
-        // Si el mensaje sigue siendo genérico, agregar más información
-        if (mensajeError === 'Error desconocido al procesar los archivos') {
-          mensajeError += `. Código de respuesta: ${response.status}. Por favor, revisa la consola del navegador para más detalles.`;
-        }
-        
-        mensajeTexto.textContent = mensajeError;
-        mensajeProcesamiento.classList.remove('bg-blue-50', 'border-blue-200', 'bg-green-50', 'border-green-200');
-        mensajeProcesamiento.classList.add('bg-red-50', 'border-red-200');
-        mensajeTexto.classList.remove('text-blue-800', 'text-green-800');
-        mensajeTexto.classList.add('text-red-800');
-      }
-    } catch (error) {
-      console.error('Error al procesar archivos:', error);
-      let mensajeError = 'Error al conectar con el servidor. Por favor, intenta nuevamente.';
-      if (error.message) {
-        mensajeError = `Error de conexión: ${error.message}`;
-      }
-      mensajeTexto.textContent = mensajeError;
-      mensajeProcesamiento.classList.remove('bg-blue-50', 'border-blue-200', 'bg-green-50', 'border-green-200');
-      mensajeProcesamiento.classList.add('bg-red-50', 'border-red-200');
-      mensajeTexto.classList.remove('text-blue-800', 'text-green-800');
-      mensajeTexto.classList.add('text-red-800');
-    } finally {
-      // Rehabilitar el botón
       btn.disabled = false;
       btn.textContent = textoOriginal;
     }

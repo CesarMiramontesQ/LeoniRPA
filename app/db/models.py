@@ -146,6 +146,9 @@ class SalesExecutionHistory(Base):
     mensaje_error = Column(Text, nullable=True)  # Mensaje de error descriptivo
     stack_trace = Column(Text, nullable=True)  # Stack trace completo del error
     
+    # Resumen de procesamiento (éxito o error) para mostrar en "Ver detalles"
+    detalles = Column(Text, nullable=True)  # Ej: "N insertados, M duplicados omitidos"
+    
     def __repr__(self):
         return f"<SalesExecutionHistory(id={self.id}, user_id={self.user_id}, estado={self.estado.value}, created_at={self.created_at})>"
 

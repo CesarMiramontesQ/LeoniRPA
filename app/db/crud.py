@@ -259,7 +259,8 @@ async def update_sales_execution_status(
     archivo_ruta: Optional[str] = None,
     archivo_nombre: Optional[str] = None,
     mensaje_error: Optional[str] = None,
-    stack_trace: Optional[str] = None
+    stack_trace: Optional[str] = None,
+    detalles: Optional[str] = None,
 ) -> Optional[SalesExecutionHistory]:
     """Actualiza el estado y otros campos de una ejecución de ventas."""
     execution = await get_sales_execution_by_id(db, execution_id)
@@ -281,6 +282,8 @@ async def update_sales_execution_status(
         execution.mensaje_error = mensaje_error
     if stack_trace is not None:
         execution.stack_trace = stack_trace
+    if detalles is not None:
+        execution.detalles = detalles
     
     await db.commit()
     await db.refresh(execution)

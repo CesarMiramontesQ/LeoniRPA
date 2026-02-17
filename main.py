@@ -3326,8 +3326,8 @@ async def iniciar_descarga_ventas(
         carpeta_salida = "C:\\Users\\anad5004\\Documents\\Leoni_RPA"
         fecha_inicio_str = fecha_inicio_dt.strftime("%Y%m%d")
         fecha_fin_str = fecha_fin_dt.strftime("%Y%m%d")
-        nombre_archivo = "ventas.DAT"
-        ruta_completa = f"{carpeta_salida.rstrip('/').rstrip('\\')}{os.sep}{nombre_archivo}"
+        nombre_archivo = f"KE30_US10_{periodo_sap.replace('.', '_')}.xlsx"
+        ruta_completa = f"{carpeta_salida.rstrip('/').rstrip(chr(92))}{os.sep}{nombre_archivo}"
         
         await crud.update_sales_execution_status(
             db=db,
@@ -3341,9 +3341,10 @@ async def iniciar_descarga_ventas(
         script_dir = Path(__file__).resolve().parent
         vbs_path = script_dir / "ventas.vbs"
         if not vbs_path.exists():
+            err = f"No se encontró el script ventas.vbs en {script_dir}"
             await crud.update_sales_execution_status(
                 db=db, execution_id=execution.id, estado=ExecutionStatus.FAILED,
-                mensaje_error=f"No se encontró el script ventas.vbs en {script_dir}"
+                mensaje_error=err, detalles=err
             )
             return JSONResponse(
                 status_code=500,
@@ -3359,61 +3360,84 @@ async def iniciar_descarga_ventas(
                 timeout=300,
             )
         except subprocess.TimeoutExpired:
+            err = "El proceso de descarga superó el tiempo máximo (5 minutos)."
             await crud.update_sales_execution_status(
                 db=db, execution_id=execution.id, estado=ExecutionStatus.FAILED,
-                mensaje_error="El proceso de descarga superó el tiempo máximo (5 minutos)."
+                mensaje_error=err, detalles=err
             )
             return JSONResponse(
                 status_code=500,
                 content={"error": "El proceso de descarga superó el tiempo máximo (5 minutos)."}
             )
         except Exception as e:
+            err = f"Error al ejecutar el script: {str(e)}"
             await crud.update_sales_execution_status(
                 db=db, execution_id=execution.id, estado=ExecutionStatus.FAILED,
-                mensaje_error=f"Error al ejecutar el script: {str(e)}"
+                mensaje_error=err, detalles=err
             )
             return JSONResponse(
                 status_code=500,
-                content={"error": f"Error al ejecutar el script: {str(e)}"}
+                content={"error": err}
             )
         
         if result.returncode != 0:
             err_msg = (result.stderr or result.stdout or b"").decode("utf-8", errors="replace").strip() or f"Código de salida: {result.returncode}"
+            err_full = f"El script SAP finalizó con error. {err_msg}"
             await crud.update_sales_execution_status(
                 db=db, execution_id=execution.id, estado=ExecutionStatus.FAILED,
-                mensaje_error=f"El script SAP finalizó con error. {err_msg}"
+                mensaje_error=err_full, detalles=err_full
             )
             return JSONResponse(
                 status_code=500,
                 content={"error": f"El script SAP finalizó con error. {err_msg}"}
             )
         
-        await crud.update_sales_execution_status(
-            db=db, execution_id=execution.id, estado=ExecutionStatus.SUCCESS
-        )
+        # Procesar automáticamente el Excel generado (mismo flujo que compras)
+        path_ventas_xlsx = Path(carpeta_salida) / f"KE30_US10_{periodo_sap.replace('.', '_')}.xlsx"
+        content_response = {
+            "success": True,
+            "message": "Proceso de descarga finalizado correctamente",
+            "execution_id": execution.id,
+            "archivo_esperado": nombre_archivo,
+            "ruta_completa": ruta_completa,
+            "periodo_sap": periodo_sap,
+        }
+        if path_ventas_xlsx.exists():
+            try:
+                resultado_proceso = await _procesar_archivo_ventas_desde_ruta(
+                    db, path_ventas_xlsx, execution.id, current_user.id
+                )
+                content_response["procesamiento_automatico"] = True
+                content_response["registros_insertados"] = resultado_proceso.get("registros_insertados", 0)
+                content_response["registros_duplicados"] = resultado_proceso.get("registros_duplicados", 0)
+                content_response["message_procesamiento"] = resultado_proceso.get("message", "")
+                if resultado_proceso.get("success"):
+                    try:
+                        path_ventas_xlsx.unlink()
+                    except Exception:
+                        pass
+            except Exception as e:
+                content_response["procesamiento_automatico"] = True
+                content_response["error_procesamiento"] = str(e)
+        else:
+            await crud.update_sales_execution_status(
+                db=db, execution_id=execution.id, estado=ExecutionStatus.SUCCESS,
+                detalles="Descarga finalizada correctamente. No se encontró archivo Excel para procesar."
+            )
         
-        return JSONResponse(
-            status_code=200,
-            content={
-                "success": True,
-                "message": "Proceso de descarga finalizado correctamente",
-                "execution_id": execution.id,
-                "archivo_esperado": nombre_archivo,
-                "ruta_completa": ruta_completa,
-                "periodo_sap": periodo_sap,
-            }
-        )
+        return JSONResponse(status_code=200, content=content_response)
         
     except Exception as e:
         err_msg = str(e)
+        err_full = f"Error al iniciar la descarga: {err_msg}"
         if execution is not None:
             await crud.update_sales_execution_status(
                 db=db, execution_id=execution.id, estado=ExecutionStatus.FAILED,
-                mensaje_error=f"Error al iniciar la descarga: {err_msg}"
+                mensaje_error=err_full, detalles=err_full
             )
         return JSONResponse(
             status_code=500,
-            content={"error": f"Error al iniciar la descarga: {err_msg}"}
+            content={"error": err_full}
         )
 
 
@@ -3909,6 +3933,975 @@ async def procesar_historial_compras(
         )
 
 
+async def _procesar_ventas_core(db, df):
+    import pandas as pd
+    # Valores a buscar en el segundo renglón (índice 1)
+    valores_a_buscar = ['OE', 'Budget', 'Act-Budget', 'incl. srap', '2005246']
+    
+    # Obtener el segundo renglón (índice 1)
+    segundo_renglon = df.iloc[1]
+    
+    # Identificar columnas a eliminar
+    columnas_a_eliminar = []
+    for idx, valor in enumerate(segundo_renglon):
+        # Convertir a string y limpiar espacios
+        valor_str = str(valor).strip() if pd.notna(valor) else ''
+        # Comparar con los valores a buscar (case-insensitive)
+        for valor_buscar in valores_a_buscar:
+            if valor_str.lower() == valor_buscar.lower():
+                # Usar el índice de la columna
+                columnas_a_eliminar.append(idx)
+                break
+    
+    # Eliminar las columnas encontradas
+    if columnas_a_eliminar:
+        # Eliminar columnas por índice
+        df = df.drop(df.columns[columnas_a_eliminar], axis=1)
+    
+    # Buscar columnas donde el segundo renglón (índice 1) tenga "Actual"
+    # Obtener el segundo renglón actualizado después de eliminar columnas
+    segundo_renglon_actualizado = df.iloc[1]
+    columnas_actual = []
+    
+    for idx, valor in enumerate(segundo_renglon_actualizado):
+        # Convertir a string y limpiar espacios
+        valor_str = str(valor).strip() if pd.notna(valor) else ''
+        # Comparar con "Actual" (case-insensitive)
+        if valor_str.lower() == 'actual':
+            columnas_actual.append(idx)
+    
+    # Copiar el valor del renglón 1 (índice 0) al renglón 3 (índice 2) para las columnas "Actual"
+    columnas_modificadas = 0
+    for col_idx in columnas_actual:
+        # Obtener el valor del renglón 1 (índice 0)
+        valor_renglon_1 = df.iloc[0, col_idx]
+        # Copiar al renglón 3 (índice 2)
+        df.iloc[2, col_idx] = valor_renglon_1
+        columnas_modificadas += 1
+    
+    # Eliminar los renglones 1 y 2 (índices 0 y 1)
+    df = df.drop(df.index[0:2])
+    # Resetear el índice para que quede secuencial
+    df = df.reset_index(drop=True)
+    
+    # Guardar los valores del renglón 1 (índice 0) para usarlos como encabezado
+    valores_renglon_1 = df.iloc[0].tolist()
+    
+    # Verificar si hay un renglón 2 y si tiene los mismos valores que el renglón 1
+    if len(df) > 1:
+        valores_renglon_2 = df.iloc[1].tolist()
+        # Comparar los valores (considerando NaN como iguales)
+        son_iguales = True
+        for i in range(len(valores_renglon_1)):
+            val1 = valores_renglon_1[i]
+            val2 = valores_renglon_2[i]
+            # Comparar considerando NaN
+            if pd.isna(val1) and pd.isna(val2):
+                continue
+            elif pd.isna(val1) or pd.isna(val2):
+                son_iguales = False
+                break
+            elif str(val1).strip() != str(val2).strip():
+                son_iguales = False
+                break
+        
+        # Si son iguales, eliminar el renglón 2
+        if son_iguales:
+            df = df.drop(df.index[1])
+            df = df.reset_index(drop=True)
+    
+    # Eliminar el renglón 1 (que ahora usaremos como encabezado)
+    df = df.drop(df.index[0])
+    df = df.reset_index(drop=True)
+    
+    # Buscar las columnas necesarias en los encabezados
+    # Buscar "Customer"
+    columna_customer = None
+    # Buscar "Quantity OE/TO FT"
+    columna_quantity_ft = None
+    # Buscar "Quantity OE/TO M"
+    columna_quantity_m = None
+    # Buscar "Turnover w/o metal"
+    columna_turnover_wo_metal_original = None
+    # Buscar "OE/Turnover like FI"
+    columna_turnover_like_fi_original = None
+    
+    for idx, encabezado in enumerate(valores_renglon_1):
+        encabezado_str = str(encabezado).strip() if pd.notna(encabezado) else ''
+        encabezado_lower = encabezado_str.lower()
+        # Buscar "Customer"
+        if columna_customer is None and 'customer' in encabezado_lower:
+            columna_customer = idx
+        # Buscar "Quantity OE/TO FT"
+        if columna_quantity_ft is None and ('quantity' in encabezado_lower and 'ft' in encabezado_lower and 
+            ('oe' in encabezado_lower or 'to' in encabezado_lower)):
+            columna_quantity_ft = idx
+        # Buscar "Quantity OE/TO M" (sin FT, solo M)
+        if columna_quantity_m is None and ('quantity' in encabezado_lower and 'm' in encabezado_lower and 
+            ('oe' in encabezado_lower or 'to' in encabezado_lower) and 'ft' not in encabezado_lower):
+            columna_quantity_m = idx
+        # Buscar "Turnover w/o metal"
+        if columna_turnover_wo_metal_original is None and ('turnover' in encabezado_lower and 'metal' in encabezado_lower and 'w/o' in encabezado_lower):
+            columna_turnover_wo_metal_original = idx
+        # Buscar "OE/Turnover like FI"
+        if columna_turnover_like_fi_original is None and ('turnover' in encabezado_lower and 'like' in encabezado_lower and 'fi' in encabezado_lower):
+            columna_turnover_like_fi_original = idx
+    
+    # Calcular el índice actual de "Turnover w/o metal" después de eliminar columnas
+    columna_turnover_wo_metal = None
+    if columna_turnover_wo_metal_original is not None:
+        # Crear un mapeo de índices originales a índices actuales
+        # Las columnas eliminadas están en columnas_a_eliminar
+        # Necesitamos contar cuántas columnas antes de la columna objetivo fueron eliminadas
+        columnas_eliminadas_antes = sum(1 for col_idx in columnas_a_eliminar if col_idx < columna_turnover_wo_metal_original)
+        # El índice actual es el índice original menos las columnas eliminadas antes
+        columna_turnover_wo_metal = columna_turnover_wo_metal_original - columnas_eliminadas_antes
+        # Verificar que el índice esté dentro del rango del DataFrame
+        if columna_turnover_wo_metal < 0 or columna_turnover_wo_metal >= len(df.columns):
+            columna_turnover_wo_metal = None
+    
+    # Calcular el índice actual de "OE/Turnover like FI" después de eliminar columnas
+    columna_turnover_like_fi = None
+    if columna_turnover_like_fi_original is not None:
+        # Crear un mapeo de índices originales a índices actuales
+        # Las columnas eliminadas están en columnas_a_eliminar
+        # Necesitamos contar cuántas columnas antes de la columna objetivo fueron eliminadas
+        columnas_eliminadas_antes = sum(1 for col_idx in columnas_a_eliminar if col_idx < columna_turnover_like_fi_original)
+        # El índice actual es el índice original menos las columnas eliminadas antes
+        columna_turnover_like_fi = columna_turnover_like_fi_original - columnas_eliminadas_antes
+        # Verificar que el índice esté dentro del rango del DataFrame
+        if columna_turnover_like_fi < 0 or columna_turnover_like_fi >= len(df.columns):
+            columna_turnover_like_fi = None
+    
+    # Obtener todos los grupos de clientes de la base de datos
+    grupos_clientes = await crud.list_cliente_grupos(db, limit=100000)
+    # Crear un diccionario que mapee codigo_cliente -> grupo
+    dict_grupos = {}
+    for grupo_cliente in grupos_clientes:
+        if grupo_cliente.codigo_cliente is not None:
+            dict_grupos[grupo_cliente.codigo_cliente] = grupo_cliente.grupo or ''
+    
+    # Agregar la columna "Customer number" a la derecha de "Customer"
+    if columna_customer is not None:
+        # Obtener los valores de la columna Customer
+        valores_customer = df.iloc[:, columna_customer]
+        # Extraer los primeros 7 caracteres de cada valor
+        customer_number = valores_customer.astype(str).str[:7]
+        # Reemplazar 'nan' con string vacío
+        customer_number = customer_number.replace('nan', '')
+        # Insertar la columna justo después de Customer (posición columna_customer + 1)
+        df.insert(columna_customer + 1, 'Customer number', customer_number.tolist())
+        # Actualizar los índices de las otras columnas si Customer estaba antes de ellas
+        if columna_quantity_ft is not None and columna_quantity_ft > columna_customer:
+            columna_quantity_ft += 1
+        if columna_quantity_m is not None and columna_quantity_m > columna_customer:
+            columna_quantity_m += 1
+        if columna_turnover_wo_metal is not None and columna_turnover_wo_metal > columna_customer:
+            columna_turnover_wo_metal += 1
+        if columna_turnover_like_fi is not None and columna_turnover_like_fi > columna_customer:
+            columna_turnover_like_fi += 1
+        # Actualizar valores_renglon_1 para incluir el nuevo encabezado
+        valores_renglon_1.insert(columna_customer + 1, 'Customer number')
+        
+        # Agregar la columna "grupo" a la derecha de "Customer number"
+        # Obtener los valores de la columna Customer number (ahora en posición columna_customer + 1)
+        valores_customer_number = df.iloc[:, columna_customer + 1]
+        # Convertir a entero para buscar en el diccionario, manejando errores
+        grupos = []
+        for valor in valores_customer_number:
+            try:
+                # Convertir a string y limpiar
+                valor_str = str(valor).strip()
+                # Verificar que no esté vacío ni sea 'nan'
+                if not valor_str or valor_str.lower() == 'nan' or valor_str == '':
+                    grupos.append('')
+                    continue
+                # Intentar convertir a entero
+                codigo = int(float(valor_str))
+                # Buscar el grupo en el diccionario
+                if codigo in dict_grupos:
+                    grupos.append(dict_grupos[codigo])
+                else:
+                    grupos.append('')
+            except (ValueError, TypeError):
+                grupos.append('')
+        
+        # Insertar la columna "grupo" justo después de Customer number (posición columna_customer + 2)
+        df.insert(columna_customer + 2, 'grupo', grupos)
+        # Actualizar los índices de las otras columnas si Customer estaba antes de ellas
+        if columna_quantity_ft is not None and columna_quantity_ft > columna_customer:
+            columna_quantity_ft += 1
+        if columna_quantity_m is not None and columna_quantity_m > columna_customer:
+            columna_quantity_m += 1
+        if columna_turnover_wo_metal is not None and columna_turnover_wo_metal > columna_customer:
+            columna_turnover_wo_metal += 1
+        if columna_turnover_like_fi is not None and columna_turnover_like_fi > columna_customer:
+            columna_turnover_like_fi += 1
+        # Actualizar valores_renglon_1 para incluir el nuevo encabezado
+        valores_renglon_1.insert(columna_customer + 2, 'grupo')
+    
+    # Agregar las 3 nuevas columnas
+    num_filas = len(df)
+    
+    # Calcular "Conversion de FT a M" = Quantity OE/TO FT / 3.2808
+    if columna_quantity_ft is not None:
+        # Obtener los valores de la columna Quantity OE/TO FT
+        valores_quantity_ft = df.iloc[:, columna_quantity_ft]
+        # Convertir a numérico y dividir entre 3.2808
+        valores_numericos_ft = pd.to_numeric(valores_quantity_ft, errors='coerce')
+        conversion_ft_m = valores_numericos_ft / 3.2808
+        df['Conversion de FT a M'] = conversion_ft_m
+    else:
+        # Si no se encuentra la columna, dejar vacío
+        df['Conversion de FT a M'] = [None] * num_filas
+    
+    # Calcular "Sales total MTS" = Quantity OE/TO M + Conversion de FT a M
+    if columna_quantity_m is not None:
+        # Obtener los valores de la columna Quantity OE/TO M
+        valores_quantity_m = df.iloc[:, columna_quantity_m]
+        # Convertir a numérico
+        valores_numericos_m = pd.to_numeric(valores_quantity_m, errors='coerce')
+        # Obtener los valores de Conversion de FT a M (ya calculados)
+        valores_conversion = pd.to_numeric(df['Conversion de FT a M'], errors='coerce')
+        # Sumar ambos valores
+        sales_total_mts = valores_numericos_m + valores_conversion
+        df['Sales total MTS'] = sales_total_mts
+    else:
+        # Si no se encuentra la columna Quantity OE/TO M, usar solo Conversion de FT a M
+        valores_conversion = pd.to_numeric(df['Conversion de FT a M'], errors='coerce')
+        df['Sales total MTS'] = valores_conversion
+    
+    # Calcular "Sales KM" = Sales total MTS / 1000
+    valores_sales_total = pd.to_numeric(df['Sales total MTS'], errors='coerce')
+    sales_km = valores_sales_total / 1000
+    df['Sales KM'] = sales_km
+    
+    # Buscar las columnas "Turnover w/o metal" y "OE/Turnover like FI" directamente en el DataFrame
+    # después de todas las modificaciones, usando valores_renglon_1 que ya tiene las columnas insertadas
+    columna_turnover_wo_metal_final = None
+    columna_turnover_like_fi_final = None
+    
+    # Verificar que valores_renglon_1 tenga la misma longitud que las columnas del DataFrame
+    num_columnas_df = len(df.columns)
+    num_valores_renglon = len(valores_renglon_1)
+    
+    # Usar el mínimo para evitar errores de índice
+    num_columnas_a_buscar = min(num_columnas_df, num_valores_renglon)
+    
+    for idx in range(num_columnas_a_buscar):
+        encabezado = valores_renglon_1[idx] if idx < len(valores_renglon_1) else ''
+        encabezado_str = str(encabezado).strip() if pd.notna(encabezado) else ''
+        encabezado_lower = encabezado_str.lower()
+        
+        # Buscar "Turnover w/o metal" - debe tener "turnover", "metal" y "w/o" o "without", pero NO "like" ni "fi"
+        # Patrón más específico: buscar "w/o" o "without" junto con "metal" pero sin "like" ni "fi"
+        if columna_turnover_wo_metal_final is None:
+            has_turnover = 'turnover' in encabezado_lower
+            has_metal = 'metal' in encabezado_lower
+            has_wo = 'w/o' in encabezado_lower or 'without' in encabezado_lower
+            has_like = 'like' in encabezado_lower
+            has_fi = 'fi' in encabezado_lower
+            
+            if has_turnover and has_metal and has_wo and not has_like and not has_fi:
+                columna_turnover_wo_metal_final = idx
+        
+        # Buscar "OE/Turnover like FI" - debe tener "turnover", "like" y "fi"
+        # Patrón más específico: buscar "like" y "fi" juntos, con "turnover"
+        if columna_turnover_like_fi_final is None:
+            has_turnover = 'turnover' in encabezado_lower
+            has_like = 'like' in encabezado_lower
+            has_fi = 'fi' in encabezado_lower
+            
+            if has_turnover and has_like and has_fi:
+                columna_turnover_like_fi_final = idx
+    
+    # Calcular "Precio Exmetal KM" = Turnover w/o metal / Sales KM
+    if columna_turnover_wo_metal_final is not None and 0 <= columna_turnover_wo_metal_final < len(df.columns):
+        # Obtener los valores de la columna Turnover w/o metal
+        valores_turnover = df.iloc[:, columna_turnover_wo_metal_final]
+        # Convertir a numérico
+        valores_numericos_turnover = pd.to_numeric(valores_turnover, errors='coerce')
+        # Obtener los valores de Sales KM (ya calculados)
+        valores_sales_km = pd.to_numeric(df['Sales KM'], errors='coerce')
+        # Dividir: Precio Exmetal KM = Turnover w/o metal / Sales KM
+        # Evitar división por cero
+        precio_exmetal = valores_numericos_turnover / valores_sales_km.replace(0, pd.NA)
+        df['Precio Exmetal KM'] = precio_exmetal
+    else:
+        # Si no se encuentra la columna, dejar vacío
+        df['Precio Exmetal KM'] = [None] * num_filas
+    
+    # Calcular "Precio Full Metal KM" = OE/Turnover like FI / Sales KM
+    if columna_turnover_like_fi_final is not None and 0 <= columna_turnover_like_fi_final < len(df.columns):
+        # Verificar que no sea la misma columna que Turnover w/o metal
+        if columna_turnover_like_fi_final != columna_turnover_wo_metal_final:
+            # Obtener los valores de la columna OE/Turnover like FI
+            valores_turnover_fi = df.iloc[:, columna_turnover_like_fi_final]
+            # Convertir a numérico
+            valores_numericos_turnover_fi = pd.to_numeric(valores_turnover_fi, errors='coerce')
+            # Obtener los valores de Sales KM (ya calculados)
+            valores_sales_km = pd.to_numeric(df['Sales KM'], errors='coerce')
+            # Dividir: Precio Full Metal KM = OE/Turnover like FI / Sales KM
+            # Evitar división por cero
+            precio_full_metal = valores_numericos_turnover_fi / valores_sales_km.replace(0, pd.NA)
+            df['Precio Full Metal KM'] = precio_full_metal
+        else:
+            # Si es la misma columna, dejar vacío
+            df['Precio Full Metal KM'] = [None] * num_filas
+    else:
+        # Si no se encuentra la columna, dejar vacío
+        df['Precio Full Metal KM'] = [None] * num_filas
+    
+    # Calcular "Precio Exmetal M" = Precio Exmetal KM / 1000
+    valores_precio_exmetal_km = pd.to_numeric(df['Precio Exmetal KM'], errors='coerce')
+    precio_exmetal_m = valores_precio_exmetal_km / 1000
+    df['Precio Exmetal M'] = precio_exmetal_m
+    
+    # Calcular "Precio Full Metal M" = Precio Full Metal KM / 1000
+    valores_precio_full_metal_km = pd.to_numeric(df['Precio Full Metal KM'], errors='coerce')
+    precio_full_metal_m = valores_precio_full_metal_km / 1000
+    df['Precio Full Metal M'] = precio_full_metal_m
+    
+    # Reemplazar NaN con string vacío en las columnas calculadas
+    df['Conversion de FT a M'] = df['Conversion de FT a M'].fillna('')
+    df['Sales total MTS'] = df['Sales total MTS'].fillna('')
+    df['Sales KM'] = df['Sales KM'].fillna('')
+    df['Precio Exmetal KM'] = df['Precio Exmetal KM'].fillna('')
+    df['Precio Full Metal KM'] = df['Precio Full Metal KM'].fillna('')
+    df['Precio Exmetal M'] = df['Precio Exmetal M'].fillna('')
+    df['Precio Full Metal M'] = df['Precio Full Metal M'].fillna('')
+    
+    # Crear una fila de encabezados usando:
+    # - Los valores del renglón 1 original para las columnas originales
+    # - Los nombres de las nuevas columnas para las nuevas columnas
+    nombres_encabezados = valores_renglon_1.copy()
+    nombres_encabezados.extend(['Conversion de FT a M', 'Sales total MTS', 'Sales KM', 'Precio Exmetal KM', 'Precio Full Metal KM', 'Precio Exmetal M', 'Precio Full Metal M'])
+    
+    # Convertir los valores a strings para evitar problemas
+    nombres_encabezados = [str(val) if pd.notna(val) else '' for val in nombres_encabezados]
+    
+    # Crear un DataFrame con una sola fila (los encabezados)
+    fila_encabezados = pd.DataFrame([nombres_encabezados], columns=df.columns)
+    # Concatenar la fila de encabezados al inicio del DataFrame
+    df = pd.concat([fila_encabezados, df], ignore_index=True)
+    
+    # Actualizar y guardar los índices de las columnas según su nombre
+    # Crear un diccionario que mapee el nombre de cada columna a su índice actualizado
+    indices_columnas = {}
+    for idx, nombre_columna in enumerate(df.columns):
+        # Obtener el nombre real de la columna desde los encabezados (primera fila)
+        nombre_real = str(df.iloc[0, idx]).strip() if pd.notna(df.iloc[0, idx]) else ''
+        if nombre_real:
+            # Guardar el índice con el nombre de la columna (case-insensitive para búsqueda)
+            indices_columnas[nombre_real.lower()] = idx
+            # También guardar con el nombre exacto
+            indices_columnas[nombre_real] = idx
+    
+    # Actualizar los índices de las columnas conocidas después de todas las modificaciones
+    # Buscar nuevamente las columnas en el DataFrame final para obtener sus índices actualizados
+    columna_customer_actualizado = None
+    columna_quantity_ft_actualizado = None
+    columna_quantity_m_actualizado = None
+    columna_customer_number_actualizado = None
+    columna_grupo_actualizado = None
+    columna_conversion_ft_m_actualizado = None
+    columna_sales_total_mts_actualizado = None
+    columna_sales_km_actualizado = None
+    columna_turnover_wo_metal_actualizado = None
+    columna_precio_exmetal_actualizado = None
+    columna_turnover_like_fi_actualizado = None
+    columna_precio_full_metal_actualizado = None
+    columna_precio_exmetal_m_actualizado = None
+    columna_precio_full_metal_m_actualizado = None
+    
+    # Buscar en la primera fila (encabezados) del DataFrame final
+    primera_fila = df.iloc[0]
+    for idx, encabezado in enumerate(primera_fila):
+        encabezado_str = str(encabezado).strip() if pd.notna(encabezado) else ''
+        encabezado_lower = encabezado_str.lower()
+        
+        # Buscar cada columna por nombre
+        if columna_customer_actualizado is None and 'customer' in encabezado_lower and 'number' not in encabezado_lower:
+            columna_customer_actualizado = idx
+        if columna_customer_number_actualizado is None and 'customer number' in encabezado_lower:
+            columna_customer_number_actualizado = idx
+        if columna_grupo_actualizado is None and encabezado_lower == 'grupo':
+            columna_grupo_actualizado = idx
+        if columna_quantity_ft_actualizado is None and ('quantity' in encabezado_lower and 'ft' in encabezado_lower and 
+            ('oe' in encabezado_lower or 'to' in encabezado_lower)):
+            columna_quantity_ft_actualizado = idx
+        if columna_quantity_m_actualizado is None and ('quantity' in encabezado_lower and 'm' in encabezado_lower and 
+            ('oe' in encabezado_lower or 'to' in encabezado_lower) and 'ft' not in encabezado_lower):
+            columna_quantity_m_actualizado = idx
+        if columna_conversion_ft_m_actualizado is None and 'conversion de ft a m' in encabezado_lower:
+            columna_conversion_ft_m_actualizado = idx
+        if columna_sales_total_mts_actualizado is None and 'sales total mts' in encabezado_lower:
+            columna_sales_total_mts_actualizado = idx
+        if columna_sales_km_actualizado is None and 'sales km' in encabezado_lower:
+            columna_sales_km_actualizado = idx
+        if columna_turnover_wo_metal_actualizado is None and ('turnover' in encabezado_lower and 'metal' in encabezado_lower and 'w/o' in encabezado_lower):
+            columna_turnover_wo_metal_actualizado = idx
+        if columna_precio_exmetal_actualizado is None and 'precio exmetal km' in encabezado_lower:
+            columna_precio_exmetal_actualizado = idx
+        if columna_turnover_like_fi_actualizado is None and ('turnover' in encabezado_lower and 'like' in encabezado_lower and 'fi' in encabezado_lower):
+            columna_turnover_like_fi_actualizado = idx
+        if columna_precio_full_metal_actualizado is None and 'precio full metal km' in encabezado_lower:
+            columna_precio_full_metal_actualizado = idx
+        if columna_precio_exmetal_m_actualizado is None and 'precio exmetal m' in encabezado_lower:
+            columna_precio_exmetal_m_actualizado = idx
+        if columna_precio_full_metal_m_actualizado is None and 'precio full metal m' in encabezado_lower:
+            columna_precio_full_metal_m_actualizado = idx
+    
+    # Crear diccionario con los índices actualizados de las columnas principales
+    indices_columnas_principales = {
+        'customer': columna_customer_actualizado,
+        'customer_number': columna_customer_number_actualizado,
+        'grupo': columna_grupo_actualizado,
+        'quantity_ft': columna_quantity_ft_actualizado,
+        'quantity_m': columna_quantity_m_actualizado,
+        'conversion_ft_m': columna_conversion_ft_m_actualizado,
+        'sales_total_mts': columna_sales_total_mts_actualizado,
+        'sales_km': columna_sales_km_actualizado,
+        'turnover_wo_metal': columna_turnover_wo_metal_actualizado,
+        'precio_exmetal': columna_precio_exmetal_actualizado,
+        'turnover_like_fi': columna_turnover_like_fi_actualizado,
+        'precio_full_metal': columna_precio_full_metal_actualizado,
+        'precio_exmetal_m': columna_precio_exmetal_m_actualizado,
+        'precio_full_metal_m': columna_precio_full_metal_m_actualizado
+    }
+    
+    # Modificar la columna Customer al final: eliminar los primeros 7 caracteres y espacios en blanco
+    # Buscar la columna Customer en el DataFrame final
+    columna_customer_final = None
+    primera_fila_final = df.iloc[0]
+    for idx, encabezado in enumerate(primera_fila_final):
+        encabezado_str = str(encabezado).strip() if pd.notna(encabezado) else ''
+        encabezado_lower = encabezado_str.lower()
+        if columna_customer_final is None and 'customer' in encabezado_lower and 'number' not in encabezado_lower:
+            columna_customer_final = idx
+            break
+    
+    if columna_customer_final is not None:
+        # Obtener todos los valores de la columna Customer (excluyendo la primera fila que es el encabezado)
+        # Modificar desde la fila 1 en adelante (índice 1)
+        for idx_fila in range(1, len(df)):
+            valor_original = df.iloc[idx_fila, columna_customer_final]
+            if pd.notna(valor_original):
+                # Convertir a string
+                valor_str = str(valor_original)
+                # Eliminar los primeros 7 caracteres
+                if len(valor_str) > 7:
+                    valor_modificado = valor_str[7:]
+                else:
+                    valor_modificado = ''
+                # Eliminar espacios en blanco al inicio y al final
+                valor_modificado = valor_modificado.strip()
+                # Actualizar el valor en el DataFrame
+                df.iloc[idx_fila, columna_customer_final] = valor_modificado
+    
+    # Descomponer la columna "Product" en "Producto" y "Product description"
+    # Buscar la columna Product en el DataFrame final
+    columna_product_final = None
+    primera_fila_final = df.iloc[0]
+    for idx, encabezado in enumerate(primera_fila_final):
+        encabezado_str = str(encabezado).strip() if pd.notna(encabezado) else ''
+        encabezado_lower = encabezado_str.lower()
+        if columna_product_final is None and encabezado_lower == 'product':
+            columna_product_final = idx
+            break
+    
+    if columna_product_final is not None:
+        # Crear listas para almacenar los valores descompuestos
+        valores_producto = []
+        valores_product_description = []
+        
+        # Procesar cada fila (incluyendo el encabezado)
+        for idx_fila in range(len(df)):
+            valor_original = df.iloc[idx_fila, columna_product_final]
+            if pd.notna(valor_original):
+                # Convertir a string
+                valor_str = str(valor_original).strip()
+                # Dividir por el primer espacio
+                partes = valor_str.split(' ', 1)  # split con maxsplit=1 divide solo en el primer espacio
+                if len(partes) == 2:
+                    # Hay dos partes: antes y después del primer espacio
+                    valores_producto.append(partes[0])
+                    # Eliminar espacios en blanco al inicio y al final de la descripción
+                    descripcion_limpia = partes[1].strip()
+                    valores_product_description.append(descripcion_limpia)
+                elif len(partes) == 1:
+                    # Solo hay una parte (no hay espacio)
+                    valores_producto.append(partes[0])
+                    valores_product_description.append('')
+                else:
+                    # Caso vacío
+                    valores_producto.append('')
+                    valores_product_description.append('')
+            else:
+                # Valor NaN
+                valores_producto.append('')
+                valores_product_description.append('')
+        
+        # Actualizar la columna Product con los valores de Producto
+        df.iloc[:, columna_product_final] = valores_producto
+        
+        # Cambiar el nombre del encabezado de "Product" a "Producto" en la primera fila
+        df.iloc[0, columna_product_final] = 'Producto'
+        
+        # Insertar la nueva columna "Product Description" justo después de Producto
+        # Necesitamos insertar como una serie con el mismo índice que el DataFrame
+        df.insert(columna_product_final + 1, 'Product Description', valores_product_description)
+        
+        # Asegurarse de que el encabezado en la primera fila sea "Product Description"
+        df.iloc[0, columna_product_final + 1] = 'Product Description'
+    
+    # Mapear columnas del Excel a columnas de la BD
+    # Primero, obtener los índices de todas las columnas necesarias desde los encabezados
+    primera_fila = df.iloc[0]
+    columnas_map = {}
+    
+    # Debug: imprimir todos los encabezados para ver qué hay disponible
+    # print("Encabezados encontrados:", [str(h).strip() for h in primera_fila])
+    
+    # Buscar todas las columnas necesarias
+    for idx, encabezado in enumerate(primera_fila):
+        encabezado_str = str(encabezado).strip() if pd.notna(encabezado) else ''
+        encabezado_lower = encabezado_str.lower()
+        
+        # Mapear según los nombres proporcionados
+        if 'customer' in encabezado_lower and 'number' not in encabezado_lower:
+            columnas_map['Customer'] = idx
+        elif 'customer number' in encabezado_lower:
+            columnas_map['Customer Number'] = idx
+        elif encabezado_lower == 'grupo':
+            columnas_map['grupo'] = idx
+        elif 'business unit' in encabezado_lower:
+            columnas_map['Business Unit'] = idx
+        elif 'period' in encabezado_lower:
+            if 'Period/Year' not in columnas_map:  # Solo tomar la primera coincidencia
+                columnas_map['Period/Year'] = idx
+        elif 'artnr condensed' in encabezado_lower:
+            columnas_map['Artnr condensed'] = idx
+        elif 'region asc' in encabezado_lower:
+            columnas_map['Region ASC'] = idx
+        elif encabezado_lower == 'plant':
+            columnas_map['Plant'] = idx
+        elif 'ship' in encabezado_lower and 'party' in encabezado_lower:
+            if 'Shipt-to-party' not in columnas_map:  # Solo tomar la primera coincidencia
+                columnas_map['Shipt-to-party'] = idx
+        elif encabezado_lower == 'producto':
+            columnas_map['Producto'] = idx
+        elif 'product description' in encabezado_lower:
+            columnas_map['Product Description'] = idx
+        elif 'turnover' in encabezado_lower and 'metal' in encabezado_lower and 'w/o' in encabezado_lower:
+            columnas_map['Turnover w/o metal'] = idx
+        elif 'turnover' in encabezado_lower and 'like' in encabezado_lower and 'fi' in encabezado_lower:
+            columnas_map['OE/Turnover like FI'] = idx
+        elif 'copper sales' in encabezado_lower and 'cuv' in encabezado_lower:
+            columnas_map['Copper Sales (CUV)'] = idx
+        elif 'cu-sales effect' in encabezado_lower:
+            columnas_map['CU-Sales effect'] = idx
+        elif 'cu result' in encabezado_lower:
+            columnas_map['CU result'] = idx
+        elif 'quantity' in encabezado_lower and 'm' in encabezado_lower and 'ft' not in encabezado_lower:
+            columnas_map['Quantity OE/TO M'] = idx
+        elif 'quantity' in encabezado_lower and 'ft' in encabezado_lower:
+            columnas_map['Quantity OE/TO FT'] = idx
+        elif 'cu weight techn' in encabezado_lower and 'cut' in encabezado_lower:
+            columnas_map['CU Weight techn. CUT'] = idx
+        elif 'cu weight sales' in encabezado_lower and 'cuv' in encabezado_lower:
+            columnas_map['CU weight Sales  CUV'] = idx
+        elif 'conversion de ft a m' in encabezado_lower:
+            columnas_map['Conversion de FT a M'] = idx
+        elif 'sales total mts' in encabezado_lower:
+            columnas_map['Sales total MTS'] = idx
+        elif 'sales km' in encabezado_lower:
+            columnas_map['Sales KM'] = idx
+        elif 'precio exmetal km' in encabezado_lower:
+            columnas_map['Precio Exmetal KM'] = idx
+        elif 'precio full metal km' in encabezado_lower:
+            columnas_map['Precio Full Metal KM'] = idx
+        elif 'precio exmetal m' in encabezado_lower:
+            columnas_map['Precio Exmetal M'] = idx
+        elif 'precio full metal m' in encabezado_lower:
+            columnas_map['Precio Full Metal M'] = idx
+    
+    # Debug: verificar qué columnas se encontraron
+    # print(f"Columnas encontradas: {list(columnas_map.keys())}")
+    # if 'Period/Year' not in columnas_map:
+    #     print("ADVERTENCIA: Columna Period/Year no encontrada")
+    # if 'Shipt-to-party' not in columnas_map:
+    #     print("ADVERTENCIA: Columna Shipt-to-party no encontrada")
+    
+    # Obtener todos los grupos de clientes para mapear grupo_id
+    grupos_clientes = await crud.list_cliente_grupos(db, limit=100000)
+    dict_grupos_cliente = {}
+    dict_grupos_id = {}
+    for grupo_cliente in grupos_clientes:
+        if grupo_cliente.codigo_cliente is not None:
+            dict_grupos_cliente[grupo_cliente.codigo_cliente] = grupo_cliente.grupo or ''
+            # Crear un diccionario para buscar grupo_id por codigo_cliente y grupo
+            key = (grupo_cliente.codigo_cliente, grupo_cliente.grupo or '')
+            dict_grupos_id[key] = grupo_cliente.id
+    
+    # Procesar cada fila del DataFrame (excluyendo el encabezado)
+    ventas_data = []
+    from datetime import date as date_class
+    from decimal import Decimal
+    
+    for idx_fila in range(1, len(df)):
+        venta_dict = {}
+        # Inicializar valores por defecto
+        venta_dict['periodo'] = None
+        venta_dict['ship_to_party'] = None
+        
+        # Cliente - Customer
+        if 'Customer' in columnas_map:
+            cliente_val = df.iloc[idx_fila, columnas_map['Customer']]
+            venta_dict['cliente'] = str(cliente_val).strip() if pd.notna(cliente_val) else None
+        
+        # Codigo_cliente - Customer Number
+        if 'Customer Number' in columnas_map:
+            codigo_val = df.iloc[idx_fila, columnas_map['Customer Number']]
+            try:
+                if pd.notna(codigo_val):
+                    codigo_str = str(codigo_val).strip()
+                    if codigo_str and codigo_str.lower() != 'nan':
+                        venta_dict['codigo_cliente'] = int(float(codigo_str))
+                    else:
+                        venta_dict['codigo_cliente'] = None
+                else:
+                    venta_dict['codigo_cliente'] = None
+            except (ValueError, TypeError):
+                venta_dict['codigo_cliente'] = None
+        
+        # Grupo - buscar grupo_id basado en codigo_cliente y grupo
+        grupo_id = None
+        if 'grupo' in columnas_map and venta_dict.get('codigo_cliente'):
+            grupo_val = df.iloc[idx_fila, columnas_map['grupo']]
+            grupo_str = str(grupo_val).strip() if pd.notna(grupo_val) else ''
+            if grupo_str and grupo_str.lower() != 'nan':
+                key = (venta_dict['codigo_cliente'], grupo_str)
+                grupo_id = dict_grupos_id.get(key)
+        venta_dict['grupo_id'] = grupo_id
+        
+        # Unidad_negocio - Business Unit
+        if 'Business Unit' in columnas_map:
+            unidad_val = df.iloc[idx_fila, columnas_map['Business Unit']]
+            venta_dict['unidad_negocio'] = str(unidad_val).strip() if pd.notna(unidad_val) else None
+        
+        # Periodo - Period/Year (convertir a Date)
+        if 'Period/Year' in columnas_map:
+            periodo_val = df.iloc[idx_fila, columnas_map['Period/Year']]
+            venta_dict['periodo'] = None  # Valor por defecto
+            if pd.notna(periodo_val):
+                periodo_str = str(periodo_val).strip()
+                if periodo_str and periodo_str.lower() not in ['nan', 'none', '']:
+                    try:
+                        import re
+                        
+                        # Buscar año de 4 dígitos (2020-2099)
+                        año_match = re.search(r'\b(20\d{2})\b', periodo_str)
+                        año = None
+                        if año_match:
+                            año = int(año_match.group(1))
+                        
+                        # Buscar mes (1-12) - puede estar antes o después del año
+                        # Buscar números de 1-2 dígitos que representen meses válidos
+                        mes_match = None
+                        
+                        # Patrón 1: Buscar "Period YYYY" seguido de un número que podría ser el mes
+                        # Ejemplo: "Period 2025 4" o "4. Period 2025"
+                        period_pattern = re.search(r'period\s+(\d{4})\s*[.\s]*(\d{1,2})', periodo_str, re.IGNORECASE)
+                        if period_pattern:
+                            año = int(period_pattern.group(1))
+                            mes_candidato = int(period_pattern.group(2))
+                            if 1 <= mes_candidato <= 12:
+                                mes_match = mes_candidato
+                        
+                        # Patrón 2: Buscar número seguido de punto y año, luego otro número
+                        # Ejemplo: "004.2025 4" -> mes=4, año=2025
+                        dot_pattern = re.search(r'(\d{1,2})\.\s*(\d{4})\s+(\d{1,2})', periodo_str)
+                        if dot_pattern and not mes_match:
+                            año_candidato = int(dot_pattern.group(2))
+                            mes_candidato = int(dot_pattern.group(3))
+                            if 1 <= mes_candidato <= 12:
+                                año = año_candidato
+                                mes_match = mes_candidato
+                        
+                        # Patrón 3: Buscar número antes de "Period YYYY"
+                        # Ejemplo: "4. Period 2025"
+                        before_period = re.search(r'(\d{1,2})\s*\.\s*period\s+(\d{4})', periodo_str, re.IGNORECASE)
+                        if before_period and not mes_match:
+                            mes_candidato = int(before_period.group(1))
+                            año_candidato = int(before_period.group(2))
+                            if 1 <= mes_candidato <= 12:
+                                año = año_candidato
+                                mes_match = mes_candidato
+                        
+                        # Patrón 4: Buscar formato estándar MM/YYYY o YYYY-MM
+                        if '/' in periodo_str:
+                            partes = periodo_str.split('/')
+                            if len(partes) == 2:
+                                try:
+                                    mes_candidato = int(partes[0])
+                                    año_candidato = int(partes[1])
+                                    if año_candidato < 100:
+                                        año_candidato += 2000
+                                    if 1 <= mes_candidato <= 12 and 2000 <= año_candidato <= 2099:
+                                        año = año_candidato
+                                        mes_match = mes_candidato
+                                except (ValueError, TypeError):
+                                    pass
+                        
+                        if '-' in periodo_str and not mes_match:
+                            partes = periodo_str.split('-')
+                            if len(partes) == 2:
+                                try:
+                                    año_candidato = int(partes[0])
+                                    mes_candidato = int(partes[1])
+                                    if año_candidato < 100:
+                                        año_candidato += 2000
+                                    if 1 <= mes_candidato <= 12 and 2000 <= año_candidato <= 2099:
+                                        año = año_candidato
+                                        mes_match = mes_candidato
+                                except (ValueError, TypeError):
+                                    pass
+                        
+                        # Patrón 5: Buscar todos los números y encontrar mes y año
+                        if not mes_match and año:
+                            numeros = re.findall(r'\d+', periodo_str)
+                            for num_str in numeros:
+                                num = int(num_str)
+                                # Si es un número de 1-12, podría ser el mes
+                                if 1 <= num <= 12 and not mes_match:
+                                    mes_match = num
+                                # Si es un número de 4 dígitos entre 2000-2099, es el año
+                                elif 2000 <= num <= 2099 and not año:
+                                    año = num
+                        
+                        # Patrón 6: Formato YYYYMM o MMYYYY (6 dígitos)
+                        if not mes_match and len(periodo_str.replace(' ', '').replace('.', '').replace('-', '')) == 6:
+                            periodo_limpio = re.sub(r'[^\d]', '', periodo_str)
+                            if len(periodo_limpio) == 6:
+                                try:
+                                    # Intentar YYYYMM primero
+                                    año_candidato = int(periodo_limpio[:4])
+                                    mes_candidato = int(periodo_limpio[4:])
+                                    if 1 <= mes_candidato <= 12 and 2000 <= año_candidato <= 2099:
+                                        año = año_candidato
+                                        mes_match = mes_candidato
+                                except (ValueError, TypeError):
+                                    try:
+                                        # Intentar MMYYYY
+                                        mes_candidato = int(periodo_limpio[:2])
+                                        año_candidato = int(periodo_limpio[2:])
+                                        if año_candidato < 100:
+                                            año_candidato += 2000
+                                        if 1 <= mes_candidato <= 12 and 2000 <= año_candidato <= 2099:
+                                            año = año_candidato
+                                            mes_match = mes_candidato
+                                    except (ValueError, TypeError):
+                                        pass
+                        
+                        # Patrón 7: Intentar parsear como fecha completa usando pandas
+                        if not mes_match or not año:
+                            try:
+                                fecha = pd.to_datetime(periodo_str, errors='coerce')
+                                if pd.notna(fecha):
+                                    año = fecha.year
+                                    mes_match = fecha.month
+                            except:
+                                pass
+                        
+                        # Si tenemos mes y año válidos, crear la fecha
+                        if año and mes_match and 1 <= mes_match <= 12 and 2000 <= año <= 2099:
+                            venta_dict['periodo'] = date_class(año, mes_match, 1)
+                            
+                    except Exception as e:
+                        # Si hay algún error, dejar como None
+                        pass
+        else:
+            venta_dict['periodo'] = None
+        
+        # Producto_condensado - Artnr condensed
+        if 'Artnr condensed' in columnas_map:
+            producto_cond_val = df.iloc[idx_fila, columnas_map['Artnr condensed']]
+            venta_dict['producto_condensado'] = str(producto_cond_val).strip() if pd.notna(producto_cond_val) else None
+        
+        # Region_asc - Region ASC
+        if 'Region ASC' in columnas_map:
+            region_val = df.iloc[idx_fila, columnas_map['Region ASC']]
+            venta_dict['region_asc'] = str(region_val).strip() if pd.notna(region_val) else None
+        
+        # Planta - Plant
+        if 'Plant' in columnas_map:
+            planta_val = df.iloc[idx_fila, columnas_map['Plant']]
+            venta_dict['planta'] = str(planta_val).strip() if pd.notna(planta_val) else None
+        
+        # ship_to_party - Shipt-to-party
+        if 'Shipt-to-party' in columnas_map:
+            ship_val = df.iloc[idx_fila, columnas_map['Shipt-to-party']]
+            if pd.notna(ship_val):
+                ship_str = str(ship_val).strip()
+                venta_dict['ship_to_party'] = ship_str if ship_str and ship_str.lower() != 'nan' else None
+            else:
+                venta_dict['ship_to_party'] = None
+        else:
+            venta_dict['ship_to_party'] = None
+        
+        # Producto - Producto
+        if 'Producto' in columnas_map:
+            producto_val = df.iloc[idx_fila, columnas_map['Producto']]
+            venta_dict['producto'] = str(producto_val).strip() if pd.notna(producto_val) else None
+        
+        # descripcion_producto - Product Description
+        if 'Product Description' in columnas_map:
+            desc_val = df.iloc[idx_fila, columnas_map['Product Description']]
+            venta_dict['descripcion_producto'] = str(desc_val).strip() if pd.notna(desc_val) else None
+        
+        # Campos numéricos - convertir a Decimal o None
+        campos_numericos = {
+            'Turnover w/o metal': 'turnover_wo_metal',
+            'OE/Turnover like FI': 'oe_turnover_like_fi',
+            'Copper Sales (CUV)': 'copper_sales_cuv',
+            'CU-Sales effect': 'cu_sales_effect',
+            'CU result': 'cu_result',
+            'Quantity OE/TO M': 'quantity_oe_to_m',
+            'Quantity OE/TO FT': 'quantity_oe_to_ft',
+            'CU Weight techn. CUT': 'cu_weight_techn_cut',
+            'CU weight Sales  CUV': 'cu_weight_sales_cuv',
+            'Conversion de FT a M': 'conversion_ft_a_m',
+            'Sales total MTS': 'sales_total_mts',
+            'Sales KM': 'sales_km',
+            'Precio Exmetal KM': 'precio_exmetal_km',
+            'Precio Full Metal KM': 'precio_full_metal_km',
+            'Precio Exmetal M': 'precio_exmetal_m',
+            'Precio Full Metal M': 'precio_full_metal_m'
+        }
+        
+        for col_excel, col_bd in campos_numericos.items():
+            if col_excel in columnas_map:
+                val = df.iloc[idx_fila, columnas_map[col_excel]]
+                if pd.notna(val):
+                    try:
+                        val_str = str(val).strip()
+                        if val_str and val_str.lower() != 'nan' and val_str != '':
+                            venta_dict[col_bd] = Decimal(str(val))
+                        else:
+                            venta_dict[col_bd] = None
+                    except (ValueError, TypeError):
+                        venta_dict[col_bd] = None
+                else:
+                    venta_dict[col_bd] = None
+            else:
+                venta_dict[col_bd] = None
+        
+        ventas_data.append(venta_dict)
+    
+    # Insertar los datos en la base de datos (verificando duplicados)
+    resultado = await crud.bulk_create_ventas(db, ventas_data)
+    registros_insertados = resultado.get("insertados", 0)
+    registros_duplicados = resultado.get("duplicados", 0)
+    errores = resultado.get("errores", [])
+    
+    mensaje = f"Archivo procesado exitosamente. {registros_insertados} registros insertados."
+    if registros_duplicados > 0:
+        mensaje += f" {registros_duplicados} registros duplicados fueron omitidos (ya existían con la misma combinación de código cliente, producto y período)."
+    if errores:
+        mensaje += f" Se encontraron {len(errores)} error(es) al procesar algunos registros."
+    
+    # Determinar si fue exitoso (al menos algunos registros se insertaron o había duplicados)
+    success = registros_insertados > 0 or (registros_duplicados > 0 and len(errores) == 0)
+    return {
+        "success": success,
+        "message": mensaje,
+        "registros_insertados": registros_insertados,
+        "registros_duplicados": registros_duplicados,
+        "total_registros": len(ventas_data),
+        "errores": errores
+    }
+
+
+async def _procesar_archivo_ventas_desde_ruta(
+    db,
+    path_ventas: "Path",
+    execution_id: Optional[int] = None,
+    user_id: Optional[int] = None,
+):
+    """Lee el Excel desde path_ventas, procesa con _procesar_ventas_core y actualiza la ejecución.
+    Si execution_id es None, crea una nueva ejecución (requiere user_id).
+    Devuelve el dict con success, message, registros_insertados, etc. En error de validación/lectura actualiza ejecución y devuelve dict con success=False."""
+    from datetime import timezone as tz
+    import pandas as pd
+    execution = None
+    if execution_id is None and user_id is not None:
+        ahora_utc = datetime.now(tz.utc)
+        execution = await crud.create_sales_execution(
+            db=db,
+            user_id=user_id,
+            fecha_inicio_periodo=ahora_utc,
+            fecha_fin_periodo=ahora_utc,
+            sistema_sap="Carga manual",
+            transaccion="Procesar archivo",
+            maquina=socket.gethostname() if hasattr(socket, 'gethostname') else (platform.node() or "unknown"),
+        )
+        execution_id = execution.id
+        await crud.update_sales_execution_status(
+            db=db, execution_id=execution_id, estado=ExecutionStatus.RUNNING, archivo_nombre=path_ventas.name
+        )
+    extension = path_ventas.suffix.lower()
+    if extension not in (".xlsx", ".xls"):
+        msg_ext = f"Extensión no permitida: {extension}"
+        if execution_id is not None:
+            await crud.update_sales_execution_status(
+                db=db, execution_id=execution_id, estado=ExecutionStatus.FAILED,
+                mensaje_error=msg_ext, detalles=msg_ext
+            )
+        return {"success": False, "message": msg_ext, "registros_insertados": 0, "registros_duplicados": 0, "total_registros": 0, "errores": []}
+    try:
+        if extension == ".xlsx":
+            df = pd.read_excel(path_ventas, engine="openpyxl", header=None)
+        else:
+            df = pd.read_excel(path_ventas, engine="xlrd", header=None)
+    except Exception as e:
+        msg = f"Error al leer el archivo Excel: {str(e)}"
+        if execution_id is not None:
+            await crud.update_sales_execution_status(db=db, execution_id=execution_id, estado=ExecutionStatus.FAILED, mensaje_error=msg, detalles=msg)
+        return {"success": False, "message": msg, "registros_insertados": 0, "registros_duplicados": 0, "total_registros": 0, "errores": []}
+    if len(df) < 3:
+        msg = f"El archivo debe tener al menos 3 filas. Tiene {len(df)}."
+        if execution_id is not None:
+            await crud.update_sales_execution_status(db=db, execution_id=execution_id, estado=ExecutionStatus.FAILED, mensaje_error=msg, detalles=msg)
+        return {"success": False, "message": msg, "registros_insertados": 0, "registros_duplicados": 0, "total_registros": 0, "errores": []}
+    try:
+        ahora_utc = datetime.now(tz.utc)
+        resultado_dict = await _procesar_ventas_core(db, df)
+        fin_utc = datetime.now(tz.utc)
+        duracion = int((fin_utc - ahora_utc).total_seconds())
+        await crud.update_sales_execution_status(
+            db=db,
+            execution_id=execution_id,
+            estado=ExecutionStatus.SUCCESS,
+            fecha_inicio_ejecucion=ahora_utc,
+            fecha_fin_ejecucion=fin_utc,
+            duracion_segundos=duracion,
+            mensaje_error=resultado_dict["message"],
+            detalles=resultado_dict["message"],
+            archivo_nombre=path_ventas.name,
+        )
+        return resultado_dict
+    except Exception as e:
+        import traceback
+        msg = f"Error al procesar ventas: {str(e)}"
+        if execution_id is not None:
+            await crud.update_sales_execution_status(
+                db=db, execution_id=execution_id, estado=ExecutionStatus.FAILED,
+                mensaje_error=msg, detalles=msg, stack_trace=traceback.format_exc()
+            )
+        return {"success": False, "message": msg, "registros_insertados": 0, "registros_duplicados": 0, "total_registros": 0, "errores": []}
+
+
 @app.post("/api/ventas/procesar-archivos")
 async def procesar_archivos_ventas(
     request: Request,
@@ -3954,969 +4947,12 @@ async def procesar_archivos_ventas(
             with open(archivo_ventas_path, "wb") as f:
                 shutil.copyfileobj(archivo_ventas.file, f)
             
-            # Leer archivo Excel
-            try:
-                if extension_ventas == '.xlsx':
-                    df = pd.read_excel(archivo_ventas_path, engine='openpyxl', header=None)
-                else:
-                    df = pd.read_excel(archivo_ventas_path, engine='xlrd', header=None)
-            except Exception as e:
-                import traceback
-                error_msg = str(e)
-                error_traceback = traceback.format_exc()
-                mensaje = f"Error al leer el archivo Excel: {error_msg}"
-                
-                if "No such file" in error_msg or "not found" in error_msg.lower():
-                    mensaje = "Error: No se pudo encontrar o acceder al archivo Excel. Verifica que el archivo exista y no esté corrupto."
-                elif "password" in error_msg.lower() or "encrypted" in error_msg.lower():
-                    mensaje = "Error: El archivo Excel está protegido con contraseña. Por favor, elimina la protección y vuelve a intentar."
-                elif "format" in error_msg.lower() or "invalid" in error_msg.lower():
-                    mensaje = "Error: El formato del archivo Excel no es válido. Asegúrate de que sea un archivo .xlsx o .xls válido."
-                elif "openpyxl" in error_msg.lower() or "xlrd" in error_msg.lower():
-                    mensaje = "Error: No se pudo leer el archivo Excel. Verifica que el archivo no esté corrupto y que tenga el formato correcto."
-                
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "success": False,
-                        "error": mensaje,
-                        "detalle_tecnico": error_msg,
-                        "tipo_error": type(e).__name__,
-                        "traceback": error_traceback
-                    }
-                )
-            
-            # Validar que el archivo tenga al menos 3 filas (para poder copiar del renglón 1 al 3)
-            if len(df) < 3:
-                return JSONResponse(
-                    status_code=400,
-                    content={
-                        "success": False,
-                        "error": f"El archivo Excel debe tener al menos 3 filas para poder procesarse correctamente. El archivo actual tiene {len(df)} fila(s)."
-                    }
-                )
-            
-            # Registrar evento en historial de ejecuciones
-            from datetime import timezone as tz
-            ahora_utc = datetime.now(tz.utc)
-            execution = await crud.create_sales_execution(
-                db=db,
-                user_id=current_user.id,
-                fecha_inicio_periodo=ahora_utc,
-                fecha_fin_periodo=ahora_utc,
-                sistema_sap="Carga manual",
-                transaccion="Procesar archivo",
-                maquina=socket.gethostname() if hasattr(socket, 'gethostname') else (platform.node() or "unknown")
-            )
-            await crud.update_sales_execution_status(
-                db=db,
-                execution_id=execution.id,
-                estado=ExecutionStatus.RUNNING,
-                archivo_nombre=nombre_archivo_ventas
-            )
-            
-            # Valores a buscar en el segundo renglón (índice 1)
-            valores_a_buscar = ['OE', 'Budget', 'Act-Budget', 'incl. srap', '2005246']
-            
-            # Obtener el segundo renglón (índice 1)
-            segundo_renglon = df.iloc[1]
-            
-            # Identificar columnas a eliminar
-            columnas_a_eliminar = []
-            for idx, valor in enumerate(segundo_renglon):
-                # Convertir a string y limpiar espacios
-                valor_str = str(valor).strip() if pd.notna(valor) else ''
-                # Comparar con los valores a buscar (case-insensitive)
-                for valor_buscar in valores_a_buscar:
-                    if valor_str.lower() == valor_buscar.lower():
-                        # Usar el índice de la columna
-                        columnas_a_eliminar.append(idx)
-                        break
-            
-            # Eliminar las columnas encontradas
-            if columnas_a_eliminar:
-                # Eliminar columnas por índice
-                df = df.drop(df.columns[columnas_a_eliminar], axis=1)
-            
-            # Buscar columnas donde el segundo renglón (índice 1) tenga "Actual"
-            # Obtener el segundo renglón actualizado después de eliminar columnas
-            segundo_renglon_actualizado = df.iloc[1]
-            columnas_actual = []
-            
-            for idx, valor in enumerate(segundo_renglon_actualizado):
-                # Convertir a string y limpiar espacios
-                valor_str = str(valor).strip() if pd.notna(valor) else ''
-                # Comparar con "Actual" (case-insensitive)
-                if valor_str.lower() == 'actual':
-                    columnas_actual.append(idx)
-            
-            # Copiar el valor del renglón 1 (índice 0) al renglón 3 (índice 2) para las columnas "Actual"
-            columnas_modificadas = 0
-            for col_idx in columnas_actual:
-                # Obtener el valor del renglón 1 (índice 0)
-                valor_renglon_1 = df.iloc[0, col_idx]
-                # Copiar al renglón 3 (índice 2)
-                df.iloc[2, col_idx] = valor_renglon_1
-                columnas_modificadas += 1
-            
-            # Eliminar los renglones 1 y 2 (índices 0 y 1)
-            df = df.drop(df.index[0:2])
-            # Resetear el índice para que quede secuencial
-            df = df.reset_index(drop=True)
-            
-            # Guardar los valores del renglón 1 (índice 0) para usarlos como encabezado
-            valores_renglon_1 = df.iloc[0].tolist()
-            
-            # Verificar si hay un renglón 2 y si tiene los mismos valores que el renglón 1
-            if len(df) > 1:
-                valores_renglon_2 = df.iloc[1].tolist()
-                # Comparar los valores (considerando NaN como iguales)
-                son_iguales = True
-                for i in range(len(valores_renglon_1)):
-                    val1 = valores_renglon_1[i]
-                    val2 = valores_renglon_2[i]
-                    # Comparar considerando NaN
-                    if pd.isna(val1) and pd.isna(val2):
-                        continue
-                    elif pd.isna(val1) or pd.isna(val2):
-                        son_iguales = False
-                        break
-                    elif str(val1).strip() != str(val2).strip():
-                        son_iguales = False
-                        break
-                
-                # Si son iguales, eliminar el renglón 2
-                if son_iguales:
-                    df = df.drop(df.index[1])
-                    df = df.reset_index(drop=True)
-            
-            # Eliminar el renglón 1 (que ahora usaremos como encabezado)
-            df = df.drop(df.index[0])
-            df = df.reset_index(drop=True)
-            
-            # Buscar las columnas necesarias en los encabezados
-            # Buscar "Customer"
-            columna_customer = None
-            # Buscar "Quantity OE/TO FT"
-            columna_quantity_ft = None
-            # Buscar "Quantity OE/TO M"
-            columna_quantity_m = None
-            # Buscar "Turnover w/o metal"
-            columna_turnover_wo_metal_original = None
-            # Buscar "OE/Turnover like FI"
-            columna_turnover_like_fi_original = None
-            
-            for idx, encabezado in enumerate(valores_renglon_1):
-                encabezado_str = str(encabezado).strip() if pd.notna(encabezado) else ''
-                encabezado_lower = encabezado_str.lower()
-                # Buscar "Customer"
-                if columna_customer is None and 'customer' in encabezado_lower:
-                    columna_customer = idx
-                # Buscar "Quantity OE/TO FT"
-                if columna_quantity_ft is None and ('quantity' in encabezado_lower and 'ft' in encabezado_lower and 
-                    ('oe' in encabezado_lower or 'to' in encabezado_lower)):
-                    columna_quantity_ft = idx
-                # Buscar "Quantity OE/TO M" (sin FT, solo M)
-                if columna_quantity_m is None and ('quantity' in encabezado_lower and 'm' in encabezado_lower and 
-                    ('oe' in encabezado_lower or 'to' in encabezado_lower) and 'ft' not in encabezado_lower):
-                    columna_quantity_m = idx
-                # Buscar "Turnover w/o metal"
-                if columna_turnover_wo_metal_original is None and ('turnover' in encabezado_lower and 'metal' in encabezado_lower and 'w/o' in encabezado_lower):
-                    columna_turnover_wo_metal_original = idx
-                # Buscar "OE/Turnover like FI"
-                if columna_turnover_like_fi_original is None and ('turnover' in encabezado_lower and 'like' in encabezado_lower and 'fi' in encabezado_lower):
-                    columna_turnover_like_fi_original = idx
-            
-            # Calcular el índice actual de "Turnover w/o metal" después de eliminar columnas
-            columna_turnover_wo_metal = None
-            if columna_turnover_wo_metal_original is not None:
-                # Crear un mapeo de índices originales a índices actuales
-                # Las columnas eliminadas están en columnas_a_eliminar
-                # Necesitamos contar cuántas columnas antes de la columna objetivo fueron eliminadas
-                columnas_eliminadas_antes = sum(1 for col_idx in columnas_a_eliminar if col_idx < columna_turnover_wo_metal_original)
-                # El índice actual es el índice original menos las columnas eliminadas antes
-                columna_turnover_wo_metal = columna_turnover_wo_metal_original - columnas_eliminadas_antes
-                # Verificar que el índice esté dentro del rango del DataFrame
-                if columna_turnover_wo_metal < 0 or columna_turnover_wo_metal >= len(df.columns):
-                    columna_turnover_wo_metal = None
-            
-            # Calcular el índice actual de "OE/Turnover like FI" después de eliminar columnas
-            columna_turnover_like_fi = None
-            if columna_turnover_like_fi_original is not None:
-                # Crear un mapeo de índices originales a índices actuales
-                # Las columnas eliminadas están en columnas_a_eliminar
-                # Necesitamos contar cuántas columnas antes de la columna objetivo fueron eliminadas
-                columnas_eliminadas_antes = sum(1 for col_idx in columnas_a_eliminar if col_idx < columna_turnover_like_fi_original)
-                # El índice actual es el índice original menos las columnas eliminadas antes
-                columna_turnover_like_fi = columna_turnover_like_fi_original - columnas_eliminadas_antes
-                # Verificar que el índice esté dentro del rango del DataFrame
-                if columna_turnover_like_fi < 0 or columna_turnover_like_fi >= len(df.columns):
-                    columna_turnover_like_fi = None
-            
-            # Obtener todos los grupos de clientes de la base de datos
-            grupos_clientes = await crud.list_cliente_grupos(db, limit=100000)
-            # Crear un diccionario que mapee codigo_cliente -> grupo
-            dict_grupos = {}
-            for grupo_cliente in grupos_clientes:
-                if grupo_cliente.codigo_cliente is not None:
-                    dict_grupos[grupo_cliente.codigo_cliente] = grupo_cliente.grupo or ''
-            
-            # Agregar la columna "Customer number" a la derecha de "Customer"
-            if columna_customer is not None:
-                # Obtener los valores de la columna Customer
-                valores_customer = df.iloc[:, columna_customer]
-                # Extraer los primeros 7 caracteres de cada valor
-                customer_number = valores_customer.astype(str).str[:7]
-                # Reemplazar 'nan' con string vacío
-                customer_number = customer_number.replace('nan', '')
-                # Insertar la columna justo después de Customer (posición columna_customer + 1)
-                df.insert(columna_customer + 1, 'Customer number', customer_number.tolist())
-                # Actualizar los índices de las otras columnas si Customer estaba antes de ellas
-                if columna_quantity_ft is not None and columna_quantity_ft > columna_customer:
-                    columna_quantity_ft += 1
-                if columna_quantity_m is not None and columna_quantity_m > columna_customer:
-                    columna_quantity_m += 1
-                if columna_turnover_wo_metal is not None and columna_turnover_wo_metal > columna_customer:
-                    columna_turnover_wo_metal += 1
-                if columna_turnover_like_fi is not None and columna_turnover_like_fi > columna_customer:
-                    columna_turnover_like_fi += 1
-                # Actualizar valores_renglon_1 para incluir el nuevo encabezado
-                valores_renglon_1.insert(columna_customer + 1, 'Customer number')
-                
-                # Agregar la columna "grupo" a la derecha de "Customer number"
-                # Obtener los valores de la columna Customer number (ahora en posición columna_customer + 1)
-                valores_customer_number = df.iloc[:, columna_customer + 1]
-                # Convertir a entero para buscar en el diccionario, manejando errores
-                grupos = []
-                for valor in valores_customer_number:
-                    try:
-                        # Convertir a string y limpiar
-                        valor_str = str(valor).strip()
-                        # Verificar que no esté vacío ni sea 'nan'
-                        if not valor_str or valor_str.lower() == 'nan' or valor_str == '':
-                            grupos.append('')
-                            continue
-                        # Intentar convertir a entero
-                        codigo = int(float(valor_str))
-                        # Buscar el grupo en el diccionario
-                        if codigo in dict_grupos:
-                            grupos.append(dict_grupos[codigo])
-                        else:
-                            grupos.append('')
-                    except (ValueError, TypeError):
-                        grupos.append('')
-                
-                # Insertar la columna "grupo" justo después de Customer number (posición columna_customer + 2)
-                df.insert(columna_customer + 2, 'grupo', grupos)
-                # Actualizar los índices de las otras columnas si Customer estaba antes de ellas
-                if columna_quantity_ft is not None and columna_quantity_ft > columna_customer:
-                    columna_quantity_ft += 1
-                if columna_quantity_m is not None and columna_quantity_m > columna_customer:
-                    columna_quantity_m += 1
-                if columna_turnover_wo_metal is not None and columna_turnover_wo_metal > columna_customer:
-                    columna_turnover_wo_metal += 1
-                if columna_turnover_like_fi is not None and columna_turnover_like_fi > columna_customer:
-                    columna_turnover_like_fi += 1
-                # Actualizar valores_renglon_1 para incluir el nuevo encabezado
-                valores_renglon_1.insert(columna_customer + 2, 'grupo')
-            
-            # Agregar las 3 nuevas columnas
-            num_filas = len(df)
-            
-            # Calcular "Conversion de FT a M" = Quantity OE/TO FT / 3.2808
-            if columna_quantity_ft is not None:
-                # Obtener los valores de la columna Quantity OE/TO FT
-                valores_quantity_ft = df.iloc[:, columna_quantity_ft]
-                # Convertir a numérico y dividir entre 3.2808
-                valores_numericos_ft = pd.to_numeric(valores_quantity_ft, errors='coerce')
-                conversion_ft_m = valores_numericos_ft / 3.2808
-                df['Conversion de FT a M'] = conversion_ft_m
-            else:
-                # Si no se encuentra la columna, dejar vacío
-                df['Conversion de FT a M'] = [None] * num_filas
-            
-            # Calcular "Sales total MTS" = Quantity OE/TO M + Conversion de FT a M
-            if columna_quantity_m is not None:
-                # Obtener los valores de la columna Quantity OE/TO M
-                valores_quantity_m = df.iloc[:, columna_quantity_m]
-                # Convertir a numérico
-                valores_numericos_m = pd.to_numeric(valores_quantity_m, errors='coerce')
-                # Obtener los valores de Conversion de FT a M (ya calculados)
-                valores_conversion = pd.to_numeric(df['Conversion de FT a M'], errors='coerce')
-                # Sumar ambos valores
-                sales_total_mts = valores_numericos_m + valores_conversion
-                df['Sales total MTS'] = sales_total_mts
-            else:
-                # Si no se encuentra la columna Quantity OE/TO M, usar solo Conversion de FT a M
-                valores_conversion = pd.to_numeric(df['Conversion de FT a M'], errors='coerce')
-                df['Sales total MTS'] = valores_conversion
-            
-            # Calcular "Sales KM" = Sales total MTS / 1000
-            valores_sales_total = pd.to_numeric(df['Sales total MTS'], errors='coerce')
-            sales_km = valores_sales_total / 1000
-            df['Sales KM'] = sales_km
-            
-            # Buscar las columnas "Turnover w/o metal" y "OE/Turnover like FI" directamente en el DataFrame
-            # después de todas las modificaciones, usando valores_renglon_1 que ya tiene las columnas insertadas
-            columna_turnover_wo_metal_final = None
-            columna_turnover_like_fi_final = None
-            
-            # Verificar que valores_renglon_1 tenga la misma longitud que las columnas del DataFrame
-            num_columnas_df = len(df.columns)
-            num_valores_renglon = len(valores_renglon_1)
-            
-            # Usar el mínimo para evitar errores de índice
-            num_columnas_a_buscar = min(num_columnas_df, num_valores_renglon)
-            
-            for idx in range(num_columnas_a_buscar):
-                encabezado = valores_renglon_1[idx] if idx < len(valores_renglon_1) else ''
-                encabezado_str = str(encabezado).strip() if pd.notna(encabezado) else ''
-                encabezado_lower = encabezado_str.lower()
-                
-                # Buscar "Turnover w/o metal" - debe tener "turnover", "metal" y "w/o" o "without", pero NO "like" ni "fi"
-                # Patrón más específico: buscar "w/o" o "without" junto con "metal" pero sin "like" ni "fi"
-                if columna_turnover_wo_metal_final is None:
-                    has_turnover = 'turnover' in encabezado_lower
-                    has_metal = 'metal' in encabezado_lower
-                    has_wo = 'w/o' in encabezado_lower or 'without' in encabezado_lower
-                    has_like = 'like' in encabezado_lower
-                    has_fi = 'fi' in encabezado_lower
-                    
-                    if has_turnover and has_metal and has_wo and not has_like and not has_fi:
-                        columna_turnover_wo_metal_final = idx
-                
-                # Buscar "OE/Turnover like FI" - debe tener "turnover", "like" y "fi"
-                # Patrón más específico: buscar "like" y "fi" juntos, con "turnover"
-                if columna_turnover_like_fi_final is None:
-                    has_turnover = 'turnover' in encabezado_lower
-                    has_like = 'like' in encabezado_lower
-                    has_fi = 'fi' in encabezado_lower
-                    
-                    if has_turnover and has_like and has_fi:
-                        columna_turnover_like_fi_final = idx
-            
-            # Calcular "Precio Exmetal KM" = Turnover w/o metal / Sales KM
-            if columna_turnover_wo_metal_final is not None and 0 <= columna_turnover_wo_metal_final < len(df.columns):
-                # Obtener los valores de la columna Turnover w/o metal
-                valores_turnover = df.iloc[:, columna_turnover_wo_metal_final]
-                # Convertir a numérico
-                valores_numericos_turnover = pd.to_numeric(valores_turnover, errors='coerce')
-                # Obtener los valores de Sales KM (ya calculados)
-                valores_sales_km = pd.to_numeric(df['Sales KM'], errors='coerce')
-                # Dividir: Precio Exmetal KM = Turnover w/o metal / Sales KM
-                # Evitar división por cero
-                precio_exmetal = valores_numericos_turnover / valores_sales_km.replace(0, pd.NA)
-                df['Precio Exmetal KM'] = precio_exmetal
-            else:
-                # Si no se encuentra la columna, dejar vacío
-                df['Precio Exmetal KM'] = [None] * num_filas
-            
-            # Calcular "Precio Full Metal KM" = OE/Turnover like FI / Sales KM
-            if columna_turnover_like_fi_final is not None and 0 <= columna_turnover_like_fi_final < len(df.columns):
-                # Verificar que no sea la misma columna que Turnover w/o metal
-                if columna_turnover_like_fi_final != columna_turnover_wo_metal_final:
-                    # Obtener los valores de la columna OE/Turnover like FI
-                    valores_turnover_fi = df.iloc[:, columna_turnover_like_fi_final]
-                    # Convertir a numérico
-                    valores_numericos_turnover_fi = pd.to_numeric(valores_turnover_fi, errors='coerce')
-                    # Obtener los valores de Sales KM (ya calculados)
-                    valores_sales_km = pd.to_numeric(df['Sales KM'], errors='coerce')
-                    # Dividir: Precio Full Metal KM = OE/Turnover like FI / Sales KM
-                    # Evitar división por cero
-                    precio_full_metal = valores_numericos_turnover_fi / valores_sales_km.replace(0, pd.NA)
-                    df['Precio Full Metal KM'] = precio_full_metal
-                else:
-                    # Si es la misma columna, dejar vacío
-                    df['Precio Full Metal KM'] = [None] * num_filas
-            else:
-                # Si no se encuentra la columna, dejar vacío
-                df['Precio Full Metal KM'] = [None] * num_filas
-            
-            # Calcular "Precio Exmetal M" = Precio Exmetal KM / 1000
-            valores_precio_exmetal_km = pd.to_numeric(df['Precio Exmetal KM'], errors='coerce')
-            precio_exmetal_m = valores_precio_exmetal_km / 1000
-            df['Precio Exmetal M'] = precio_exmetal_m
-            
-            # Calcular "Precio Full Metal M" = Precio Full Metal KM / 1000
-            valores_precio_full_metal_km = pd.to_numeric(df['Precio Full Metal KM'], errors='coerce')
-            precio_full_metal_m = valores_precio_full_metal_km / 1000
-            df['Precio Full Metal M'] = precio_full_metal_m
-            
-            # Reemplazar NaN con string vacío en las columnas calculadas
-            df['Conversion de FT a M'] = df['Conversion de FT a M'].fillna('')
-            df['Sales total MTS'] = df['Sales total MTS'].fillna('')
-            df['Sales KM'] = df['Sales KM'].fillna('')
-            df['Precio Exmetal KM'] = df['Precio Exmetal KM'].fillna('')
-            df['Precio Full Metal KM'] = df['Precio Full Metal KM'].fillna('')
-            df['Precio Exmetal M'] = df['Precio Exmetal M'].fillna('')
-            df['Precio Full Metal M'] = df['Precio Full Metal M'].fillna('')
-            
-            # Crear una fila de encabezados usando:
-            # - Los valores del renglón 1 original para las columnas originales
-            # - Los nombres de las nuevas columnas para las nuevas columnas
-            nombres_encabezados = valores_renglon_1.copy()
-            nombres_encabezados.extend(['Conversion de FT a M', 'Sales total MTS', 'Sales KM', 'Precio Exmetal KM', 'Precio Full Metal KM', 'Precio Exmetal M', 'Precio Full Metal M'])
-            
-            # Convertir los valores a strings para evitar problemas
-            nombres_encabezados = [str(val) if pd.notna(val) else '' for val in nombres_encabezados]
-            
-            # Crear un DataFrame con una sola fila (los encabezados)
-            fila_encabezados = pd.DataFrame([nombres_encabezados], columns=df.columns)
-            # Concatenar la fila de encabezados al inicio del DataFrame
-            df = pd.concat([fila_encabezados, df], ignore_index=True)
-            
-            # Actualizar y guardar los índices de las columnas según su nombre
-            # Crear un diccionario que mapee el nombre de cada columna a su índice actualizado
-            indices_columnas = {}
-            for idx, nombre_columna in enumerate(df.columns):
-                # Obtener el nombre real de la columna desde los encabezados (primera fila)
-                nombre_real = str(df.iloc[0, idx]).strip() if pd.notna(df.iloc[0, idx]) else ''
-                if nombre_real:
-                    # Guardar el índice con el nombre de la columna (case-insensitive para búsqueda)
-                    indices_columnas[nombre_real.lower()] = idx
-                    # También guardar con el nombre exacto
-                    indices_columnas[nombre_real] = idx
-            
-            # Actualizar los índices de las columnas conocidas después de todas las modificaciones
-            # Buscar nuevamente las columnas en el DataFrame final para obtener sus índices actualizados
-            columna_customer_actualizado = None
-            columna_quantity_ft_actualizado = None
-            columna_quantity_m_actualizado = None
-            columna_customer_number_actualizado = None
-            columna_grupo_actualizado = None
-            columna_conversion_ft_m_actualizado = None
-            columna_sales_total_mts_actualizado = None
-            columna_sales_km_actualizado = None
-            columna_turnover_wo_metal_actualizado = None
-            columna_precio_exmetal_actualizado = None
-            columna_turnover_like_fi_actualizado = None
-            columna_precio_full_metal_actualizado = None
-            columna_precio_exmetal_m_actualizado = None
-            columna_precio_full_metal_m_actualizado = None
-            
-            # Buscar en la primera fila (encabezados) del DataFrame final
-            primera_fila = df.iloc[0]
-            for idx, encabezado in enumerate(primera_fila):
-                encabezado_str = str(encabezado).strip() if pd.notna(encabezado) else ''
-                encabezado_lower = encabezado_str.lower()
-                
-                # Buscar cada columna por nombre
-                if columna_customer_actualizado is None and 'customer' in encabezado_lower and 'number' not in encabezado_lower:
-                    columna_customer_actualizado = idx
-                if columna_customer_number_actualizado is None and 'customer number' in encabezado_lower:
-                    columna_customer_number_actualizado = idx
-                if columna_grupo_actualizado is None and encabezado_lower == 'grupo':
-                    columna_grupo_actualizado = idx
-                if columna_quantity_ft_actualizado is None and ('quantity' in encabezado_lower and 'ft' in encabezado_lower and 
-                    ('oe' in encabezado_lower or 'to' in encabezado_lower)):
-                    columna_quantity_ft_actualizado = idx
-                if columna_quantity_m_actualizado is None and ('quantity' in encabezado_lower and 'm' in encabezado_lower and 
-                    ('oe' in encabezado_lower or 'to' in encabezado_lower) and 'ft' not in encabezado_lower):
-                    columna_quantity_m_actualizado = idx
-                if columna_conversion_ft_m_actualizado is None and 'conversion de ft a m' in encabezado_lower:
-                    columna_conversion_ft_m_actualizado = idx
-                if columna_sales_total_mts_actualizado is None and 'sales total mts' in encabezado_lower:
-                    columna_sales_total_mts_actualizado = idx
-                if columna_sales_km_actualizado is None and 'sales km' in encabezado_lower:
-                    columna_sales_km_actualizado = idx
-                if columna_turnover_wo_metal_actualizado is None and ('turnover' in encabezado_lower and 'metal' in encabezado_lower and 'w/o' in encabezado_lower):
-                    columna_turnover_wo_metal_actualizado = idx
-                if columna_precio_exmetal_actualizado is None and 'precio exmetal km' in encabezado_lower:
-                    columna_precio_exmetal_actualizado = idx
-                if columna_turnover_like_fi_actualizado is None and ('turnover' in encabezado_lower and 'like' in encabezado_lower and 'fi' in encabezado_lower):
-                    columna_turnover_like_fi_actualizado = idx
-                if columna_precio_full_metal_actualizado is None and 'precio full metal km' in encabezado_lower:
-                    columna_precio_full_metal_actualizado = idx
-                if columna_precio_exmetal_m_actualizado is None and 'precio exmetal m' in encabezado_lower:
-                    columna_precio_exmetal_m_actualizado = idx
-                if columna_precio_full_metal_m_actualizado is None and 'precio full metal m' in encabezado_lower:
-                    columna_precio_full_metal_m_actualizado = idx
-            
-            # Crear diccionario con los índices actualizados de las columnas principales
-            indices_columnas_principales = {
-                'customer': columna_customer_actualizado,
-                'customer_number': columna_customer_number_actualizado,
-                'grupo': columna_grupo_actualizado,
-                'quantity_ft': columna_quantity_ft_actualizado,
-                'quantity_m': columna_quantity_m_actualizado,
-                'conversion_ft_m': columna_conversion_ft_m_actualizado,
-                'sales_total_mts': columna_sales_total_mts_actualizado,
-                'sales_km': columna_sales_km_actualizado,
-                'turnover_wo_metal': columna_turnover_wo_metal_actualizado,
-                'precio_exmetal': columna_precio_exmetal_actualizado,
-                'turnover_like_fi': columna_turnover_like_fi_actualizado,
-                'precio_full_metal': columna_precio_full_metal_actualizado,
-                'precio_exmetal_m': columna_precio_exmetal_m_actualizado,
-                'precio_full_metal_m': columna_precio_full_metal_m_actualizado
-            }
-            
-            # Modificar la columna Customer al final: eliminar los primeros 7 caracteres y espacios en blanco
-            # Buscar la columna Customer en el DataFrame final
-            columna_customer_final = None
-            primera_fila_final = df.iloc[0]
-            for idx, encabezado in enumerate(primera_fila_final):
-                encabezado_str = str(encabezado).strip() if pd.notna(encabezado) else ''
-                encabezado_lower = encabezado_str.lower()
-                if columna_customer_final is None and 'customer' in encabezado_lower and 'number' not in encabezado_lower:
-                    columna_customer_final = idx
-                    break
-            
-            if columna_customer_final is not None:
-                # Obtener todos los valores de la columna Customer (excluyendo la primera fila que es el encabezado)
-                # Modificar desde la fila 1 en adelante (índice 1)
-                for idx_fila in range(1, len(df)):
-                    valor_original = df.iloc[idx_fila, columna_customer_final]
-                    if pd.notna(valor_original):
-                        # Convertir a string
-                        valor_str = str(valor_original)
-                        # Eliminar los primeros 7 caracteres
-                        if len(valor_str) > 7:
-                            valor_modificado = valor_str[7:]
-                        else:
-                            valor_modificado = ''
-                        # Eliminar espacios en blanco al inicio y al final
-                        valor_modificado = valor_modificado.strip()
-                        # Actualizar el valor en el DataFrame
-                        df.iloc[idx_fila, columna_customer_final] = valor_modificado
-            
-            # Descomponer la columna "Product" en "Producto" y "Product description"
-            # Buscar la columna Product en el DataFrame final
-            columna_product_final = None
-            primera_fila_final = df.iloc[0]
-            for idx, encabezado in enumerate(primera_fila_final):
-                encabezado_str = str(encabezado).strip() if pd.notna(encabezado) else ''
-                encabezado_lower = encabezado_str.lower()
-                if columna_product_final is None and encabezado_lower == 'product':
-                    columna_product_final = idx
-                    break
-            
-            if columna_product_final is not None:
-                # Crear listas para almacenar los valores descompuestos
-                valores_producto = []
-                valores_product_description = []
-                
-                # Procesar cada fila (incluyendo el encabezado)
-                for idx_fila in range(len(df)):
-                    valor_original = df.iloc[idx_fila, columna_product_final]
-                    if pd.notna(valor_original):
-                        # Convertir a string
-                        valor_str = str(valor_original).strip()
-                        # Dividir por el primer espacio
-                        partes = valor_str.split(' ', 1)  # split con maxsplit=1 divide solo en el primer espacio
-                        if len(partes) == 2:
-                            # Hay dos partes: antes y después del primer espacio
-                            valores_producto.append(partes[0])
-                            # Eliminar espacios en blanco al inicio y al final de la descripción
-                            descripcion_limpia = partes[1].strip()
-                            valores_product_description.append(descripcion_limpia)
-                        elif len(partes) == 1:
-                            # Solo hay una parte (no hay espacio)
-                            valores_producto.append(partes[0])
-                            valores_product_description.append('')
-                        else:
-                            # Caso vacío
-                            valores_producto.append('')
-                            valores_product_description.append('')
-                    else:
-                        # Valor NaN
-                        valores_producto.append('')
-                        valores_product_description.append('')
-                
-                # Actualizar la columna Product con los valores de Producto
-                df.iloc[:, columna_product_final] = valores_producto
-                
-                # Cambiar el nombre del encabezado de "Product" a "Producto" en la primera fila
-                df.iloc[0, columna_product_final] = 'Producto'
-                
-                # Insertar la nueva columna "Product Description" justo después de Producto
-                # Necesitamos insertar como una serie con el mismo índice que el DataFrame
-                df.insert(columna_product_final + 1, 'Product Description', valores_product_description)
-                
-                # Asegurarse de que el encabezado en la primera fila sea "Product Description"
-                df.iloc[0, columna_product_final + 1] = 'Product Description'
-            
-            # Mapear columnas del Excel a columnas de la BD
-            # Primero, obtener los índices de todas las columnas necesarias desde los encabezados
-            primera_fila = df.iloc[0]
-            columnas_map = {}
-            
-            # Debug: imprimir todos los encabezados para ver qué hay disponible
-            # print("Encabezados encontrados:", [str(h).strip() for h in primera_fila])
-            
-            # Buscar todas las columnas necesarias
-            for idx, encabezado in enumerate(primera_fila):
-                encabezado_str = str(encabezado).strip() if pd.notna(encabezado) else ''
-                encabezado_lower = encabezado_str.lower()
-                
-                # Mapear según los nombres proporcionados
-                if 'customer' in encabezado_lower and 'number' not in encabezado_lower:
-                    columnas_map['Customer'] = idx
-                elif 'customer number' in encabezado_lower:
-                    columnas_map['Customer Number'] = idx
-                elif encabezado_lower == 'grupo':
-                    columnas_map['grupo'] = idx
-                elif 'business unit' in encabezado_lower:
-                    columnas_map['Business Unit'] = idx
-                elif 'period' in encabezado_lower:
-                    if 'Period/Year' not in columnas_map:  # Solo tomar la primera coincidencia
-                        columnas_map['Period/Year'] = idx
-                elif 'artnr condensed' in encabezado_lower:
-                    columnas_map['Artnr condensed'] = idx
-                elif 'region asc' in encabezado_lower:
-                    columnas_map['Region ASC'] = idx
-                elif encabezado_lower == 'plant':
-                    columnas_map['Plant'] = idx
-                elif 'ship' in encabezado_lower and 'party' in encabezado_lower:
-                    if 'Shipt-to-party' not in columnas_map:  # Solo tomar la primera coincidencia
-                        columnas_map['Shipt-to-party'] = idx
-                elif encabezado_lower == 'producto':
-                    columnas_map['Producto'] = idx
-                elif 'product description' in encabezado_lower:
-                    columnas_map['Product Description'] = idx
-                elif 'turnover' in encabezado_lower and 'metal' in encabezado_lower and 'w/o' in encabezado_lower:
-                    columnas_map['Turnover w/o metal'] = idx
-                elif 'turnover' in encabezado_lower and 'like' in encabezado_lower and 'fi' in encabezado_lower:
-                    columnas_map['OE/Turnover like FI'] = idx
-                elif 'copper sales' in encabezado_lower and 'cuv' in encabezado_lower:
-                    columnas_map['Copper Sales (CUV)'] = idx
-                elif 'cu-sales effect' in encabezado_lower:
-                    columnas_map['CU-Sales effect'] = idx
-                elif 'cu result' in encabezado_lower:
-                    columnas_map['CU result'] = idx
-                elif 'quantity' in encabezado_lower and 'm' in encabezado_lower and 'ft' not in encabezado_lower:
-                    columnas_map['Quantity OE/TO M'] = idx
-                elif 'quantity' in encabezado_lower and 'ft' in encabezado_lower:
-                    columnas_map['Quantity OE/TO FT'] = idx
-                elif 'cu weight techn' in encabezado_lower and 'cut' in encabezado_lower:
-                    columnas_map['CU Weight techn. CUT'] = idx
-                elif 'cu weight sales' in encabezado_lower and 'cuv' in encabezado_lower:
-                    columnas_map['CU weight Sales  CUV'] = idx
-                elif 'conversion de ft a m' in encabezado_lower:
-                    columnas_map['Conversion de FT a M'] = idx
-                elif 'sales total mts' in encabezado_lower:
-                    columnas_map['Sales total MTS'] = idx
-                elif 'sales km' in encabezado_lower:
-                    columnas_map['Sales KM'] = idx
-                elif 'precio exmetal km' in encabezado_lower:
-                    columnas_map['Precio Exmetal KM'] = idx
-                elif 'precio full metal km' in encabezado_lower:
-                    columnas_map['Precio Full Metal KM'] = idx
-                elif 'precio exmetal m' in encabezado_lower:
-                    columnas_map['Precio Exmetal M'] = idx
-                elif 'precio full metal m' in encabezado_lower:
-                    columnas_map['Precio Full Metal M'] = idx
-            
-            # Debug: verificar qué columnas se encontraron
-            # print(f"Columnas encontradas: {list(columnas_map.keys())}")
-            # if 'Period/Year' not in columnas_map:
-            #     print("ADVERTENCIA: Columna Period/Year no encontrada")
-            # if 'Shipt-to-party' not in columnas_map:
-            #     print("ADVERTENCIA: Columna Shipt-to-party no encontrada")
-            
-            # Obtener todos los grupos de clientes para mapear grupo_id
-            grupos_clientes = await crud.list_cliente_grupos(db, limit=100000)
-            dict_grupos_cliente = {}
-            dict_grupos_id = {}
-            for grupo_cliente in grupos_clientes:
-                if grupo_cliente.codigo_cliente is not None:
-                    dict_grupos_cliente[grupo_cliente.codigo_cliente] = grupo_cliente.grupo or ''
-                    # Crear un diccionario para buscar grupo_id por codigo_cliente y grupo
-                    key = (grupo_cliente.codigo_cliente, grupo_cliente.grupo or '')
-                    dict_grupos_id[key] = grupo_cliente.id
-            
-            # Procesar cada fila del DataFrame (excluyendo el encabezado)
-            ventas_data = []
-            from datetime import date as date_class
-            from decimal import Decimal
-            
-            for idx_fila in range(1, len(df)):
-                venta_dict = {}
-                # Inicializar valores por defecto
-                venta_dict['periodo'] = None
-                venta_dict['ship_to_party'] = None
-                
-                # Cliente - Customer
-                if 'Customer' in columnas_map:
-                    cliente_val = df.iloc[idx_fila, columnas_map['Customer']]
-                    venta_dict['cliente'] = str(cliente_val).strip() if pd.notna(cliente_val) else None
-                
-                # Codigo_cliente - Customer Number
-                if 'Customer Number' in columnas_map:
-                    codigo_val = df.iloc[idx_fila, columnas_map['Customer Number']]
-                    try:
-                        if pd.notna(codigo_val):
-                            codigo_str = str(codigo_val).strip()
-                            if codigo_str and codigo_str.lower() != 'nan':
-                                venta_dict['codigo_cliente'] = int(float(codigo_str))
-                            else:
-                                venta_dict['codigo_cliente'] = None
-                        else:
-                            venta_dict['codigo_cliente'] = None
-                    except (ValueError, TypeError):
-                        venta_dict['codigo_cliente'] = None
-                
-                # Grupo - buscar grupo_id basado en codigo_cliente y grupo
-                grupo_id = None
-                if 'grupo' in columnas_map and venta_dict.get('codigo_cliente'):
-                    grupo_val = df.iloc[idx_fila, columnas_map['grupo']]
-                    grupo_str = str(grupo_val).strip() if pd.notna(grupo_val) else ''
-                    if grupo_str and grupo_str.lower() != 'nan':
-                        key = (venta_dict['codigo_cliente'], grupo_str)
-                        grupo_id = dict_grupos_id.get(key)
-                venta_dict['grupo_id'] = grupo_id
-                
-                # Unidad_negocio - Business Unit
-                if 'Business Unit' in columnas_map:
-                    unidad_val = df.iloc[idx_fila, columnas_map['Business Unit']]
-                    venta_dict['unidad_negocio'] = str(unidad_val).strip() if pd.notna(unidad_val) else None
-                
-                # Periodo - Period/Year (convertir a Date)
-                if 'Period/Year' in columnas_map:
-                    periodo_val = df.iloc[idx_fila, columnas_map['Period/Year']]
-                    venta_dict['periodo'] = None  # Valor por defecto
-                    if pd.notna(periodo_val):
-                        periodo_str = str(periodo_val).strip()
-                        if periodo_str and periodo_str.lower() not in ['nan', 'none', '']:
-                            try:
-                                import re
-                                
-                                # Buscar año de 4 dígitos (2020-2099)
-                                año_match = re.search(r'\b(20\d{2})\b', periodo_str)
-                                año = None
-                                if año_match:
-                                    año = int(año_match.group(1))
-                                
-                                # Buscar mes (1-12) - puede estar antes o después del año
-                                # Buscar números de 1-2 dígitos que representen meses válidos
-                                mes_match = None
-                                
-                                # Patrón 1: Buscar "Period YYYY" seguido de un número que podría ser el mes
-                                # Ejemplo: "Period 2025 4" o "4. Period 2025"
-                                period_pattern = re.search(r'period\s+(\d{4})\s*[.\s]*(\d{1,2})', periodo_str, re.IGNORECASE)
-                                if period_pattern:
-                                    año = int(period_pattern.group(1))
-                                    mes_candidato = int(period_pattern.group(2))
-                                    if 1 <= mes_candidato <= 12:
-                                        mes_match = mes_candidato
-                                
-                                # Patrón 2: Buscar número seguido de punto y año, luego otro número
-                                # Ejemplo: "004.2025 4" -> mes=4, año=2025
-                                dot_pattern = re.search(r'(\d{1,2})\.\s*(\d{4})\s+(\d{1,2})', periodo_str)
-                                if dot_pattern and not mes_match:
-                                    año_candidato = int(dot_pattern.group(2))
-                                    mes_candidato = int(dot_pattern.group(3))
-                                    if 1 <= mes_candidato <= 12:
-                                        año = año_candidato
-                                        mes_match = mes_candidato
-                                
-                                # Patrón 3: Buscar número antes de "Period YYYY"
-                                # Ejemplo: "4. Period 2025"
-                                before_period = re.search(r'(\d{1,2})\s*\.\s*period\s+(\d{4})', periodo_str, re.IGNORECASE)
-                                if before_period and not mes_match:
-                                    mes_candidato = int(before_period.group(1))
-                                    año_candidato = int(before_period.group(2))
-                                    if 1 <= mes_candidato <= 12:
-                                        año = año_candidato
-                                        mes_match = mes_candidato
-                                
-                                # Patrón 4: Buscar formato estándar MM/YYYY o YYYY-MM
-                                if '/' in periodo_str:
-                                    partes = periodo_str.split('/')
-                                    if len(partes) == 2:
-                                        try:
-                                            mes_candidato = int(partes[0])
-                                            año_candidato = int(partes[1])
-                                            if año_candidato < 100:
-                                                año_candidato += 2000
-                                            if 1 <= mes_candidato <= 12 and 2000 <= año_candidato <= 2099:
-                                                año = año_candidato
-                                                mes_match = mes_candidato
-                                        except (ValueError, TypeError):
-                                            pass
-                                
-                                if '-' in periodo_str and not mes_match:
-                                    partes = periodo_str.split('-')
-                                    if len(partes) == 2:
-                                        try:
-                                            año_candidato = int(partes[0])
-                                            mes_candidato = int(partes[1])
-                                            if año_candidato < 100:
-                                                año_candidato += 2000
-                                            if 1 <= mes_candidato <= 12 and 2000 <= año_candidato <= 2099:
-                                                año = año_candidato
-                                                mes_match = mes_candidato
-                                        except (ValueError, TypeError):
-                                            pass
-                                
-                                # Patrón 5: Buscar todos los números y encontrar mes y año
-                                if not mes_match and año:
-                                    numeros = re.findall(r'\d+', periodo_str)
-                                    for num_str in numeros:
-                                        num = int(num_str)
-                                        # Si es un número de 1-12, podría ser el mes
-                                        if 1 <= num <= 12 and not mes_match:
-                                            mes_match = num
-                                        # Si es un número de 4 dígitos entre 2000-2099, es el año
-                                        elif 2000 <= num <= 2099 and not año:
-                                            año = num
-                                
-                                # Patrón 6: Formato YYYYMM o MMYYYY (6 dígitos)
-                                if not mes_match and len(periodo_str.replace(' ', '').replace('.', '').replace('-', '')) == 6:
-                                    periodo_limpio = re.sub(r'[^\d]', '', periodo_str)
-                                    if len(periodo_limpio) == 6:
-                                        try:
-                                            # Intentar YYYYMM primero
-                                            año_candidato = int(periodo_limpio[:4])
-                                            mes_candidato = int(periodo_limpio[4:])
-                                            if 1 <= mes_candidato <= 12 and 2000 <= año_candidato <= 2099:
-                                                año = año_candidato
-                                                mes_match = mes_candidato
-                                        except (ValueError, TypeError):
-                                            try:
-                                                # Intentar MMYYYY
-                                                mes_candidato = int(periodo_limpio[:2])
-                                                año_candidato = int(periodo_limpio[2:])
-                                                if año_candidato < 100:
-                                                    año_candidato += 2000
-                                                if 1 <= mes_candidato <= 12 and 2000 <= año_candidato <= 2099:
-                                                    año = año_candidato
-                                                    mes_match = mes_candidato
-                                            except (ValueError, TypeError):
-                                                pass
-                                
-                                # Patrón 7: Intentar parsear como fecha completa usando pandas
-                                if not mes_match or not año:
-                                    try:
-                                        fecha = pd.to_datetime(periodo_str, errors='coerce')
-                                        if pd.notna(fecha):
-                                            año = fecha.year
-                                            mes_match = fecha.month
-                                    except:
-                                        pass
-                                
-                                # Si tenemos mes y año válidos, crear la fecha
-                                if año and mes_match and 1 <= mes_match <= 12 and 2000 <= año <= 2099:
-                                    venta_dict['periodo'] = date_class(año, mes_match, 1)
-                                    
-                            except Exception as e:
-                                # Si hay algún error, dejar como None
-                                pass
-                else:
-                    venta_dict['periodo'] = None
-                
-                # Producto_condensado - Artnr condensed
-                if 'Artnr condensed' in columnas_map:
-                    producto_cond_val = df.iloc[idx_fila, columnas_map['Artnr condensed']]
-                    venta_dict['producto_condensado'] = str(producto_cond_val).strip() if pd.notna(producto_cond_val) else None
-                
-                # Region_asc - Region ASC
-                if 'Region ASC' in columnas_map:
-                    region_val = df.iloc[idx_fila, columnas_map['Region ASC']]
-                    venta_dict['region_asc'] = str(region_val).strip() if pd.notna(region_val) else None
-                
-                # Planta - Plant
-                if 'Plant' in columnas_map:
-                    planta_val = df.iloc[idx_fila, columnas_map['Plant']]
-                    venta_dict['planta'] = str(planta_val).strip() if pd.notna(planta_val) else None
-                
-                # ship_to_party - Shipt-to-party
-                if 'Shipt-to-party' in columnas_map:
-                    ship_val = df.iloc[idx_fila, columnas_map['Shipt-to-party']]
-                    if pd.notna(ship_val):
-                        ship_str = str(ship_val).strip()
-                        venta_dict['ship_to_party'] = ship_str if ship_str and ship_str.lower() != 'nan' else None
-                    else:
-                        venta_dict['ship_to_party'] = None
-                else:
-                    venta_dict['ship_to_party'] = None
-                
-                # Producto - Producto
-                if 'Producto' in columnas_map:
-                    producto_val = df.iloc[idx_fila, columnas_map['Producto']]
-                    venta_dict['producto'] = str(producto_val).strip() if pd.notna(producto_val) else None
-                
-                # descripcion_producto - Product Description
-                if 'Product Description' in columnas_map:
-                    desc_val = df.iloc[idx_fila, columnas_map['Product Description']]
-                    venta_dict['descripcion_producto'] = str(desc_val).strip() if pd.notna(desc_val) else None
-                
-                # Campos numéricos - convertir a Decimal o None
-                campos_numericos = {
-                    'Turnover w/o metal': 'turnover_wo_metal',
-                    'OE/Turnover like FI': 'oe_turnover_like_fi',
-                    'Copper Sales (CUV)': 'copper_sales_cuv',
-                    'CU-Sales effect': 'cu_sales_effect',
-                    'CU result': 'cu_result',
-                    'Quantity OE/TO M': 'quantity_oe_to_m',
-                    'Quantity OE/TO FT': 'quantity_oe_to_ft',
-                    'CU Weight techn. CUT': 'cu_weight_techn_cut',
-                    'CU weight Sales  CUV': 'cu_weight_sales_cuv',
-                    'Conversion de FT a M': 'conversion_ft_a_m',
-                    'Sales total MTS': 'sales_total_mts',
-                    'Sales KM': 'sales_km',
-                    'Precio Exmetal KM': 'precio_exmetal_km',
-                    'Precio Full Metal KM': 'precio_full_metal_km',
-                    'Precio Exmetal M': 'precio_exmetal_m',
-                    'Precio Full Metal M': 'precio_full_metal_m'
-                }
-                
-                for col_excel, col_bd in campos_numericos.items():
-                    if col_excel in columnas_map:
-                        val = df.iloc[idx_fila, columnas_map[col_excel]]
-                        if pd.notna(val):
-                            try:
-                                val_str = str(val).strip()
-                                if val_str and val_str.lower() != 'nan' and val_str != '':
-                                    venta_dict[col_bd] = Decimal(str(val))
-                                else:
-                                    venta_dict[col_bd] = None
-                            except (ValueError, TypeError):
-                                venta_dict[col_bd] = None
-                        else:
-                            venta_dict[col_bd] = None
-                    else:
-                        venta_dict[col_bd] = None
-                
-                ventas_data.append(venta_dict)
-            
-            # Insertar los datos en la base de datos (verificando duplicados)
-            resultado = await crud.bulk_create_ventas(db, ventas_data)
-            registros_insertados = resultado.get("insertados", 0)
-            registros_duplicados = resultado.get("duplicados", 0)
-            errores = resultado.get("errores", [])
-            
-            mensaje = f"Archivo procesado exitosamente. {registros_insertados} registros insertados."
-            if registros_duplicados > 0:
-                mensaje += f" {registros_duplicados} registros duplicados fueron omitidos (ya existían con la misma combinación de código cliente, producto y período)."
-            if errores:
-                mensaje += f" Se encontraron {len(errores)} error(es) al procesar algunos registros."
-            
-            # Determinar si fue exitoso (al menos algunos registros se insertaron o había duplicados)
-            success = registros_insertados > 0 or (registros_duplicados > 0 and len(errores) == 0)
-            
-            # Actualizar historial con resultado exitoso
-            fin_utc = datetime.now(tz.utc)
-            duracion = int((fin_utc - ahora_utc).total_seconds())
-            await crud.update_sales_execution_status(
-                db=db,
-                execution_id=execution.id,
-                estado=ExecutionStatus.SUCCESS,
-                fecha_inicio_ejecucion=ahora_utc,
-                fecha_fin_ejecucion=fin_utc,
-                duracion_segundos=duracion
-            )
-            
+            result = await _procesar_archivo_ventas_desde_ruta(db, archivo_ventas_path, None, current_user.id)
             return JSONResponse(
-                status_code=200 if success else 207,  # 207 = Multi-Status si hay errores pero también éxitos
-                content={
-                    "success": success,
-                    "message": mensaje,
-                    "registros_insertados": registros_insertados,
-                    "registros_duplicados": registros_duplicados,
-                    "total_registros": len(ventas_data),
-                    "errores": errores
-                }
+                status_code=200 if result["success"] else 207,
+                content=result
             )
+        
         
     except Exception as e:
         import traceback
@@ -4931,6 +4967,7 @@ async def procesar_archivos_ventas(
                     execution_id=execution.id,
                     estado=ExecutionStatus.FAILED,
                     mensaje_error=str(e),
+                    detalles=str(e),
                     stack_trace=error_traceback
                 )
         except Exception:
