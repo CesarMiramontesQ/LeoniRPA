@@ -2647,11 +2647,11 @@ async def get_compra_by_purchasing_and_material(
 async def bulk_create_or_update_compras(
     db: AsyncSession,
     compras_data: List[Dict[str, Any]]
-) -> Dict[str, int]:
-    """Inserta o actualiza múltiples registros de compras.
-    Si ya existe un registro, se actualiza. Si no existe, se crea uno nuevo.
+) -> Dict[str, Any]:
+    """Inserta múltiples registros de compras. No inserta duplicados (no actualiza; los cuenta como duplicados).
+    La tabla no debe tener duplicados: si ya existe el registro, se omite y se cuenta como duplicado.
     
-    Prioridad de búsqueda:
+    Prioridad de búsqueda para considerar duplicado:
     1. material_document + material_doc_item (más preciso)
     2. purchasing_document + item + numero_material (fallback)
     
@@ -2660,50 +2660,58 @@ async def bulk_create_or_update_compras(
         compras_data: Lista de diccionarios con los datos de las compras
         
     Returns:
-        Diccionario con 'insertados' y 'actualizados'
+        Diccionario con 'insertados', 'duplicados' y 'errores'
     """
     if not compras_data:
-        return {"insertados": 0, "actualizados": 0}
+        return {"insertados": 0, "duplicados": 0, "errores": []}
     
     insertados = 0
-    actualizados = 0
+    duplicados = 0
+    errores = []
     
-    for compra_data in compras_data:
-        material_doc = compra_data.get('material_document')
-        material_doc_item = compra_data.get('material_doc_item')
-        purchasing_doc = compra_data.get('purchasing_document')
-        numero_mat = compra_data.get('numero_material')
-        item = compra_data.get('item')
-        
-        compra_existente = None
-        
-        # Primero intentar buscar por material_document y material_doc_item (más preciso)
-        if material_doc is not None and material_doc_item is not None:
-            compra_existente = await get_compra_by_material_document(
-                db, material_doc, material_doc_item
-            )
-        
-        # Si no se encontró, intentar con purchasing_document, item y numero_material
-        if compra_existente is None and purchasing_doc is not None and numero_mat is not None:
-            compra_existente = await get_compra_by_purchasing_and_material(
-                db, purchasing_doc, numero_mat, item
-            )
-        
-        if compra_existente:
-            # Actualizar registro existente
-            for key, value in compra_data.items():
-                if key not in ['id', 'created_at']:  # No actualizar id ni created_at
-                    setattr(compra_existente, key, value)
-            actualizados += 1
-        else:
-            # Crear nuevo registro
-            compra = Compra(**compra_data)
-            db.add(compra)
-            insertados += 1
+    for idx, compra_data in enumerate(compras_data, start=1):
+        try:
+            material_doc = compra_data.get('material_document')
+            material_doc_item = compra_data.get('material_doc_item')
+            purchasing_doc = compra_data.get('purchasing_document')
+            numero_mat = compra_data.get('numero_material')
+            item = compra_data.get('item')
+            
+            compra_existente = None
+            
+            if material_doc is not None and material_doc_item is not None:
+                compra_existente = await get_compra_by_material_document(
+                    db, material_doc, material_doc_item
+                )
+            
+            if compra_existente is None and purchasing_doc is not None and numero_mat is not None:
+                compra_existente = await get_compra_by_purchasing_and_material(
+                    db, purchasing_doc, numero_mat, item
+                )
+            
+            if compra_existente:
+                # Ya existe: no insertar ni actualizar (evitar duplicados)
+                duplicados += 1
+            else:
+                compra = Compra(**compra_data)
+                db.add(compra)
+                insertados += 1
+        except Exception as e:
+            error_str = str(e)
+            errores.append({
+                "fila": idx,
+                "error": error_str,
+                "material_document": compra_data.get('material_document'),
+                "numero_material": compra_data.get('numero_material'),
+            })
     
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        raise
     
-    return {"insertados": insertados, "actualizados": actualizados}
+    return {"insertados": insertados, "duplicados": duplicados, "errores": errores}
 
 
 async def bulk_create_compras(

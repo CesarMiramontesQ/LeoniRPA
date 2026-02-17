@@ -2667,8 +2667,11 @@ async def iniciar_descarga(
             resultado_proc = await _procesar_compras_historial_desde_rutas(db, path_compras_xlsx, path_historial_xlsx)
             if resultado_proc.get("success"):
                 ins = resultado_proc.get("insertados", 0)
-                act = resultado_proc.get("actualizados", 0)
-                detalles_str = f"Procesamiento automático: {ins} insertados, {act} actualizados."
+                dup = resultado_proc.get("duplicados", 0)
+                errs = resultado_proc.get("errores", [])
+                detalles_str = f"Procesamiento automático: {ins} insertados, {dup} duplicados (ya existían)."
+                if errs:
+                    detalles_str += f" {len(errs)} error(es)."
                 for p in (path_compras_xlsx, path_historial_xlsx):
                     try:
                         if p.exists():
@@ -2697,7 +2700,8 @@ async def iniciar_descarga(
         if detalles_str and "falló" not in detalles_str and resultado_proc:
             content_response["message"] = detalles_str
             content_response["insertados"] = resultado_proc.get("insertados", 0)
-            content_response["actualizados"] = resultado_proc.get("actualizados", 0)
+            content_response["duplicados"] = resultado_proc.get("duplicados", 0)
+            content_response["errores"] = resultado_proc.get("errores", [])
         elif detalles_str:
             content_response["procesamiento_error"] = detalles_str
 
@@ -3195,19 +3199,21 @@ async def procesar_archivos(
                 compra_data = mapear_fila_a_compra(row, df_archivo1.columns)
                 compras_data.append(compra_data)
             
-            # Insertar o actualizar datos en la base de datos
+            # Insertar datos en la base de datos (duplicados no se insertan; se cuentan)
             try:
                 resultado = await crud.bulk_create_or_update_compras(db, compras_data)
                 registros_insertados = resultado["insertados"]
-                registros_actualizados = resultado["actualizados"]
+                registros_duplicados = resultado["duplicados"]
+                errores_compra = resultado.get("errores", [])
             except Exception as e:
-                error_msg = f"Error al insertar/actualizar datos en la base de datos: {str(e)}"
+                error_msg = f"Error al insertar datos en la base de datos: {str(e)}"
                 if execution_id:
                     await crud.update_execution_status(
                         db=db,
                         execution_id=execution_id,
                         estado=ExecutionStatus.FAILED,
                         mensaje_error=error_msg,
+                        detalles=error_msg,
                         stack_trace=traceback.format_exc()
                     )
                 return JSONResponse(
@@ -3219,22 +3225,23 @@ async def procesar_archivos(
             fecha_fin_ejecucion = datetime.now()
             duracion_segundos = int((fecha_fin_ejecucion - fecha_inicio_ejecucion).total_seconds())
             
-            # Actualizar ejecución como exitosa
+            # Construir mensaje/detalles: insertados, duplicados, errores
+            mensaje = f"Datos procesados exitosamente. {registros_insertados} registros insertados."
+            if registros_duplicados > 0:
+                mensaje += f" {registros_duplicados} registros duplicados (ya existían, no se insertaron de nuevo)."
+            if errores_compra:
+                mensaje += f" {len(errores_compra)} error(es) al procesar algunos registros."
+            
+            # Actualizar ejecución como exitosa con detalles
             if execution_id:
                 await crud.update_execution_status(
                     db=db,
                     execution_id=execution_id,
                     estado=ExecutionStatus.SUCCESS,
                     fecha_fin_ejecucion=fecha_fin_ejecucion,
-                    duracion_segundos=duracion_segundos
+                    duracion_segundos=duracion_segundos,
+                    detalles=mensaje
                 )
-            
-            # Construir mensaje
-            mensaje = f"Datos procesados exitosamente."
-            if registros_insertados > 0:
-                mensaje += f" Se insertaron {registros_insertados} registros nuevos."
-            if registros_actualizados > 0:
-                mensaje += f" Se actualizaron {registros_actualizados} registros existentes."
             
             return JSONResponse(
                 status_code=200,
@@ -3242,7 +3249,8 @@ async def procesar_archivos(
                     "success": True,
                     "message": mensaje,
                     "registros_insertados": registros_insertados,
-                    "registros_actualizados": registros_actualizados,
+                    "registros_duplicados": registros_duplicados,
+                    "errores": errores_compra,
                     "archivos_recibidos": {
                         "archivo_base": nombre_archivo_ventas,
                         "archivo_referencia": nombre_archivo_po
@@ -3496,7 +3504,7 @@ def _procesar_df_historial(df: "pd.DataFrame") -> "pd.DataFrame":
 async def _procesar_compras_historial_desde_rutas(db: AsyncSession, path_compras, path_historial):
     """
     Procesa los dos Excel de compras e historial desde rutas en disco (Path o str).
-    Retorna dict: {success, insertados?, actualizados?, message?} o {success: False, error}.
+    Retorna dict: {success, insertados?, duplicados?, errores?, message?} o {success: False, error}.
     """
     from pathlib import Path
     import pandas as pd
@@ -3657,11 +3665,18 @@ async def _procesar_compras_historial_desde_rutas(db: AsyncSession, path_compras
         return {"success": False, "error": "No se encontraron datos válidos para insertar"}
 
     resultado = await crud.bulk_create_or_update_compras(db, compras_data)
+    ins = resultado['insertados']
+    dup = resultado['duplicados']
+    errs = resultado.get('errores', [])
+    msg = f"Procesamiento completado: {ins} insertados, {dup} duplicados (ya existían, no se insertaron)."
+    if errs:
+        msg += f" {len(errs)} error(es) al procesar algunos registros."
     return {
         "success": True,
-        "insertados": resultado['insertados'],
-        "actualizados": resultado['actualizados'],
-        "message": f"Procesamiento completado: {resultado['insertados']} registros insertados, {resultado['actualizados']} registros actualizados",
+        "insertados": ins,
+        "duplicados": dup,
+        "errores": errs,
+        "message": msg,
     }
 
 
@@ -3708,7 +3723,8 @@ async def procesar_compras_historial(
                     "success": True,
                     "message": resultado["message"],
                     "insertados": resultado["insertados"],
-                    "actualizados": resultado["actualizados"],
+                    "duplicados": resultado["duplicados"],
+                    "errores": resultado.get("errores", []),
                 }
             )
         status_code = 400 if "columnas" in resultado.get("error", "") or "datos válidos" in resultado.get("error", "") else 500

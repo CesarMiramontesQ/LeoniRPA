@@ -95,7 +95,7 @@ class ExecutionHistory(Base):
     stack_trace = Column(Text, nullable=True)  # Stack trace completo del error
     
     # Detalles del procesamiento (descarga + procesamiento automático)
-    detalles = Column(Text, nullable=True)  # Resumen: "N insertados, M actualizados" o error de procesamiento
+    detalles = Column(Text, nullable=True)  # Resumen: "N insertados, M duplicados (ya existían), K errores"
     
     def __repr__(self):
         return f"<ExecutionHistory(id={self.id}, user_id={self.user_id}, estado={self.estado.value}, created_at={self.created_at})>"

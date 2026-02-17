@@ -309,8 +309,9 @@
         let mensaje = data.message || ('La descarga desde SAP finalizó correctamente. Archivos: ' + (data.archivo_esperado || '') + '. Carpeta: C:\\Users\\anad5004\\Documents\\Leoni_RPA');
         if (data.procesamiento_automatico && data.procesamiento_error) {
           mensaje += '\n\nProcesamiento automático: ' + data.procesamiento_error;
-        } else if (data.procesamiento_automatico && (data.insertados !== undefined || data.actualizados !== undefined)) {
-          mensaje += '\n\nProcesamiento automático: ' + (data.insertados || 0) + ' insertados, ' + (data.actualizados || 0) + ' actualizados.';
+        } else if (data.procesamiento_automatico && (data.insertados !== undefined || data.duplicados !== undefined)) {
+          mensaje += '\n\nProcesamiento automático: ' + (data.insertados || 0) + ' insertados, ' + (data.duplicados || 0) + ' duplicados (ya existían).';
+          if (data.errores && data.errores.length > 0) mensaje += ' ' + data.errores.length + ' error(es).';
         }
         mostrarModalTerminado('Proceso terminado', mensaje);
       } else {
