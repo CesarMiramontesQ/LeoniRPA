@@ -2672,12 +2672,15 @@ async def iniciar_descarga(
                 detalles_str = f"Procesamiento automático: {ins} insertados, {dup} duplicados (ya existían)."
                 if errs:
                     detalles_str += f" {len(errs)} error(es)."
+                # El cierre de Excel se hace al final de compras_local.vbs (igual que ventas.vbs). Aquí solo eliminamos los archivos tras procesarlos.
                 for p in (path_compras_xlsx, path_historial_xlsx):
-                    try:
-                        if p.exists():
-                            p.unlink()
-                    except Exception:
-                        pass
+                    for _ in range(5):
+                        try:
+                            if p.exists():
+                                p.unlink()
+                            break
+                        except Exception:
+                            await asyncio.sleep(2)
             else:
                 detalles_str = f"Procesamiento automático falló: {resultado_proc.get('error', 'Error desconocido')}"
 

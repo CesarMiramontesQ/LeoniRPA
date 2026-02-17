@@ -117,7 +117,7 @@ Sub GuardarExportacionExcel(exportFolder, fileName)
    On Error GoTo 0
 End Sub
 
-' --- Cerrar las instancias de Excel abiertas por las exportaciones &XXL (al final del proceso) ---
+' --- Cerrar instancias de Excel abiertas por &XXL (código igual que ventas.vbs 148-169) ---
 Sub CerrarExcelesAbiertos()
    Dim xlApp, intento, maxIntentos
    maxIntentos = 3
@@ -292,7 +292,7 @@ session.findById("wnd[0]/usr/cntlMEALV_GRID_CONTROL_80FN_HIST/shellcont/shell").
 session.findById("wnd[0]/usr/cntlMEALV_GRID_CONTROL_80FN_HIST/shellcont/shell").selectContextMenuItem "&XXL"
 GuardarExportacionExcel carpetaSalida, "historial_compras_" & fechaInicio & "_" & fechaFin & ".xlsx"
 
-' Cerrar los dos Excel abiertos por las exportaciones (al final, sin interrumpir el proceso)
+' Al final del script (igual que ventas.vbs): cerrar Excel. Los archivos los elimina el backend tras procesarlos.
 Esperar 2
 CerrarExcelesAbiertos
 

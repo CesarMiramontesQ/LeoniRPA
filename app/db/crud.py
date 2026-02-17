@@ -2665,6 +2665,14 @@ async def bulk_create_or_update_compras(
     if not compras_data:
         return {"insertados": 0, "duplicados": 0, "errores": []}
     
+    # Ajustar secuencia de compras.id para que el próximo id sea MAX(id)+1 (evita UniqueViolationError)
+    try:
+        await db.execute(text(
+            "SELECT setval(pg_get_serial_sequence('compras', 'id'), COALESCE((SELECT MAX(id) FROM compras), 0))"
+        ))
+    except Exception:
+        pass  # Si falla (ej. tabla sin secuencia), seguir con el insert
+    
     insertados = 0
     duplicados = 0
     errores = []
@@ -2693,7 +2701,10 @@ async def bulk_create_or_update_compras(
                 # Ya existe: no insertar ni actualizar (evitar duplicados)
                 duplicados += 1
             else:
-                compra = Compra(**compra_data)
+                # No pasar id, created_at, updated_at: que la BD los genere (evita violación de PK)
+                datos_insercion = {k: v for k, v in compra_data.items()
+                                  if k not in ('id', 'created_at', 'updated_at')}
+                compra = Compra(**datos_insercion)
                 db.add(compra)
                 insertados += 1
         except Exception as e:
@@ -2732,7 +2743,9 @@ async def bulk_create_compras(
     
     compras_objects = []
     for compra_data in compras_data:
-        compra = Compra(**compra_data)
+        datos_insercion = {k: v for k, v in compra_data.items()
+                          if k not in ('id', 'created_at', 'updated_at')}
+        compra = Compra(**datos_insercion)
         compras_objects.append(compra)
     
     db.add_all(compras_objects)
