@@ -67,6 +67,108 @@ async def run_migration_materialidad():
     print("  ✓ Columna 'materialidad' agregada a master_unificado_virtuales.")
 
 
+async def run_migration_partes():
+    """Crea la tabla partes si no existe."""
+    from app.db.base import engine
+    from sqlalchemy import text
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS partes (
+                id           BIGSERIAL PRIMARY KEY,
+                numero_parte TEXT NOT NULL UNIQUE,
+                descripcion  TEXT,
+                created_at   TIMESTAMPTZ DEFAULT now()
+            )
+        """))
+    print("  ✓ Tabla 'partes' creada o ya existía.")
+
+
+async def run_migration_bom():
+    """Crea la tabla bom y el índice ix_bom_parte_id si no existen."""
+    from app.db.base import engine
+    from sqlalchemy import text
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS bom (
+                id          BIGSERIAL PRIMARY KEY,
+                parte_id    BIGINT NOT NULL REFERENCES partes(id),
+                plant       TEXT NOT NULL,
+                usage       TEXT NOT NULL,
+                alternative TEXT NOT NULL,
+                base_qty    NUMERIC,
+                reqd_qty    NUMERIC,
+                base_unit   TEXT,
+                detalle     JSONB NOT NULL DEFAULT '{}'::jsonb,
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+                UNIQUE (parte_id, plant, usage, alternative)
+            )
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_bom_parte_id ON bom (parte_id)
+        """))
+    print("  ✓ Tabla 'bom' e índice ix_bom_parte_id creados o ya existían.")
+
+
+async def run_migration_bom_revision():
+    """Crea la tabla bom_revision y sus índices si no existen."""
+    from app.db.base import engine
+    from sqlalchemy import text
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS bom_revision (
+                id             BIGSERIAL PRIMARY KEY,
+                bom_id         BIGINT NOT NULL REFERENCES bom(id) ON DELETE CASCADE,
+                revision_no    INT NOT NULL,
+                effective_from DATE NOT NULL,
+                effective_to   DATE,
+                source         TEXT,
+                hash           TEXT NOT NULL,
+                detalle        JSONB NOT NULL DEFAULT '{}'::jsonb,
+                created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+                UNIQUE (bom_id, revision_no),
+                CHECK (effective_to IS NULL OR effective_to > effective_from)
+            )
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_bom_revision_current
+            ON bom_revision (bom_id)
+            WHERE effective_to IS NULL
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_bom_revision_bom_id ON bom_revision (bom_id)
+        """))
+    print("  ✓ Tabla 'bom_revision' e índices creados o ya existían.")
+
+
+async def run_migration_bom_item():
+    """Crea la tabla bom_item y sus índices si no existen."""
+    from app.db.base import engine
+    from sqlalchemy import text
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS bom_item (
+                id              BIGSERIAL PRIMARY KEY,
+                bom_revision_id BIGINT NOT NULL REFERENCES bom_revision(id) ON DELETE CASCADE,
+                componente_id   BIGINT NOT NULL REFERENCES partes(id),
+                item_no         TEXT,
+                qty             NUMERIC NOT NULL,
+                measure         TEXT,
+                origin          TEXT,
+                detalle         JSONB NOT NULL DEFAULT '{}'::jsonb,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+                UNIQUE (bom_revision_id, componente_id)
+            )
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_bom_item_revision ON bom_item (bom_revision_id)
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_bom_item_componente ON bom_item (componente_id)
+        """))
+    print("  ✓ Tabla 'bom_item' e índices creados o ya existían.")
+
+
 async def main():
     from app.db.base import engine
 
@@ -76,20 +178,36 @@ async def main():
 
     try:
         # 1. Crear todas las tablas
-        print("\n[1/4] Creando tablas desde modelos...")
+        print("\n[1/8] Creando tablas desde modelos...")
         await run_init_db()
 
         # 2. Migración: enum EJECUCION
-        print("\n[2/4] Migración: enum carga_cliente_operacion_enum...")
+        print("\n[2/8] Migración: enum carga_cliente_operacion_enum...")
         await run_migration_add_ejecucion()
 
         # 3. Migración: columna escenario
-        print("\n[3/4] Migración: columna escenario en master_unificado_virtuales...")
+        print("\n[3/8] Migración: columna escenario en master_unificado_virtuales...")
         await run_migration_escenario()
 
         # 4. Migración: columna materialidad
-        print("\n[4/4] Migración: columna materialidad en master_unificado_virtuales...")
+        print("\n[4/8] Migración: columna materialidad en master_unificado_virtuales...")
         await run_migration_materialidad()
+
+        # 5. Migración: tabla partes
+        print("\n[5/8] Migración: tabla partes...")
+        await run_migration_partes()
+
+        # 6. Migración: tabla bom
+        print("\n[6/8] Migración: tabla bom...")
+        await run_migration_bom()
+
+        # 7. Migración: tabla bom_revision
+        print("\n[7/8] Migración: tabla bom_revision...")
+        await run_migration_bom_revision()
+
+        # 8. Migración: tabla bom_item
+        print("\n[8/8] Migración: tabla bom_item...")
+        await run_migration_bom_item()
 
         print("\n" + "=" * 60)
         print("Todas las migraciones se completaron correctamente.")

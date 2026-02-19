@@ -13,7 +13,14 @@ from app.db.init_db import init_db
 from app.db.base import get_db
 from app.db.models import User, ExecutionStatus, MasterUnificadoVirtualOperacion
 from app.db import crud
+from app.bom.service import load_bom
+from app.bom.schemas import LoadBomInput, LoadBomResponse
+from app.bom.parse_sap_export import parse_sap_bom_txt
+from app.core.config import settings
 import threading
+import asyncio
+import subprocess
+from pathlib import Path
 import sys
 import socket
 import platform
@@ -392,6 +399,235 @@ async def boms(request: Request, current_user: User = Depends(get_current_user),
             "materiales_unicos": materiales_unicos
         }
     )
+
+
+@app.get("/actualizar-boms")
+async def actualizar_boms(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Página Actualizar BOMs - requiere autenticación."""
+    from app.db.models import Parte
+    from sqlalchemy import select, func
+    # Contar partes y última actualización real desde tabla partes
+    total_partes = await db.execute(select(func.count()).select_from(Parte))
+    cantidad_numeros_parte = total_partes.scalar() or 0
+    ultima = await db.execute(select(func.max(Parte.created_at)).select_from(Parte))
+    ultima_ts = ultima.scalar()
+    ultima_actualizacion = ultima_ts.strftime("%d/%m/%Y %H:%M") if ultima_ts else "—"
+    return templates.TemplateResponse(
+        "actualizar_boms.html",
+        {
+            "request": request,
+            "active_page": "actualizar_boms",
+            "current_user": current_user,
+            "cantidad_numeros_parte": cantidad_numeros_parte,
+            "ultima_actualizacion": ultima_actualizacion,
+        }
+    )
+
+
+@app.post("/api/actualizar-boms/load-bom", response_model=LoadBomResponse)
+async def api_load_bom(
+    payload: LoadBomInput,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Carga o actualiza un BOM: partes, BOM, revisiones e items. Transaccional."""
+    return await load_bom(db, payload)
+
+
+@app.post("/api/actualizar-boms/ejecutar-actualizacion")
+async def api_ejecutar_actualizacion_boms(
+    limit: Optional[int] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Para cada numero_parte en la tabla partes: ejecuta bom.vbs (SAP), lee el .txt,
+    parsea y carga/actualiza el BOM en la base de datos.
+    Requiere Windows, SAP GUI abierto y BOM_EXPORT_DIR configurado.
+    limit: opcional; si se pasa, solo procesa los primeros N partes (útil para pruebas).
+    """
+    vbs_path = Path(settings.BOM_VBS_PATH or str(Path(__file__).resolve().parent / "bom.vbs")).resolve()
+    export_dir_raw = settings.BOM_EXPORT_DIR or ""
+    export_dir = str(Path(export_dir_raw).resolve()) if export_dir_raw else ""
+    timeout_sec = settings.BOM_VBS_TIMEOUT_SEC
+    if not export_dir_raw or not Path(export_dir).is_dir():
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "mensaje": "Configura BOM_EXPORT_DIR (carpeta donde SAP guarda los .txt) y asegúrate de que exista.",
+                "total": 0,
+                "procesados": 0,
+                "con_cambios": 0,
+                "sin_cambios": 0,
+                "errores": 0,
+                "detalle": [],
+            },
+        )
+    if platform.system() != "Windows":
+        return JSONResponse(
+            status_code=501,
+            content={
+                "ok": False,
+                "mensaje": "La ejecución del script SAP (bom.vbs) solo está soportada en Windows.",
+                "total": 0,
+                "procesados": 0,
+                "con_cambios": 0,
+                "sin_cambios": 0,
+                "errores": 0,
+                "detalle": [],
+            },
+        )
+    part_numbers = await crud.list_partes_numeros(db, limit=limit)
+    total = len(part_numbers)
+    procesados = 0
+    con_cambios = 0
+    sin_cambios = 0
+    errores = 0
+    detalle = []
+    for numero_parte in part_numbers:
+        estado = "error"
+        mensaje = ""
+        try:
+            # Ejecutar cscript bom.vbs numero_parte export_dir (bloqueante → en thread)
+            await asyncio.to_thread(
+                subprocess.run,
+                ["cscript", "//nologo", str(vbs_path), numero_parte, export_dir],
+                capture_output=True,
+                timeout=timeout_sec,
+                cwd=str(vbs_path.parent),
+            )
+            # Esperar a que aparezca el archivo (SAP puede tardar un poco)
+            archivo = Path(export_dir) / f"{numero_parte}.txt"
+            for _ in range(15):
+                await asyncio.sleep(1)
+                if archivo.is_file():
+                    break
+            if not archivo.is_file():
+                estado = "error"
+                mensaje = "No se generó el archivo .txt (¿SAP abierto y transacción CS13?)"
+                errores += 1
+                detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
+                continue
+            contenido = archivo.read_text(encoding="utf-8", errors="replace")
+            payload = parse_sap_bom_txt(contenido)
+            if not payload:
+                estado = "error"
+                mensaje = "No se pudo parsear el archivo"
+                errores += 1
+                detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
+                continue
+            resp = await load_bom(db, payload)
+            procesados += 1
+            if resp.sin_cambios:
+                sin_cambios += 1
+                estado = "sin_cambios"
+                mensaje = resp.mensaje
+            elif resp.ok:
+                con_cambios += 1
+                estado = "actualizado"
+                mensaje = resp.mensaje
+            else:
+                errores += 1
+                estado = "error"
+                mensaje = resp.mensaje
+            detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
+        except subprocess.TimeoutExpired:
+            errores += 1
+            estado = "error"
+            mensaje = f"Timeout ({timeout_sec}s) ejecutando SAP"
+            detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
+        except Exception as e:
+            errores += 1
+            estado = "error"
+            mensaje = str(e)
+            detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
+    return {
+        "ok": True,
+        "mensaje": f"Procesados {procesados}/{total}; con cambios: {con_cambios}, sin cambios: {sin_cambios}, errores: {errores}",
+        "total": total,
+        "procesados": procesados,
+        "con_cambios": con_cambios,
+        "sin_cambios": sin_cambios,
+        "errores": errores,
+        "detalle": detalle,
+    }
+
+
+@app.get("/api/actualizar-boms/bom-vigente")
+async def api_bom_vigente(
+    parte_no: str,
+    plant: str,
+    usage: str,
+    alternative: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Obtiene el BOM vigente de una parte (revisión con effective_to IS NULL) y sus items."""
+    bom, rev, items = await crud.get_bom_vigente_by_parte(db, parte_no, plant, usage, alternative)
+    if bom is None:
+        return {"ok": False, "mensaje": "No existe BOM para esa parte/plant/usage/alternative", "bom": None, "revision": None, "items": []}
+    items_out = [{"id": i.id, "componente_id": i.componente_id, "item_no": i.item_no, "qty": float(i.qty), "measure": i.measure, "origin": i.origin} for i in items]
+    rev_out = {"id": rev.id, "bom_id": rev.bom_id, "revision_no": rev.revision_no, "effective_from": str(rev.effective_from), "effective_to": str(rev.effective_to) if rev.effective_to else None, "hash": rev.hash} if rev else None
+    return {"ok": True, "bom": {"id": bom.id, "parte_id": bom.parte_id, "plant": bom.plant, "usage": bom.usage, "alternative": bom.alternative}, "revision": rev_out, "items": items_out}
+
+
+@app.get("/api/actualizar-boms/historial-revisiones")
+async def api_historial_revisiones(
+    bom_id: int,
+    limit: int = 100,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Lista el historial de revisiones de un BOM."""
+    revisiones = await crud.list_bom_revisiones(db, bom_id, limit=limit)
+    return {
+        "ok": True,
+        "bom_id": bom_id,
+        "revisiones": [
+            {"id": r.id, "revision_no": r.revision_no, "effective_from": str(r.effective_from), "effective_to": str(r.effective_to) if r.effective_to else None, "hash": r.hash}
+            for r in revisiones
+        ],
+    }
+
+
+@app.get("/api/actualizar-boms/boms-por-componente")
+async def api_boms_por_componente(
+    componente_no: str,
+    limit: int = 200,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Lista en qué BOMs aparece un componente (por número de parte)."""
+    rows = await crud.list_boms_where_componente(db, componente_no, limit=limit)
+    return {"ok": True, "componente_no": componente_no, "boms": rows}
+
+
+@app.get("/api/actualizar-boms/compare-revisiones")
+async def api_compare_revisiones(
+    revision_id_a: int,
+    revision_id_b: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Compara dos revisiones y devuelve diferencias (items de cada una)."""
+    rev_a, items_a = await crud.get_bom_revision_with_items(db, revision_id_a)
+    rev_b, items_b = await crud.get_bom_revision_with_items(db, revision_id_b)
+    if not rev_a or not rev_b:
+        return {"ok": False, "mensaje": "Una o ambas revisiones no existen"}
+    ids_a = {i.componente_id: (float(i.qty), i.item_no) for i in items_a}
+    ids_b = {i.componente_id: (float(i.qty), i.item_no) for i in items_b}
+    solo_en_a = [c for c in ids_a if c not in ids_b]
+    solo_en_b = [c for c in ids_b if c not in ids_a]
+    cambiados = [c for c in ids_a if c in ids_b and (ids_a[c] != ids_b[c])]
+    return {
+        "ok": True,
+        "revision_a": {"id": rev_a.id, "revision_no": rev_a.revision_no},
+        "revision_b": {"id": rev_b.id, "revision_no": rev_b.revision_no},
+        "solo_en_a": solo_en_a,
+        "solo_en_b": solo_en_b,
+        "cambiados_qty_o_item_no": cambiados,
+    }
 
 
 @app.get("/proveedores")

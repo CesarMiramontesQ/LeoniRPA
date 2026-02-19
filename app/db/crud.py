@@ -8,7 +8,7 @@ from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta, timezone, date
 from decimal import Decimal
-from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaProveedoresNacional, CargaProveedoresNacionalHistorial, CargaCliente, MasterUnificadoVirtuales, MasterUnificadoVirtualHistorial, MasterUnificadoVirtualOperacion, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente
+from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaProveedoresNacional, CargaProveedoresNacionalHistorial, CargaCliente, MasterUnificadoVirtuales, MasterUnificadoVirtualHistorial, MasterUnificadoVirtualOperacion, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente, Parte, Bom, BomRevision, BomItem
 from app.core.security import hash_password
 
 
@@ -466,6 +466,262 @@ async def count_parts(
     
     result = await db.execute(query)
     return result.scalar_one()
+
+
+# ==================== CRUD para Parte, Bom, BomRevision, BomItem ====================
+
+async def get_parte_by_numero(db: AsyncSession, numero_parte: str) -> Optional[Parte]:
+    """Obtiene una parte por número de parte."""
+    result = await db.execute(select(Parte).where(Parte.numero_parte == numero_parte))
+    return result.scalar_one_or_none()
+
+
+async def list_partes_numeros(db: AsyncSession, limit: Optional[int] = None) -> List[str]:
+    """Lista todos los numero_parte de la tabla partes (para actualizar BOMs)."""
+    query = select(Parte.numero_parte).order_by(Parte.numero_parte)
+    if limit is not None:
+        query = query.limit(limit)
+    result = await db.execute(query)
+    return [row[0] for row in result.all()]
+
+
+async def upsert_parte(db: AsyncSession, numero_parte: str, descripcion: Optional[str] = None) -> Parte:
+    """Inserta o actualiza una parte. Si existe, actualiza descripción si cambió. No hace commit (para usar en transacción)."""
+    existing = await get_parte_by_numero(db, numero_parte)
+    if existing:
+        if descripcion is not None:
+            existing.descripcion = descripcion
+        await db.flush()
+        return existing
+    parte = Parte(numero_parte=numero_parte, descripcion=descripcion)
+    db.add(parte)
+    await db.flush()
+    await db.refresh(parte)
+    return parte
+
+
+async def get_bom_by_part_plant_usage_alt(
+    db: AsyncSession,
+    parte_id: int,
+    plant: str,
+    usage: str,
+    alternative: str,
+) -> Optional[Bom]:
+    """Obtiene un BOM por (parte_id, plant, usage, alternative)."""
+    result = await db.execute(
+        select(Bom).where(
+            Bom.parte_id == parte_id,
+            Bom.plant == plant,
+            Bom.usage == usage,
+            Bom.alternative == alternative,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def create_bom(
+    db: AsyncSession,
+    parte_id: int,
+    plant: str,
+    usage: str,
+    alternative: str,
+    base_qty: Optional[Decimal] = None,
+    reqd_qty: Optional[Decimal] = None,
+    base_unit: Optional[str] = None,
+) -> Bom:
+    """Crea un BOM."""
+    bom = Bom(
+        parte_id=parte_id,
+        plant=plant,
+        usage=usage,
+        alternative=alternative,
+        base_qty=base_qty,
+        reqd_qty=reqd_qty,
+        base_unit=base_unit,
+    )
+    db.add(bom)
+    await db.flush()
+    return bom
+
+
+async def get_or_create_bom(
+    db: AsyncSession,
+    parte_id: int,
+    plant: str,
+    usage: str,
+    alternative: str,
+    base_qty: Optional[Decimal] = None,
+    reqd_qty: Optional[Decimal] = None,
+    base_unit: Optional[str] = None,
+) -> Bom:
+    """Obtiene el BOM por (parte_id, plant, usage, alternative) o lo crea."""
+    existing = await get_bom_by_part_plant_usage_alt(db, parte_id, plant, usage, alternative)
+    if existing:
+        if base_qty is not None:
+            existing.base_qty = base_qty
+        if reqd_qty is not None:
+            existing.reqd_qty = reqd_qty
+        if base_unit is not None:
+            existing.base_unit = base_unit
+        await db.flush()
+        return existing
+    return await create_bom(db, parte_id, plant, usage, alternative, base_qty, reqd_qty, base_unit)
+
+
+async def get_current_bom_revision(db: AsyncSession, bom_id: int) -> Optional[BomRevision]:
+    """Obtiene la revisión vigente (effective_to IS NULL) de un BOM."""
+    result = await db.execute(
+        select(BomRevision).where(
+            BomRevision.bom_id == bom_id,
+            BomRevision.effective_to.is_(None),
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def create_bom_revision(
+    db: AsyncSession,
+    bom_id: int,
+    revision_no: int,
+    effective_from: date,
+    hash_value: str,
+    source: Optional[str] = None,
+) -> BomRevision:
+    """Crea una nueva revisión de BOM."""
+    rev = BomRevision(
+        bom_id=bom_id,
+        revision_no=revision_no,
+        effective_from=effective_from,
+        effective_to=None,
+        source=source,
+        hash=hash_value,
+    )
+    db.add(rev)
+    await db.flush()
+    return rev
+
+
+async def close_bom_revision(db: AsyncSession, revision_id: int, effective_to: date) -> None:
+    """Cierra una revisión asignando effective_to."""
+    result = await db.execute(select(BomRevision).where(BomRevision.id == revision_id))
+    rev = result.scalar_one_or_none()
+    if rev:
+        rev.effective_to = effective_to
+        await db.flush()
+
+
+async def insert_bom_items(
+    db: AsyncSession,
+    bom_revision_id: int,
+    items: List[Dict[str, Any]],
+) -> int:
+    """Inserta items de una revisión. items: list of {componente_id, item_no, qty, measure, origin}."""
+    if not items:
+        return 0
+    for it in items:
+        bi = BomItem(
+            bom_revision_id=bom_revision_id,
+            componente_id=it["componente_id"],
+            item_no=it.get("item_no"),
+            qty=it["qty"],
+            measure=it.get("measure"),
+            origin=it.get("origin"),
+        )
+        db.add(bi)
+    await db.flush()
+    return len(items)
+
+
+async def get_bom_vigente_by_parte(
+    db: AsyncSession,
+    parte_no: str,
+    plant: str,
+    usage: str,
+    alternative: str,
+):
+    """
+    Obtiene el BOM vigente (revisión con effective_to IS NULL) de una parte.
+    Retorna (Bom, BomRevision, list[BomItem]) o (None, None, []) si no existe.
+    """
+    parte = await get_parte_by_numero(db, parte_no)
+    if not parte:
+        return None, None, []
+    bom = await get_bom_by_part_plant_usage_alt(db, parte.id, plant, usage, alternative)
+    if not bom:
+        return None, None, []
+    rev = await get_current_bom_revision(db, bom.id)
+    if not rev:
+        return bom, None, []
+    result = await db.execute(
+        select(BomItem).where(BomItem.bom_revision_id == rev.id).order_by(BomItem.item_no, BomItem.id)
+    )
+    items = list(result.scalars().all())
+    return bom, rev, items
+
+
+async def list_bom_revisiones(db: AsyncSession, bom_id: int, limit: int = 100) -> List[BomRevision]:
+    """Lista el historial de revisiones de un BOM (por bom_id)."""
+    result = await db.execute(
+        select(BomRevision).where(BomRevision.bom_id == bom_id).order_by(desc(BomRevision.revision_no)).limit(limit)
+    )
+    return list(result.scalars().all())
+
+
+async def list_boms_where_componente(
+    db: AsyncSession,
+    componente_no: str,
+    limit: int = 200,
+) -> List[Dict[str, Any]]:
+    """
+    Lista los BOMs en los que aparece un componente (por número de parte).
+    Retorna lista de dict con bom_id, parte_no (padre), plant, usage, alternative, revision_no, vigente.
+    """
+    parte = await get_parte_by_numero(db, componente_no)
+    if not parte:
+        return []
+    # Items que usan este componente; join a revision y bom y parte (padre)
+    result = await db.execute(
+        select(BomItem, BomRevision, Bom, Parte)
+        .join(BomRevision, BomItem.bom_revision_id == BomRevision.id)
+        .join(Bom, BomRevision.bom_id == Bom.id)
+        .join(Parte, Bom.parte_id == Parte.id)
+        .where(BomItem.componente_id == parte.id)
+        .order_by(Bom.id, desc(BomRevision.revision_no))
+        .limit(limit)
+    )
+    rows = result.all()
+    seen = set()
+    out = []
+    for item, rev, bom, parte_padre in rows:
+        key = (bom.id, rev.id)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({
+            "bom_id": bom.id,
+            "parte_no": parte_padre.numero_parte,
+            "plant": bom.plant,
+            "usage": bom.usage,
+            "alternative": bom.alternative,
+            "revision_no": rev.revision_no,
+            "vigente": rev.effective_to is None,
+        })
+    return out
+
+
+async def get_bom_revision_with_items(db: AsyncSession, revision_id: int):
+    """Obtiene una revisión y sus items (para comparar dos revisiones)."""
+    result = await db.execute(
+        select(BomRevision).where(BomRevision.id == revision_id)
+    )
+    rev = result.scalar_one_or_none()
+    if not rev:
+        return None, []
+    result2 = await db.execute(
+        select(BomItem).where(BomItem.bom_revision_id == revision_id).order_by(BomItem.item_no, BomItem.id)
+    )
+    items = list(result2.scalars().all())
+    return rev, items
 
 
 # ==================== CRUD para BomFlat ====================

@@ -1,5 +1,5 @@
 """Modelos de base de datos."""
-from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Boolean, ForeignKey, Text, Enum as SQLEnum, Numeric, Index, UniqueConstraint, CheckConstraint, Date, TypeDecorator
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Boolean, ForeignKey, Text, Enum as SQLEnum, Numeric, Index, UniqueConstraint, CheckConstraint, Date, TypeDecorator, text
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
@@ -21,6 +21,106 @@ class CodigoProveedorInt(TypeDecorator):
         if value is None:
             return None
         return value
+
+
+class Parte(Base):
+    """Modelo para partes (número de parte único con descripción)."""
+    __tablename__ = "partes"
+
+    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    numero_parte = Column(Text, nullable=False, unique=True, index=True)
+    descripcion = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relación con BOMs
+    boms = relationship("Bom", back_populates="parte")
+
+    def __repr__(self):
+        return f"<Parte(id={self.id}, numero_parte={self.numero_parte})>"
+
+
+class Bom(Base):
+    """Modelo para BOM (Bill of Materials): cabecera por parte, plant, usage, alternative."""
+    __tablename__ = "bom"
+
+    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    parte_id = Column(BigInteger, ForeignKey("partes.id"), nullable=False)
+    plant = Column(Text, nullable=False)
+    usage = Column(Text, nullable=False)
+    alternative = Column(Text, nullable=False)
+    base_qty = Column(Numeric, nullable=True)
+    reqd_qty = Column(Numeric, nullable=True)
+    base_unit = Column(Text, nullable=True)
+    detalle = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    parte = relationship("Parte", back_populates="boms")
+    revisions = relationship("BomRevision", back_populates="bom", passive_deletes=True)
+
+    __table_args__ = (
+        UniqueConstraint("parte_id", "plant", "usage", "alternative", name="uq_bom_parte_plant_usage_alternative"),
+        # Índice ix_bom_parte_id se crea solo en la migración (CREATE INDEX IF NOT EXISTS) para evitar DuplicateTableError en init_db()
+    )
+
+    def __repr__(self):
+        return f"<Bom(id={self.id}, parte_id={self.parte_id}, plant={self.plant}, usage={self.usage}, alternative={self.alternative})>"
+
+
+class BomRevision(Base):
+    """Historial de revisiones de BOM (snapshot por cada cambio)."""
+    __tablename__ = "bom_revision"
+
+    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    bom_id = Column(BigInteger, ForeignKey("bom.id", ondelete="CASCADE"), nullable=False)
+    revision_no = Column(Integer, nullable=False)
+    effective_from = Column(Date, nullable=False)
+    effective_to = Column(Date, nullable=True)
+    source = Column(Text, nullable=True)
+    hash = Column(Text, nullable=False)
+    detalle = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    bom = relationship("Bom", back_populates="revisions")
+    items = relationship("BomItem", back_populates="bom_revision", passive_deletes=True)
+
+    __table_args__ = (
+        UniqueConstraint("bom_id", "revision_no", name="uq_bom_revision_bom_revision_no"),
+        CheckConstraint(
+            "effective_to IS NULL OR effective_to > effective_from",
+            name="ck_bom_revision_effective_dates",
+        ),
+        # Índices ix_bom_revision_current e ix_bom_revision_bom_id se crean en la migración
+    )
+
+    def __repr__(self):
+        return f"<BomRevision(id={self.id}, bom_id={self.bom_id}, revision_no={self.revision_no})>"
+
+
+class BomItem(Base):
+    """Items (componentes) por revisión de BOM."""
+    __tablename__ = "bom_item"
+
+    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    bom_revision_id = Column(BigInteger, ForeignKey("bom_revision.id", ondelete="CASCADE"), nullable=False)
+    componente_id = Column(BigInteger, ForeignKey("partes.id"), nullable=False)
+    item_no = Column(Text, nullable=True)
+    qty = Column(Numeric, nullable=False)
+    measure = Column(Text, nullable=True)
+    origin = Column(Text, nullable=True)
+    detalle = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    bom_revision = relationship("BomRevision", back_populates="items")
+    componente = relationship("Parte", foreign_keys=[componente_id])
+
+    __table_args__ = (
+        UniqueConstraint("bom_revision_id", "componente_id", name="ux_bom_item_unique_component"),
+        # Índices ix_bom_item_revision e ix_bom_item_componente se crean en la migración
+    )
+
+    def __repr__(self):
+        return f"<BomItem(id={self.id}, bom_revision_id={self.bom_revision_id}, componente_id={self.componente_id})>"
 
 
 class User(Base):

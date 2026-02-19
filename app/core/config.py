@@ -32,6 +32,11 @@ class Settings:
     ADMIN_PASSWORD: Optional[str] = os.getenv("ADMIN_PASSWORD")
     ADMIN_NAME: str = os.getenv("ADMIN_NAME", "Administrador")
 
+    # BOM actualización desde SAP (script VBS)
+    BOM_VBS_PATH: Optional[str] = os.getenv("BOM_VBS_PATH")  # ruta a bom.vbs; si vacío, se usa proyecto/bom.vbs
+    BOM_EXPORT_DIR: Optional[str] = os.getenv("BOM_EXPORT_DIR")  # carpeta donde SAP guarda los .txt; debe existir
+    BOM_VBS_TIMEOUT_SEC: int = int(os.getenv("BOM_VBS_TIMEOUT_SEC", "90"))  # tiempo máximo por cada parte
+
 
 settings = Settings()
 

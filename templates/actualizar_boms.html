@@ -1,0 +1,152 @@
+{% extends "base.html" %} {% block content %}
+<div class="space-y-6">
+  <!-- Header -->
+  <div class="flex flex-wrap items-center justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-semibold text-gray-900">Actualizar BOMs</h1>
+      <p class="mt-1 text-sm text-gray-600">
+        Ejecuta el script SAP (bom.vbs) por cada número de parte, descarga el BOM y actualiza la base de datos.
+      </p>
+    </div>
+    <div class="flex items-center gap-3">
+      <label class="flex items-center gap-2 text-sm text-gray-600">
+        <span>Límite (opcional):</span>
+        <input type="number" id="bom-limit" min="1" placeholder="Todas" class="rounded-md border border-gray-300 px-2 py-1.5 text-sm w-24" />
+      </label>
+      <button type="button" id="btn-actualizar-boms" class="shrink-0 rounded-md bg-[#003D89] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#003D89] disabled:opacity-50">
+        Actualizar
+      </button>
+    </div>
+  </div>
+
+  <!-- Estado / resultado -->
+  <div id="bom-estado" class="hidden rounded-lg bg-white p-4 shadow-sm">
+    <p id="bom-estado-texto" class="text-gray-600"></p>
+  </div>
+  <div id="bom-resultado" class="hidden rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+    <h3 class="text-lg font-semibold text-gray-900">Resumen de la actualización</h3>
+    <dl class="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-5">
+      <div>
+        <dt class="text-sm text-gray-500">Total partes</dt>
+        <dd id="res-total" class="text-2xl font-semibold text-gray-900">0</dd>
+      </div>
+      <div>
+        <dt class="text-sm text-gray-500">Procesados</dt>
+        <dd id="res-procesados" class="text-2xl font-semibold text-green-700">0</dd>
+      </div>
+      <div>
+        <dt class="text-sm text-gray-500">Con cambios</dt>
+        <dd id="res-con-cambios" class="text-2xl font-semibold text-blue-700">0</dd>
+      </div>
+      <div>
+        <dt class="text-sm text-gray-500">Sin cambios</dt>
+        <dd id="res-sin-cambios" class="text-2xl font-semibold text-gray-600">0</dd>
+      </div>
+      <div>
+        <dt class="text-sm text-gray-500">Errores</dt>
+        <dd id="res-errores" class="text-2xl font-semibold text-red-700">0</dd>
+      </div>
+    </dl>
+    <p id="res-mensaje" class="mt-2 text-sm text-gray-600"></p>
+    <details class="mt-4">
+      <summary class="cursor-pointer text-sm font-medium text-[#003D89] hover:underline">Ver detalle por parte</summary>
+      <div class="mt-2 max-h-64 overflow-y-auto rounded border border-gray-200 p-2 text-sm">
+        <table class="min-w-full">
+          <thead>
+            <tr class="border-b text-left text-gray-500">
+              <th class="py-1 pr-4">Nº parte</th>
+              <th class="py-1 pr-4">Estado</th>
+              <th class="py-1">Mensaje</th>
+            </tr>
+          </thead>
+          <tbody id="res-detalle"></tbody>
+        </table>
+      </div>
+    </details>
+  </div>
+
+  <!-- Tarjetas de estadísticas -->
+  <dl class="grid grid-cols-1 gap-5 sm:grid-cols-2">
+    <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
+      <dt class="truncate text-sm font-medium text-gray-500">Cantidad de números de parte</dt>
+      <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900">{{ "{:,}".format(cantidad_numeros_parte) }}</dd>
+    </div>
+    <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
+      <dt class="truncate text-sm font-medium text-gray-500">Última actualización</dt>
+      <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900">{{ ultima_actualizacion }}</dd>
+    </div>
+  </dl>
+
+  <!-- Ayuda -->
+  <div class="rounded-lg bg-white p-6 shadow-sm">
+    <h3 class="text-sm font-semibold text-gray-900">Requisitos</h3>
+    <ul class="mt-2 list-inside list-disc text-sm text-gray-600">
+      <li>Windows con SAP GUI instalado y sesión abierta.</li>
+      <li>Variable de entorno <code class="rounded bg-gray-100 px-1">BOM_EXPORT_DIR</code> con la carpeta donde SAP guardará los .txt.</li>
+      <li>Opcional: <code class="rounded bg-gray-100 px-1">BOM_VBS_PATH</code> (ruta a bom.vbs) y <code class="rounded bg-gray-100 px-1">BOM_VBS_TIMEOUT_SEC</code> (segundos por parte).</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+(function() {
+  const btn = document.getElementById('btn-actualizar-boms');
+  const estado = document.getElementById('bom-estado');
+  const estadoTexto = document.getElementById('bom-estado-texto');
+  const resultado = document.getElementById('bom-resultado');
+  const limitInput = document.getElementById('bom-limit');
+
+  btn.addEventListener('click', async function() {
+    btn.disabled = true;
+    estado.classList.remove('hidden');
+    resultado.classList.add('hidden');
+    estadoTexto.textContent = 'Ejecutando actualización (puede tardar varios minutos)...';
+    estado.classList.add('bg-blue-50');
+    estado.classList.remove('bg-red-50');
+
+    const limit = limitInput.value.trim() ? parseInt(limitInput.value, 10) : null;
+    const url = limit != null && limit > 0
+      ? '/api/actualizar-boms/ejecutar-actualizacion?limit=' + limit
+      : '/api/actualizar-boms/ejecutar-actualizacion';
+
+    try {
+      const res = await fetch(url, { method: 'POST', credentials: 'same-origin' });
+      const data = await res.json().catch(function() { return {}; });
+
+      if (!res.ok) {
+        estadoTexto.textContent = data.mensaje || 'Error al ejecutar la actualización.';
+        estado.classList.add('bg-red-50');
+        estado.classList.remove('bg-blue-50');
+        btn.disabled = false;
+        return;
+      }
+
+      estado.classList.add('hidden');
+      resultado.classList.remove('hidden');
+      document.getElementById('res-total').textContent = data.total ?? 0;
+      document.getElementById('res-procesados').textContent = data.procesados ?? 0;
+      document.getElementById('res-con-cambios').textContent = data.con_cambios ?? 0;
+      document.getElementById('res-sin-cambios').textContent = data.sin_cambios ?? 0;
+      document.getElementById('res-errores').textContent = data.errores ?? 0;
+      document.getElementById('res-mensaje').textContent = data.mensaje || '';
+
+      const tbody = document.getElementById('res-detalle');
+      tbody.innerHTML = '';
+      (data.detalle || []).forEach(function(row) {
+        const tr = document.createElement('tr');
+        tr.className = 'border-b border-gray-100';
+        tr.innerHTML = '<td class="py-1 pr-4 font-mono text-gray-800">' + (row.parte_no || '') + '</td>' +
+          '<td class="py-1 pr-4">' + (row.estado || '') + '</td>' +
+          '<td class="py-1 text-gray-600">' + (row.mensaje || '') + '</td>';
+        tbody.appendChild(tr);
+      });
+    } catch (e) {
+      estadoTexto.textContent = 'Error de conexión: ' + e.message;
+      estado.classList.add('bg-red-50');
+      estado.classList.remove('bg-blue-50');
+    }
+    btn.disabled = false;
+  });
+})();
+</script>
+{% endblock %}

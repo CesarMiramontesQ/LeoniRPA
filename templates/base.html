@@ -352,6 +352,28 @@ class="size-6 shrink-0 {% if active_page in ['carga_proveedor', 'carga_cliente',
                           BOMs
                         </a>
                       </li>
+                      <li>
+                        <a
+                          href="/actualizar-boms"
+                          class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page == 'actualizar_boms' %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke-width="1.5"
+                            stroke="currentColor"
+                            class="size-6 shrink-0 {% if active_page == 'actualizar_boms' %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"
+                            />
+                          </svg>
+                          Actualizar BOMs
+                        </a>
+                      </li>
                       {% if current_user and current_user.rol == 'admin' %}
                       <li>
                         <a
@@ -696,6 +718,28 @@ class="size-6 shrink-0 {% if active_page in ['carga_proveedor', 'carga_cliente',
                       />
                     </svg>
                     BOMs
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href="/actualizar-boms"
+                    class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page == 'actualizar_boms' %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke-width="1.5"
+                      stroke="currentColor"
+                      class="size-6 shrink-0 {% if active_page == 'actualizar_boms' %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"
+                      />
+                    </svg>
+                    Actualizar BOMs
                   </a>
                 </li>
                 {% if current_user and current_user.rol == 'admin' %}
