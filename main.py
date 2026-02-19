@@ -489,14 +489,23 @@ async def api_ejecutar_actualizacion_boms(
         estado = "error"
         mensaje = ""
         try:
-            # Ejecutar cscript bom.vbs numero_parte export_dir (bloqueante → en thread)
-            await asyncio.to_thread(
+            # 1) Exportar desde SAP: ejecutar bom.vbs para este numero de parte (genera .txt)
+            result = await asyncio.to_thread(
                 subprocess.run,
                 ["cscript", "//nologo", str(vbs_path), numero_parte, export_dir],
                 capture_output=True,
                 timeout=timeout_sec,
                 cwd=str(vbs_path.parent),
+                text=True,
             )
+            # Si el script falló (p. ej. SAP no abierto o GetObject no encuentra SAPGUISERVER), mostrar salida
+            if result.returncode != 0:
+                err = (result.stderr or "").strip() or (result.stdout or "").strip()
+                estado = "error"
+                mensaje = f"El script VBS falló (código {result.returncode}). Asegúrate de tener SAP GUI abierto en esta misma sesión. Detalle: {err[:300]}"
+                errores += 1
+                detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
+                continue
             # Esperar a que aparezca el archivo (SAP puede tardar un poco)
             archivo = Path(export_dir) / f"{numero_parte}.txt"
             for _ in range(15):
@@ -505,10 +514,11 @@ async def api_ejecutar_actualizacion_boms(
                     break
             if not archivo.is_file():
                 estado = "error"
-                mensaje = "No se generó el archivo .txt (¿SAP abierto y transacción CS13?)"
+                mensaje = "No se generó el archivo .txt. ¿SAP GUI está abierto en esta PC y la transacción CS13 terminó de exportar?"
                 errores += 1
                 detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
                 continue
+            # 2) Leer y parsear el .txt exportado por SAP
             contenido = archivo.read_text(encoding="utf-8", errors="replace")
             payload = parse_sap_bom_txt(contenido)
             if not payload:
@@ -517,6 +527,7 @@ async def api_ejecutar_actualizacion_boms(
                 errores += 1
                 detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
                 continue
+            # 3) Insertar/actualizar en BD (partes, bom, bom_revision, bom_item) ANTES de pasar al siguiente numero de parte
             resp = await load_bom(db, payload)
             procesados += 1
             if resp.sin_cambios:

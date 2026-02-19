@@ -34,7 +34,10 @@ class Settings:
 
     # BOM actualización desde SAP (script VBS)
     BOM_VBS_PATH: Optional[str] = os.getenv("BOM_VBS_PATH")  # ruta a bom.vbs; si vacío, se usa proyecto/bom.vbs
-    BOM_EXPORT_DIR: Optional[str] = os.getenv("BOM_EXPORT_DIR")  # carpeta donde SAP guarda los .txt; debe existir
+    BOM_EXPORT_DIR: Optional[str] = os.getenv(
+        "BOM_EXPORT_DIR",
+        r"C:\Users\anad5004\Documents\Leoni_RPA\bom",
+    )  # carpeta donde SAP guarda los .txt; debe existir
     BOM_VBS_TIMEOUT_SEC: int = int(os.getenv("BOM_VBS_TIMEOUT_SEC", "90"))  # tiempo máximo por cada parte
 
 

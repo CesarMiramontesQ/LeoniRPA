@@ -81,10 +81,12 @@
   <div class="rounded-lg bg-white p-6 shadow-sm">
     <h3 class="text-sm font-semibold text-gray-900">Requisitos</h3>
     <ul class="mt-2 list-inside list-disc text-sm text-gray-600">
-      <li>Windows con SAP GUI instalado y sesión abierta.</li>
-      <li>Variable de entorno <code class="rounded bg-gray-100 px-1">BOM_EXPORT_DIR</code> con la carpeta donde SAP guardará los .txt.</li>
+      <li><strong>La aplicación (uvicorn) debe estar corriendo en la misma PC y la misma sesión de Windows donde tienes SAP GUI abierto.</strong> Si el servidor corre en otro equipo, el script no podrá conectar con SAP.</li>
+      <li>SAP GUI instalado, con una sesión abierta (el script usa la primera ventana disponible).</li>
+      <li>Carpeta de exportación configurada (<code class="rounded bg-gray-100 px-1">BOM_EXPORT_DIR</code> o la ruta por defecto). Debe existir en disco.</li>
       <li>Opcional: <code class="rounded bg-gray-100 px-1">BOM_VBS_PATH</code> (ruta a bom.vbs) y <code class="rounded bg-gray-100 px-1">BOM_VBS_TIMEOUT_SEC</code> (segundos por parte).</li>
     </ul>
+    <p class="mt-2 text-sm text-amber-700">Si al pulsar Actualizar no pasa nada en SAP, revisa el detalle por parte al finalizar: ahí aparecerá el error del script (p. ej. &quot;ActiveX component can't create object&quot; si SAP no está accesible).</p>
   </div>
 </div>
 
