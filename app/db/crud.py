@@ -477,12 +477,24 @@ async def get_parte_by_numero(db: AsyncSession, numero_parte: str) -> Optional[P
 
 
 async def list_partes_numeros(db: AsyncSession, limit: Optional[int] = None) -> List[str]:
-    """Lista todos los numero_parte de la tabla partes (para actualizar BOMs)."""
-    query = select(Parte.numero_parte).order_by(Parte.numero_parte)
+    """Lista los numero_parte de partes que tienen valido=True (para actualizar BOMs)."""
+    query = (
+        select(Parte.numero_parte)
+        .where(Parte.valido == True)
+        .order_by(Parte.numero_parte)
+    )
     if limit is not None:
         query = query.limit(limit)
     result = await db.execute(query)
     return [row[0] for row in result.all()]
+
+
+async def set_parte_valido(db: AsyncSession, numero_parte: str, valido: bool) -> None:
+    """Marca una parte como válida o no (p. ej. cuando SAP no encuentra el material). No hace commit."""
+    parte = await get_parte_by_numero(db, numero_parte)
+    if parte is not None:
+        parte.valido = valido
+        await db.flush()
 
 
 async def upsert_parte(db: AsyncSession, numero_parte: str, descripcion: Optional[str] = None) -> Parte:

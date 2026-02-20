@@ -20,6 +20,7 @@ from app.core.config import settings
 import threading
 import asyncio
 import subprocess
+import json
 from pathlib import Path
 import sys
 import socket
@@ -498,11 +499,13 @@ async def api_ejecutar_actualizacion_boms(
                 cwd=str(vbs_path.parent),
                 text=True,
             )
-            # Si el script falló (p. ej. SAP no abierto o GetObject no encuentra SAPGUISERVER), mostrar salida
+            # Si el script falló (p. ej. material no encontrado en SAP, o SAP no abierto), marcar parte como no válida y continuar
             if result.returncode != 0:
                 err = (result.stderr or "").strip() or (result.stdout or "").strip()
                 estado = "error"
                 mensaje = f"El script VBS falló (código {result.returncode}). Asegúrate de tener SAP GUI abierto en esta misma sesión. Detalle: {err[:300]}"
+                await crud.set_parte_valido(db, numero_parte, False)
+                await db.commit()
                 errores += 1
                 detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
                 continue
@@ -563,6 +566,126 @@ async def api_ejecutar_actualizacion_boms(
         "errores": errores,
         "detalle": detalle,
     }
+
+
+@app.post("/api/actualizar-boms/ejecutar-actualizacion-stream")
+async def api_ejecutar_actualizacion_boms_stream(
+    limit: Optional[int] = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Igual que ejecutar-actualizacion pero devuelve un stream NDJSON: un evento por cada
+    numero de parte procesado, para ver en tiempo real si se inserto u omitio.
+    """
+    vbs_path = Path(settings.BOM_VBS_PATH or str(Path(__file__).resolve().parent / "bom.vbs")).resolve()
+    export_dir_raw = settings.BOM_EXPORT_DIR or ""
+    export_dir = str(Path(export_dir_raw).resolve()) if export_dir_raw else ""
+    timeout_sec = settings.BOM_VBS_TIMEOUT_SEC
+
+    async def generate():
+        if not export_dir_raw or not Path(export_dir).is_dir():
+            yield json.dumps({"tipo": "error", "mensaje": "Configura BOM_EXPORT_DIR y asegúrate de que la carpeta exista."}) + "\n"
+            return
+        if platform.system() != "Windows":
+            yield json.dumps({"tipo": "error", "mensaje": "Solo soportado en Windows."}) + "\n"
+            return
+        part_numbers = await crud.list_partes_numeros(db, limit=limit)
+        total = len(part_numbers)
+        procesados = 0
+        con_cambios = 0
+        sin_cambios = 0
+        errores = 0
+        detalle = []
+        yield json.dumps({"tipo": "inicio", "total": total}) + "\n"
+        for numero_parte in part_numbers:
+            estado = "error"
+            mensaje = ""
+            items_insertados = None
+            try:
+                result = await asyncio.to_thread(
+                    subprocess.run,
+                    ["cscript", "//nologo", str(vbs_path), numero_parte, export_dir],
+                    capture_output=True,
+                    timeout=timeout_sec,
+                    cwd=str(vbs_path.parent),
+                    text=True,
+                )
+                if result.returncode != 0:
+                    err = (result.stderr or "").strip() or (result.stdout or "").strip()
+                    estado = "error"
+                    mensaje = f"Script VBS falló: {err[:200]}"
+                    await crud.set_parte_valido(db, numero_parte, False)
+                    await db.commit()
+                    errores += 1
+                    detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
+                    yield json.dumps({"tipo": "parte", "parte_no": numero_parte, "estado": estado, "mensaje": mensaje, "items_insertados": None}) + "\n"
+                    continue
+                archivo = Path(export_dir) / f"{numero_parte}.txt"
+                for _ in range(15):
+                    await asyncio.sleep(1)
+                    if archivo.is_file():
+                        break
+                if not archivo.is_file():
+                    estado = "error"
+                    mensaje = "No se generó el archivo .txt"
+                    errores += 1
+                    detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
+                    yield json.dumps({"tipo": "parte", "parte_no": numero_parte, "estado": estado, "mensaje": mensaje, "items_insertados": None}) + "\n"
+                    continue
+                contenido = archivo.read_text(encoding="utf-8", errors="replace")
+                payload = parse_sap_bom_txt(contenido)
+                if not payload:
+                    estado = "error"
+                    mensaje = "No se pudo parsear el archivo"
+                    errores += 1
+                    detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
+                    yield json.dumps({"tipo": "parte", "parte_no": numero_parte, "estado": estado, "mensaje": mensaje, "items_insertados": None}) + "\n"
+                    continue
+                resp = await load_bom(db, payload)
+                procesados += 1
+                items_insertados = getattr(resp, "items_insertados", None) or 0
+                if resp.sin_cambios:
+                    sin_cambios += 1
+                    estado = "sin_cambios"
+                    mensaje = resp.mensaje
+                elif resp.ok:
+                    con_cambios += 1
+                    estado = "actualizado"
+                    mensaje = resp.mensaje
+                else:
+                    errores += 1
+                    estado = "error"
+                    mensaje = resp.mensaje
+                detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
+                yield json.dumps({"tipo": "parte", "parte_no": numero_parte, "estado": estado, "mensaje": mensaje, "items_insertados": items_insertados}) + "\n"
+            except subprocess.TimeoutExpired:
+                errores += 1
+                estado = "error"
+                mensaje = f"Timeout ({timeout_sec}s)"
+                detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
+                yield json.dumps({"tipo": "parte", "parte_no": numero_parte, "estado": estado, "mensaje": mensaje, "items_insertados": None}) + "\n"
+            except Exception as e:
+                errores += 1
+                estado = "error"
+                mensaje = str(e)
+                detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
+                yield json.dumps({"tipo": "parte", "parte_no": numero_parte, "estado": estado, "mensaje": mensaje, "items_insertados": None}) + "\n"
+        yield json.dumps({
+            "tipo": "fin",
+            "total": total,
+            "procesados": procesados,
+            "con_cambios": con_cambios,
+            "sin_cambios": sin_cambios,
+            "errores": errores,
+            "detalle": detalle,
+        }) + "\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/api/actualizar-boms/bom-vigente")

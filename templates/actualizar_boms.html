@@ -16,12 +16,19 @@
       <button type="button" id="btn-actualizar-boms" class="shrink-0 rounded-md bg-[#003D89] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#003D89] disabled:opacity-50">
         Actualizar
       </button>
+      <button type="button" id="btn-parar-boms" class="hidden shrink-0 rounded-md border border-red-600 bg-white px-4 py-2 text-sm font-semibold text-red-600 shadow-sm hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600">
+        Parar
+      </button>
     </div>
   </div>
 
   <!-- Estado / resultado -->
   <div id="bom-estado" class="hidden rounded-lg bg-white p-4 shadow-sm">
     <p id="bom-estado-texto" class="text-gray-600"></p>
+    <div id="bom-progreso" class="mt-3 hidden">
+      <p class="text-sm text-gray-500">Progreso: <span id="bom-progreso-n">0</span> / <span id="bom-progreso-total">0</span> — <span id="bom-progreso-con">0</span> insertados, <span id="bom-progreso-sin">0</span> sin cambios, <span id="bom-progreso-err">0</span> errores</p>
+      <div id="bom-log" class="mt-2 max-h-48 overflow-y-auto rounded border border-gray-200 bg-gray-50 p-2 font-mono text-xs"></div>
+    </div>
   </div>
   <div id="bom-resultado" class="hidden rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
     <h3 class="text-lg font-semibold text-gray-900">Resumen de la actualización</h3>
@@ -93,61 +100,149 @@
 <script>
 (function() {
   const btn = document.getElementById('btn-actualizar-boms');
+  const btnParar = document.getElementById('btn-parar-boms');
   const estado = document.getElementById('bom-estado');
   const estadoTexto = document.getElementById('bom-estado-texto');
   const resultado = document.getElementById('bom-resultado');
   const limitInput = document.getElementById('bom-limit');
+  const progresoDiv = document.getElementById('bom-progreso');
+  const logDiv = document.getElementById('bom-log');
+  const progN = document.getElementById('bom-progreso-n');
+  const progTotal = document.getElementById('bom-progreso-total');
+  const progCon = document.getElementById('bom-progreso-con');
+  const progSin = document.getElementById('bom-progreso-sin');
+  const progErr = document.getElementById('bom-progreso-err');
+  let abortController = null;
+
+  function addLog(line, clase) {
+    const p = document.createElement('p');
+    p.className = clase || 'text-gray-700';
+    p.textContent = line;
+    logDiv.appendChild(p);
+    logDiv.scrollTop = logDiv.scrollHeight;
+  }
 
   btn.addEventListener('click', async function() {
+    abortController = new AbortController();
     btn.disabled = true;
+    btnParar.classList.remove('hidden');
     estado.classList.remove('hidden');
     resultado.classList.add('hidden');
-    estadoTexto.textContent = 'Ejecutando actualización (puede tardar varios minutos)...';
+    progresoDiv.classList.add('hidden');
+    logDiv.innerHTML = '';
+    estadoTexto.textContent = 'Ejecutando actualización (verás cada registro en tiempo real)...';
     estado.classList.add('bg-blue-50');
     estado.classList.remove('bg-red-50');
 
     const limit = limitInput.value.trim() ? parseInt(limitInput.value, 10) : null;
     const url = limit != null && limit > 0
-      ? '/api/actualizar-boms/ejecutar-actualizacion?limit=' + limit
-      : '/api/actualizar-boms/ejecutar-actualizacion';
+      ? '/api/actualizar-boms/ejecutar-actualizacion-stream?limit=' + limit
+      : '/api/actualizar-boms/ejecutar-actualizacion-stream';
+
+    let con = 0, sin = 0, err = 0, n = 0, total = 0;
+
+    function finProceso() {
+      btn.disabled = false;
+      btnParar.classList.add('hidden');
+      abortController = null;
+    }
 
     try {
-      const res = await fetch(url, { method: 'POST', credentials: 'same-origin' });
-      const data = await res.json().catch(function() { return {}; });
-
+      const res = await fetch(url, { method: 'POST', credentials: 'same-origin', signal: abortController.signal });
       if (!res.ok) {
+        const data = await res.json().catch(function() { return {}; });
         estadoTexto.textContent = data.mensaje || 'Error al ejecutar la actualización.';
         estado.classList.add('bg-red-50');
         estado.classList.remove('bg-blue-50');
-        btn.disabled = false;
+        finProceso();
         return;
       }
+      progresoDiv.classList.remove('hidden');
+      progTotal.textContent = '?';
 
-      estado.classList.add('hidden');
-      resultado.classList.remove('hidden');
-      document.getElementById('res-total').textContent = data.total ?? 0;
-      document.getElementById('res-procesados').textContent = data.procesados ?? 0;
-      document.getElementById('res-con-cambios').textContent = data.con_cambios ?? 0;
-      document.getElementById('res-sin-cambios').textContent = data.sin_cambios ?? 0;
-      document.getElementById('res-errores').textContent = data.errores ?? 0;
-      document.getElementById('res-mensaje').textContent = data.mensaje || '';
-
-      const tbody = document.getElementById('res-detalle');
-      tbody.innerHTML = '';
-      (data.detalle || []).forEach(function(row) {
-        const tr = document.createElement('tr');
-        tr.className = 'border-b border-gray-100';
-        tr.innerHTML = '<td class="py-1 pr-4 font-mono text-gray-800">' + (row.parte_no || '') + '</td>' +
-          '<td class="py-1 pr-4">' + (row.estado || '') + '</td>' +
-          '<td class="py-1 text-gray-600">' + (row.mensaje || '') + '</td>';
-        tbody.appendChild(tr);
-      });
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        var chunk = await reader.read();
+        if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true });
+        var lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (var i = 0; i < lines.length; i++) {
+          var line = lines[i].trim();
+          if (!line) continue;
+          try {
+            var data = JSON.parse(line);
+            if (data.tipo === 'error') {
+              estadoTexto.textContent = data.mensaje || 'Error';
+              estado.classList.add('bg-red-50');
+              break;
+            }
+            if (data.tipo === 'inicio') {
+              total = data.total || 0;
+              progTotal.textContent = total;
+              addLog('Total a procesar: ' + total, 'text-gray-600');
+              continue;
+            }
+            if (data.tipo === 'parte') {
+              n++;
+              progN.textContent = n;
+              if (data.estado === 'actualizado') {
+                con++;
+                progCon.textContent = con;
+                addLog(data.parte_no + ' — Insertado en BD (' + (data.items_insertados != null ? data.items_insertados + ' items' : '') + ')', 'text-green-700');
+              } else if (data.estado === 'sin_cambios') {
+                sin++;
+                progSin.textContent = sin;
+                addLog(data.parte_no + ' — Ya existía (omitido)', 'text-gray-600');
+              } else {
+                err++;
+                progErr.textContent = err;
+                addLog(data.parte_no + ' — Error: ' + (data.mensaje || ''), 'text-red-700');
+              }
+              continue;
+            }
+            if (data.tipo === 'fin') {
+              finProceso();
+              estado.classList.add('hidden');
+              resultado.classList.remove('hidden');
+              document.getElementById('res-total').textContent = data.total ?? 0;
+              document.getElementById('res-procesados').textContent = data.procesados ?? 0;
+              document.getElementById('res-con-cambios').textContent = data.con_cambios ?? 0;
+              document.getElementById('res-sin-cambios').textContent = data.sin_cambios ?? 0;
+              document.getElementById('res-errores').textContent = data.errores ?? 0;
+              document.getElementById('res-mensaje').textContent = 'Procesados ' + data.procesados + '/' + data.total + '; con cambios: ' + data.con_cambios + ', sin cambios: ' + data.sin_cambios + ', errores: ' + data.errores;
+              var tbody = document.getElementById('res-detalle');
+              tbody.innerHTML = '';
+              (data.detalle || []).forEach(function(row) {
+                var tr = document.createElement('tr');
+                tr.className = 'border-b border-gray-100';
+                tr.innerHTML = '<td class="py-1 pr-4 font-mono text-gray-800">' + (row.parte_no || '') + '</td><td class="py-1 pr-4">' + (row.estado || '') + '</td><td class="py-1 text-gray-600">' + (row.mensaje || '') + '</td>';
+                tbody.appendChild(tr);
+              });
+              break;
+            }
+          } catch (parseErr) {
+            addLog('Linea no JSON: ' + line.substring(0, 80), 'text-amber-700');
+          }
+        }
+      }
     } catch (e) {
-      estadoTexto.textContent = 'Error de conexión: ' + e.message;
+      if (e.name === 'AbortError') {
+        estadoTexto.textContent = 'Proceso detenido por el usuario.';
+        if (logDiv && logDiv.innerHTML) addLog('— Detenido.', 'text-amber-700');
+      } else {
+        estadoTexto.textContent = 'Error de conexión: ' + e.message;
+      }
       estado.classList.add('bg-red-50');
       estado.classList.remove('bg-blue-50');
+      finProceso();
     }
-    btn.disabled = false;
+  });
+
+  btnParar.addEventListener('click', function() {
+    if (abortController) abortController.abort();
   });
 })();
 </script>

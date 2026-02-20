@@ -507,6 +507,9 @@
   .max-h-32 {
     max-height: calc(var(--spacing) * 32);
   }
+  .max-h-48 {
+    max-height: calc(var(--spacing) * 48);
+  }
   .max-h-64 {
     max-height: calc(var(--spacing) * 64);
   }
@@ -1706,6 +1709,11 @@
   .focus-visible\:outline-indigo-600 {
     &:focus-visible {
       outline-color: var(--color-indigo-600);
+    }
+  }
+  .focus-visible\:outline-red-600 {
+    &:focus-visible {
+      outline-color: var(--color-red-600);
     }
   }
   .disabled\:cursor-not-allowed {
