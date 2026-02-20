@@ -477,10 +477,19 @@ async def get_parte_by_numero(db: AsyncSession, numero_parte: str) -> Optional[P
 
 
 async def list_partes_numeros(db: AsyncSession, limit: Optional[int] = None) -> List[str]:
-    """Lista los numero_parte de partes que tienen valido=True (para actualizar BOMs)."""
+    """Lista numero_parte pendientes de primera carga BOM: valido=True y sin revisiones."""
+    revision_exists = (
+        select(BomRevision.id)
+        .join(Bom, Bom.id == BomRevision.bom_id)
+        .where(Bom.parte_id == Parte.id)
+        .limit(1)
+    )
     query = (
         select(Parte.numero_parte)
-        .where(Parte.valido == True)
+        .where(
+            Parte.valido.is_(True),
+            ~revision_exists.exists(),
+        )
         .order_by(Parte.numero_parte)
     )
     if limit is not None:

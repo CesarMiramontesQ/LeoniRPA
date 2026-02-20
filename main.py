@@ -912,6 +912,162 @@ async def api_actualizar_boms_tablas(
     }
 
 
+@app.get("/api/actualizar-boms/partes")
+async def api_actualizar_boms_partes(
+    q: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Lista números de parte para vista resumen con contador de BOMs y revisiones."""
+    from sqlalchemy import select, func
+    from app.db.models import Parte, Bom, BomRevision
+
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    q = (q or "").strip()
+
+    bom_count_sq = (
+        select(func.count(Bom.id))
+        .where(Bom.parte_id == Parte.id)
+        .correlate(Parte)
+        .scalar_subquery()
+    )
+    rev_count_sq = (
+        select(func.count(BomRevision.id))
+        .select_from(BomRevision)
+        .join(Bom, Bom.id == BomRevision.bom_id)
+        .where(Bom.parte_id == Parte.id)
+        .correlate(Parte)
+        .scalar_subquery()
+    )
+
+    query = select(
+        Parte.numero_parte,
+        Parte.descripcion,
+        Parte.valido,
+        Parte.created_at,
+        bom_count_sq.label("total_boms"),
+        rev_count_sq.label("total_revisiones"),
+    )
+    count_query = select(func.count()).select_from(Parte)
+    if q:
+        like_q = f"%{q}%"
+        query = query.where(
+            Parte.numero_parte.ilike(like_q) | Parte.descripcion.ilike(like_q)
+        )
+        count_query = count_query.where(
+            Parte.numero_parte.ilike(like_q) | Parte.descripcion.ilike(like_q)
+        )
+
+    query = query.order_by(Parte.numero_parte).offset(offset).limit(limit)
+    result = await db.execute(query)
+    total_result = await db.execute(count_query)
+    total = total_result.scalar_one()
+
+    rows = []
+    for numero_parte, descripcion, valido, created_at, total_boms, total_revisiones in result.all():
+        rows.append({
+            "numero_parte": numero_parte,
+            "descripcion": descripcion,
+            "valido": bool(valido),
+            "created_at": created_at.isoformat() if created_at else None,
+            "total_boms": int(total_boms or 0),
+            "total_revisiones": int(total_revisiones or 0),
+        })
+
+    return {
+        "ok": True,
+        "q": q or None,
+        "limit": limit,
+        "offset": offset,
+        "total": int(total),
+        "rows": rows,
+    }
+
+
+@app.get("/api/actualizar-boms/parte-detalle")
+async def api_actualizar_boms_parte_detalle(
+    parte_no: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Devuelve BOM vigente e historial de revisiones para un número de parte."""
+    from sqlalchemy import select
+    from app.db.models import Parte, Bom, BomRevision, BomItem
+
+    parte_no = (parte_no or "").strip()
+    if not parte_no:
+        return JSONResponse(status_code=400, content={"ok": False, "mensaje": "parte_no es requerido"})
+
+    parte = await crud.get_parte_by_numero(db, parte_no)
+    if not parte:
+        return JSONResponse(status_code=404, content={"ok": False, "mensaje": "Número de parte no encontrado"})
+
+    boms_result = await db.execute(
+        select(Bom).where(Bom.parte_id == parte.id).order_by(Bom.updated_at.desc(), Bom.id.desc())
+    )
+    boms = list(boms_result.scalars().all())
+
+    elementos = []
+    historial = []
+
+    for bom in boms:
+        rev_vigente = await crud.get_current_bom_revision(db, bom.id)
+        if rev_vigente:
+            items_result = await db.execute(
+                select(BomItem, Parte)
+                .join(Parte, Parte.id == BomItem.componente_id)
+                .where(BomItem.bom_revision_id == rev_vigente.id)
+                .order_by(BomItem.item_no, BomItem.id)
+            )
+            for item, componente in items_result.all():
+                elementos.append({
+                    "bom_id": bom.id,
+                    "plant": bom.plant,
+                    "usage": bom.usage,
+                    "alternative": bom.alternative,
+                    "revision_no": rev_vigente.revision_no,
+                    "item_no": item.item_no,
+                    "componente_no": componente.numero_parte,
+                    "qty": float(item.qty) if item.qty is not None else None,
+                    "measure": item.measure,
+                    "origin": item.origin,
+                })
+
+        revisiones = await crud.list_bom_revisiones(db, bom.id, limit=200)
+        for rev in revisiones:
+            historial.append({
+                "bom_id": bom.id,
+                "plant": bom.plant,
+                "usage": bom.usage,
+                "alternative": bom.alternative,
+                "revision_no": rev.revision_no,
+                "effective_from": str(rev.effective_from) if rev.effective_from else None,
+                "effective_to": str(rev.effective_to) if rev.effective_to else None,
+                "vigente": rev.effective_to is None,
+                "source": rev.source,
+                "hash": rev.hash,
+                "created_at": rev.created_at.isoformat() if rev.created_at else None,
+            })
+
+    historial.sort(key=lambda x: ((x.get("created_at") or ""), x.get("revision_no") or 0), reverse=True)
+
+    return {
+        "ok": True,
+        "parte": {
+            "id": parte.id,
+            "numero_parte": parte.numero_parte,
+            "descripcion": parte.descripcion,
+            "valido": bool(parte.valido),
+            "created_at": parte.created_at.isoformat() if parte.created_at else None,
+        },
+        "elementos_bom": elementos,
+        "historial": historial,
+    }
+
+
 @app.get("/api/actualizar-boms/bom-vigente")
 async def api_bom_vigente(
     parte_no: str,
