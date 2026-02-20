@@ -1,6 +1,6 @@
 """Operaciones CRUD para usuarios, ejecuciones y BOM."""
 import json
-from sqlalchemy import select, desc, func, or_, String, text
+from sqlalchemy import select, desc, func, or_, String, text, delete, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -496,6 +496,30 @@ async def list_partes_numeros(db: AsyncSession, limit: Optional[int] = None) -> 
         query = query.limit(limit)
     result = await db.execute(query)
     return [row[0] for row in result.all()]
+
+
+async def reset_bom_para_reproceso(db: AsyncSession) -> Dict[str, int]:
+    """
+    Reinicia datos BOM para reprocesar desde cero sin borrar la tabla partes.
+    - Elimina bom (y por cascada bom_revision + bom_item).
+    - Reactiva partes (valido=true).
+    No hace commit.
+    """
+    total_bom = (await db.execute(select(func.count()).select_from(Bom))).scalar_one()
+    total_rev = (await db.execute(select(func.count()).select_from(BomRevision))).scalar_one()
+    total_items = (await db.execute(select(func.count()).select_from(BomItem))).scalar_one()
+    total_partes = (await db.execute(select(func.count()).select_from(Parte))).scalar_one()
+
+    await db.execute(delete(Bom))
+    await db.execute(update(Parte).values(valido=True))
+    await db.flush()
+
+    return {
+        "boms_eliminados": int(total_bom or 0),
+        "revisiones_eliminadas": int(total_rev or 0),
+        "items_eliminados": int(total_items or 0),
+        "partes_reactivadas": int(total_partes or 0),
+    }
 
 
 async def set_parte_valido(db: AsyncSession, numero_parte: str, valido: bool) -> None:

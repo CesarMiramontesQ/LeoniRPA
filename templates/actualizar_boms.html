@@ -16,6 +16,9 @@
       <button type="button" id="btn-actualizar-boms" class="shrink-0 rounded-md bg-[#003D89] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#003D89] disabled:opacity-50">
         Actualizar
       </button>
+      <button type="button" id="btn-reprocesar-boms" class="shrink-0 rounded-md border border-amber-600 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 shadow-sm hover:bg-amber-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 disabled:opacity-50">
+        Reprocesar todo desde 0
+      </button>
       <button type="button" id="btn-parar-boms" class="hidden shrink-0 rounded-md border border-red-600 bg-white px-4 py-2 text-sm font-semibold text-red-600 shadow-sm hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600">
         Parar
       </button>
@@ -206,6 +209,7 @@
 <script>
 (function() {
   const btn = document.getElementById('btn-actualizar-boms');
+  const btnReprocesar = document.getElementById('btn-reprocesar-boms');
   const btnParar = document.getElementById('btn-parar-boms');
   const estado = document.getElementById('bom-estado');
   const estadoTexto = document.getElementById('bom-estado-texto');
@@ -227,6 +231,7 @@
   const modalParteBackdrop = document.getElementById('modal-parte-backdrop');
   const modalParteCerrarBtn = document.getElementById('modal-parte-cerrar');
   let abortController = null;
+  let ejecutarResetAll = false;
 
   function addLog(line, clase) {
     const p = document.createElement('p');
@@ -359,6 +364,7 @@
   btn.addEventListener('click', async function() {
     abortController = new AbortController();
     btn.disabled = true;
+    btnReprocesar.disabled = true;
     btnParar.classList.remove('hidden');
     estado.classList.remove('hidden');
     resultado.classList.add('hidden');
@@ -368,15 +374,19 @@
     estado.classList.add('bg-blue-50');
     estado.classList.remove('bg-red-50');
 
+    const resetAll = ejecutarResetAll;
+    ejecutarResetAll = false;
     const limit = limitInput.value.trim() ? parseInt(limitInput.value, 10) : null;
-    const url = limit != null && limit > 0
-      ? '/api/actualizar-boms/ejecutar-actualizacion-stream?limit=' + limit
-      : '/api/actualizar-boms/ejecutar-actualizacion-stream';
+    const params = new URLSearchParams();
+    if (limit != null && limit > 0) params.set('limit', String(limit));
+    if (resetAll) params.set('reset_all', 'true');
+    const url = '/api/actualizar-boms/ejecutar-actualizacion-stream' + (params.toString() ? ('?' + params.toString()) : '');
 
     let con = 0, sin = 0, err = 0, n = 0, total = 0;
 
     function finProceso() {
       btn.disabled = false;
+      btnReprocesar.disabled = false;
       btnParar.classList.add('hidden');
       abortController = null;
     }
@@ -417,6 +427,10 @@
               total = data.total || 0;
               progTotal.textContent = total;
               addLog('Total a procesar: ' + total, 'text-gray-600');
+              continue;
+            }
+            if (data.tipo === 'reset') {
+              addLog(data.mensaje || 'Reproceso desde cero aplicado.', 'text-amber-700');
               continue;
             }
             if (data.tipo === 'parte_inicio') {
@@ -483,6 +497,13 @@
 
   btnParar.addEventListener('click', function() {
     if (abortController) abortController.abort();
+  });
+
+  btnReprocesar.addEventListener('click', function() {
+    const ok = window.confirm('Se reiniciará BOM/revisiones/items y se reactivarán todas las partes (no se borra la tabla partes). ¿Continuar?');
+    if (!ok) return;
+    ejecutarResetAll = true;
+    btn.click();
   });
 
   btnRecargarPartes.addEventListener('click', function() {

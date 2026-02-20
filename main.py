@@ -440,6 +440,7 @@ async def api_load_bom(
 @app.post("/api/actualizar-boms/ejecutar-actualizacion")
 async def api_ejecutar_actualizacion_boms(
     limit: Optional[int] = None,
+    reset_all: bool = False,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -481,6 +482,12 @@ async def api_ejecutar_actualizacion_boms(
                 "detalle": [],
             },
         )
+    reset_info = None
+    if reset_all:
+        reset_info = await crud.reset_bom_para_reproceso(db)
+        await db.commit()
+        logger.info("BOM reproceso desde cero solicitado: %s", reset_info)
+
     part_numbers = await crud.list_partes_numeros(db, limit=limit)
     total = len(part_numbers)
     procesados = 0
@@ -573,7 +580,7 @@ async def api_ejecutar_actualizacion_boms(
             estado = "error"
             mensaje = str(e)
             detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
-    return {
+    payload = {
         "ok": True,
         "mensaje": f"Procesados {procesados}/{total}; con cambios: {con_cambios}, sin cambios: {sin_cambios}, errores: {errores}",
         "total": total,
@@ -583,11 +590,15 @@ async def api_ejecutar_actualizacion_boms(
         "errores": errores,
         "detalle": detalle,
     }
+    if reset_info is not None:
+        payload["reset"] = reset_info
+    return payload
 
 
 @app.post("/api/actualizar-boms/ejecutar-actualizacion-stream")
 async def api_ejecutar_actualizacion_boms_stream(
     limit: Optional[int] = None,
+    reset_all: bool = False,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -607,6 +618,16 @@ async def api_ejecutar_actualizacion_boms_stream(
         if platform.system() != "Windows":
             yield json.dumps({"tipo": "error", "mensaje": "Solo soportado en Windows."}) + "\n"
             return
+        if reset_all:
+            reset_info = await crud.reset_bom_para_reproceso(db)
+            await db.commit()
+            logger.info("BOM stream reproceso desde cero: %s", reset_info)
+            yield json.dumps({
+                "tipo": "reset",
+                "mensaje": "Reproceso desde cero aplicado (se limpió BOM/revisiones/items y se reactivaron partes).",
+                "detalle": reset_info,
+            }) + "\n"
+
         part_numbers = await crud.list_partes_numeros(db, limit=limit)
         total = len(part_numbers)
         logger.info("BOM stream iniciado. Total partes=%s", total)
