@@ -835,6 +835,7 @@ async def api_actualizar_boms_tablas(
                 "item_no": i.item_no,
                 "qty": float(i.qty) if i.qty is not None else None,
                 "measure": i.measure,
+                "comm_code": i.comm_code,
                 "origin": i.origin,
                 "created_at": i.created_at.isoformat() if i.created_at else None,
             }
@@ -895,6 +896,7 @@ async def api_actualizar_boms_tablas(
                 "item_no": i.item_no,
                 "qty": float(i.qty) if i.qty is not None else None,
                 "measure": i.measure,
+                "comm_code": i.comm_code,
                 "origin": i.origin,
                 "created_at": i.created_at.isoformat() if i.created_at else None,
             }
@@ -1033,6 +1035,7 @@ async def api_actualizar_boms_parte_detalle(
                     "componente_no": componente.numero_parte,
                     "qty": float(item.qty) if item.qty is not None else None,
                     "measure": item.measure,
+                    "comm_code": item.comm_code,
                     "origin": item.origin,
                 })
 
@@ -1081,7 +1084,7 @@ async def api_bom_vigente(
     bom, rev, items = await crud.get_bom_vigente_by_parte(db, parte_no, plant, usage, alternative)
     if bom is None:
         return {"ok": False, "mensaje": "No existe BOM para esa parte/plant/usage/alternative", "bom": None, "revision": None, "items": []}
-    items_out = [{"id": i.id, "componente_id": i.componente_id, "item_no": i.item_no, "qty": float(i.qty), "measure": i.measure, "origin": i.origin} for i in items]
+    items_out = [{"id": i.id, "componente_id": i.componente_id, "item_no": i.item_no, "qty": float(i.qty), "measure": i.measure, "comm_code": i.comm_code, "origin": i.origin} for i in items]
     rev_out = {"id": rev.id, "bom_id": rev.bom_id, "revision_no": rev.revision_no, "effective_from": str(rev.effective_from), "effective_to": str(rev.effective_to) if rev.effective_to else None, "hash": rev.hash} if rev else None
     return {"ok": True, "bom": {"id": bom.id, "parte_id": bom.parte_id, "plant": bom.plant, "usage": bom.usage, "alternative": bom.alternative}, "revision": rev_out, "items": items_out}
 

@@ -108,6 +108,7 @@ class BomItem(Base):
     item_no = Column(Text, nullable=True)
     qty = Column(Numeric, nullable=False)
     measure = Column(Text, nullable=True)
+    comm_code = Column(Text, nullable=True)
     origin = Column(Text, nullable=True)
     detalle = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

@@ -12,6 +12,7 @@ class BomComponenteInput(BaseModel):
     measure: Optional[str] = None
     origin: Optional[str] = None
     item_no: Optional[str] = None
+    comm_code: Optional[str] = None
 
 
 class LoadBomInput(BaseModel):

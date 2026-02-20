@@ -19,13 +19,14 @@ def _compute_bom_hash(componentes_ordenados: List[Dict[str, Any]]) -> str:
     """
     if not componentes_ordenados:
         return hashlib.sha256(b"[]").hexdigest()
-    # Cada elemento: (componente_id, item_no, qty, measure, origin)
+    # Cada elemento: (componente_id, item_no, qty, measure, comm_code, origin)
     payload = [
         (
             c["componente_id"],
             c.get("item_no") or "",
             str(c["qty"]),
             c.get("measure") or "",
+            c.get("comm_code") or "",
             c.get("origin") or "",
         )
         for c in componentes_ordenados
@@ -80,6 +81,7 @@ async def load_bom(db: AsyncSession, payload: LoadBomInput) -> LoadBomResponse:
                 "item_no": c.item_no,
                 "qty": c.qty,
                 "measure": c.measure,
+                "comm_code": c.comm_code,
                 "origin": c.origin,
             }
             for c in payload.componentes

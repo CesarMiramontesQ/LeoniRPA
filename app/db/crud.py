@@ -636,7 +636,7 @@ async def insert_bom_items(
     bom_revision_id: int,
     items: List[Dict[str, Any]],
 ) -> int:
-    """Inserta items de una revisión. items: list of {componente_id, item_no, qty, measure, origin}."""
+    """Inserta items de una revisión. items: list of {componente_id, item_no, qty, measure, comm_code, origin}."""
     if not items:
         return 0
     for it in items:
@@ -646,6 +646,7 @@ async def insert_bom_items(
             item_no=it.get("item_no"),
             qty=it["qty"],
             measure=it.get("measure"),
+            comm_code=it.get("comm_code"),
             origin=it.get("origin"),
         )
         db.add(bi)

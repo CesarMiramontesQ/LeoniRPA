@@ -181,6 +181,18 @@ async def run_migration_bom_item():
     print("  ✓ Tabla 'bom_item' e índices creados o ya existían.")
 
 
+async def run_migration_bom_item_comm_code():
+    """Agrega la columna comm_code a bom_item."""
+    from app.db.base import engine
+    from sqlalchemy import text
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            ALTER TABLE bom_item
+            ADD COLUMN IF NOT EXISTS comm_code TEXT
+        """))
+    print("  ✓ Columna 'comm_code' agregada a bom_item (o ya existía).")
+
+
 async def main():
     from app.db.base import engine
 
@@ -190,40 +202,44 @@ async def main():
 
     try:
         # 1. Crear todas las tablas
-        print("\n[1/9] Creando tablas desde modelos...")
+        print("\n[1/10] Creando tablas desde modelos...")
         await run_init_db()
 
         # 2. Migración: enum EJECUCION
-        print("\n[2/9] Migración: enum carga_cliente_operacion_enum...")
+        print("\n[2/10] Migración: enum carga_cliente_operacion_enum...")
         await run_migration_add_ejecucion()
 
         # 3. Migración: columna escenario
-        print("\n[3/9] Migración: columna escenario en master_unificado_virtuales...")
+        print("\n[3/10] Migración: columna escenario en master_unificado_virtuales...")
         await run_migration_escenario()
 
         # 4. Migración: columna materialidad
-        print("\n[4/9] Migración: columna materialidad en master_unificado_virtuales...")
+        print("\n[4/10] Migración: columna materialidad en master_unificado_virtuales...")
         await run_migration_materialidad()
 
         # 5. Migración: tabla partes
-        print("\n[5/9] Migración: tabla partes...")
+        print("\n[5/10] Migración: tabla partes...")
         await run_migration_partes()
 
         # 6. Migración: tabla bom
-        print("\n[6/9] Migración: tabla bom...")
+        print("\n[6/10] Migración: tabla bom...")
         await run_migration_bom()
 
         # 7. Migración: tabla bom_revision
-        print("\n[7/9] Migración: tabla bom_revision...")
+        print("\n[7/10] Migración: tabla bom_revision...")
         await run_migration_bom_revision()
 
         # 8. Migración: tabla bom_item
-        print("\n[8/9] Migración: tabla bom_item...")
+        print("\n[8/10] Migración: tabla bom_item...")
         await run_migration_bom_item()
 
         # 9. Migración: columna valido en partes
-        print("\n[9/9] Migración: columna valido en partes...")
+        print("\n[9/10] Migración: columna valido en partes...")
         await run_migration_partes_valido()
+
+        # 10. Migración: columna comm_code en bom_item
+        print("\n[10/10] Migración: columna comm_code en bom_item...")
+        await run_migration_bom_item_comm_code()
 
         print("\n" + "=" * 60)
         print("Todas las migraciones se completaron correctamente.")

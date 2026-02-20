@@ -167,6 +167,7 @@
                     <th class="py-2 px-2">Componente</th>
                     <th class="py-2 px-2">Qty</th>
                     <th class="py-2 px-2">UOM</th>
+                    <th class="py-2 px-2">Comm. code</th>
                     <th class="py-2 px-2">Origen</th>
                   </tr>
                 </thead>
@@ -311,7 +312,7 @@
       const tbodyElementos = document.getElementById('modal-elementos-body');
       tbodyElementos.innerHTML = '';
       if (!data.elementos_bom || data.elementos_bom.length === 0) {
-        tbodyElementos.innerHTML = '<tr><td colspan="9" class="py-2 px-2 text-gray-400">Sin BOM vigente para esta parte.</td></tr>';
+        tbodyElementos.innerHTML = '<tr><td colspan="10" class="py-2 px-2 text-gray-400">Sin BOM vigente para esta parte.</td></tr>';
       } else {
         tbodyElementos.innerHTML = data.elementos_bom.map(function(it) {
           return '<tr class="border-b border-gray-100">' +
@@ -323,6 +324,7 @@
             '<td class="py-1 px-2 font-mono">' + esc(it.componente_no || '') + '</td>' +
             '<td class="py-1 px-2">' + esc(it.qty) + '</td>' +
             '<td class="py-1 px-2">' + esc(it.measure || '') + '</td>' +
+            '<td class="py-1 px-2">' + esc(it.comm_code || '') + '</td>' +
             '<td class="py-1 px-2">' + esc(it.origin || '') + '</td>' +
           '</tr>';
         }).join('');

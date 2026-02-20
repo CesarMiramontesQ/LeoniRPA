@@ -1,7 +1,8 @@
 """
 Parser del archivo de exportación SAP BOM (transacción CS13).
-Formato: cabecera con Material, Plant/Usage/Alt., Description, Base Qty, Reqd Qty;
-luego tabla pipe-delimited con Object ID, Object description, Item, Un, Quantity, Component.
+Formato esperado:
+- Cabecera: Material, Plant/Usage/Alt., Description, Base Qty, Reqd Qty.
+- Detalle: Object ID, Object description, Quantity (primera), Un (primera), Comm. code.
 """
 import re
 from decimal import Decimal
@@ -11,14 +12,28 @@ from app.bom.schemas import LoadBomInput, BomComponenteInput
 
 
 def _parse_european_number(s: str) -> Optional[Decimal]:
-    """Convierte número en formato europeo (1.000,000 o 1,175) a Decimal."""
+    """Convierte números en formato US/EU (ej. 1,000.000 / 1.000,000 / 0,082 / 6.382) a Decimal."""
     if not s or not s.strip():
         return None
     s = s.strip().replace(" ", "")
-    # Eliminar separador de miles (.) y usar (,) como decimal
-    s = s.replace(".", "").replace(",", ".")
+    normalized = s
+    if "," in s and "." in s:
+        # Si la coma aparece antes del punto: formato US (1,000.000)
+        # Si el punto aparece antes de la coma: formato EU (1.000,000)
+        if s.rfind(",") < s.rfind("."):
+            normalized = s.replace(",", "")
+        else:
+            normalized = s.replace(".", "").replace(",", ".")
+    elif "," in s:
+        # Miles con coma (1,000 o 12,345,678)
+        if re.fullmatch(r"\d{1,3}(,\d{3})+", s):
+            normalized = s.replace(",", "")
+        else:
+            normalized = s.replace(",", ".")
+    else:
+        normalized = s
     try:
-        return Decimal(s)
+        return Decimal(normalized)
     except Exception:
         return None
 
@@ -42,9 +57,13 @@ def _parse_header_columns(header_line: str) -> dict:
         elif key == "item":
             indices["item"] = i
         elif key == "un":
-            indices["un"] = i  # última Un gana (la del componente)
+            if "un" not in indices:
+                indices["un"] = i  # primera Un (la requerida)
         elif key == "quantity":
-            indices["quantity"] = i  # última Quantity (cantidad del componente)
+            if "quantity" not in indices:
+                indices["quantity"] = i  # primera Quantity (la requerida)
+        elif key in ("comm. code", "comm code"):
+            indices["comm_code"] = i
     return indices
 
 
@@ -73,8 +92,10 @@ def parse_sap_bom_txt(content: str) -> Optional[LoadBomInput]:
             m = re.match(r"Material\s+(.+)", line, re.IGNORECASE)
             if m:
                 parte_no = m.group(1).strip()
-        elif "Plant/Usage/Alt." in line or "Plant" in line:
-            m = re.search(r"(\w+)\s*/\s*(\w+)\s*/\s*(\w+)", line)
+        elif line.startswith("Plant/Usage/Alt.") or line.startswith("Plant/Usage/Alt"):
+            payload = line.split(":", 1)[-1].strip() if ":" in line else line
+            payload = re.sub(r"^Plant/Usage/Alt\.?\s*", "", payload, flags=re.IGNORECASE).strip()
+            m = re.search(r"([A-Za-z0-9]+)\s*/\s*([A-Za-z0-9]+)\s*/\s*([A-Za-z0-9]+)", payload)
             if m:
                 plant, usage, alternative = m.group(1).strip(), m.group(2).strip(), m.group(3).strip()
         elif line.startswith("Description"):
@@ -142,8 +163,8 @@ def parse_sap_bom_txt(content: str) -> Optional[LoadBomInput]:
         if not component_no:
             continue
         desc = (parts[col_map["object_description"]] if col_map.get("object_description") is not None else "").strip() or None
-        item_no = (parts[col_map["item"]] if col_map.get("item") is not None else "").strip() or None
         un = (parts[col_map["un"]] if col_map.get("un") is not None else "").strip() or None
+        comm_code = (parts[col_map["comm_code"]] if col_map.get("comm_code") is not None else "").strip() or None
         qty_str = (parts[col_map["quantity"]] if col_map.get("quantity") is not None else "").strip()
         qty = _parse_european_number(qty_str)
         if qty is None:
@@ -155,7 +176,8 @@ def parse_sap_bom_txt(content: str) -> Optional[LoadBomInput]:
                 qty=qty,
                 measure=un,
                 origin=None,
-                item_no=item_no,
+                item_no=None,
+                comm_code=comm_code,
             )
         )
 
