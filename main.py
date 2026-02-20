@@ -26,6 +26,7 @@ import sys
 import socket
 import platform
 import os
+import logging
 
 # Para manejo de zonas horarias
 try:
@@ -49,6 +50,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory="templates")
+logger = logging.getLogger("bom_update")
 
 # CORS: permite acceso desde otras máquinas en la red.
 # allow_origins=["*"] admite cualquier origen; en producción se puede restringir.
@@ -504,8 +506,13 @@ async def api_ejecutar_actualizacion_boms(
                 err = (result.stderr or "").strip() or (result.stdout or "").strip()
                 estado = "error"
                 mensaje = f"El script VBS falló (código {result.returncode}). Asegúrate de tener SAP GUI abierto en esta misma sesión. Detalle: {err[:300]}"
-                await crud.set_parte_valido(db, numero_parte, False)
-                await db.commit()
+                try:
+                    await crud.set_parte_valido(db, numero_parte, False)
+                    await db.commit()
+                    mensaje += " Se marcó la parte como no válida."
+                except Exception as mark_err:
+                    await db.rollback()
+                    mensaje += f" No se pudo actualizar 'valido': {str(mark_err)[:160]}"
                 errores += 1
                 detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
                 continue
@@ -518,6 +525,13 @@ async def api_ejecutar_actualizacion_boms(
             if not archivo.is_file():
                 estado = "error"
                 mensaje = "No se generó el archivo .txt. ¿SAP GUI está abierto en esta PC y la transacción CS13 terminó de exportar?"
+                try:
+                    await crud.set_parte_valido(db, numero_parte, False)
+                    await db.commit()
+                    mensaje += " Se marcó la parte como no válida."
+                except Exception as mark_err:
+                    await db.rollback()
+                    mensaje += f" No se pudo actualizar 'valido': {str(mark_err)[:160]}"
                 errores += 1
                 detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
                 continue
@@ -532,6 +546,7 @@ async def api_ejecutar_actualizacion_boms(
                 continue
             # 3) Insertar/actualizar en BD (partes, bom, bom_revision, bom_item) ANTES de pasar al siguiente numero de parte
             resp = await load_bom(db, payload)
+            await db.commit()
             procesados += 1
             if resp.sin_cambios:
                 sin_cambios += 1
@@ -547,11 +562,13 @@ async def api_ejecutar_actualizacion_boms(
                 mensaje = resp.mensaje
             detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
         except subprocess.TimeoutExpired:
+            await db.rollback()
             errores += 1
             estado = "error"
             mensaje = f"Timeout ({timeout_sec}s) ejecutando SAP"
             detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
         except Exception as e:
+            await db.rollback()
             errores += 1
             estado = "error"
             mensaje = str(e)
@@ -592,6 +609,7 @@ async def api_ejecutar_actualizacion_boms_stream(
             return
         part_numbers = await crud.list_partes_numeros(db, limit=limit)
         total = len(part_numbers)
+        logger.info("BOM stream iniciado. Total partes=%s", total)
         procesados = 0
         con_cambios = 0
         sin_cambios = 0
@@ -603,6 +621,8 @@ async def api_ejecutar_actualizacion_boms_stream(
             mensaje = ""
             items_insertados = None
             try:
+                logger.info("BOM parte inicio: %s", numero_parte)
+                yield json.dumps({"tipo": "parte_inicio", "parte_no": numero_parte}) + "\n"
                 result = await asyncio.to_thread(
                     subprocess.run,
                     ["cscript", "//nologo", str(vbs_path), numero_parte, export_dir],
@@ -615,10 +635,16 @@ async def api_ejecutar_actualizacion_boms_stream(
                     err = (result.stderr or "").strip() or (result.stdout or "").strip()
                     estado = "error"
                     mensaje = f"Script VBS falló: {err[:200]}"
-                    await crud.set_parte_valido(db, numero_parte, False)
-                    await db.commit()
+                    try:
+                        await crud.set_parte_valido(db, numero_parte, False)
+                        await db.commit()
+                        mensaje += " Se marcó la parte como no válida."
+                    except Exception as mark_err:
+                        await db.rollback()
+                        mensaje += f" No se pudo actualizar 'valido': {str(mark_err)[:160]}"
                     errores += 1
                     detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
+                    logger.warning("BOM parte error VBS: %s | %s", numero_parte, mensaje)
                     yield json.dumps({"tipo": "parte", "parte_no": numero_parte, "estado": estado, "mensaje": mensaje, "items_insertados": None}) + "\n"
                     continue
                 archivo = Path(export_dir) / f"{numero_parte}.txt"
@@ -629,8 +655,16 @@ async def api_ejecutar_actualizacion_boms_stream(
                 if not archivo.is_file():
                     estado = "error"
                     mensaje = "No se generó el archivo .txt"
+                    try:
+                        await crud.set_parte_valido(db, numero_parte, False)
+                        await db.commit()
+                        mensaje += " Se marcó la parte como no válida."
+                    except Exception as mark_err:
+                        await db.rollback()
+                        mensaje += f" No se pudo actualizar 'valido': {str(mark_err)[:160]}"
                     errores += 1
                     detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
+                    logger.warning("BOM parte sin archivo: %s | %s", numero_parte, mensaje)
                     yield json.dumps({"tipo": "parte", "parte_no": numero_parte, "estado": estado, "mensaje": mensaje, "items_insertados": None}) + "\n"
                     continue
                 contenido = archivo.read_text(encoding="utf-8", errors="replace")
@@ -640,9 +674,11 @@ async def api_ejecutar_actualizacion_boms_stream(
                     mensaje = "No se pudo parsear el archivo"
                     errores += 1
                     detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
+                    logger.warning("BOM parte parse error: %s", numero_parte)
                     yield json.dumps({"tipo": "parte", "parte_no": numero_parte, "estado": estado, "mensaje": mensaje, "items_insertados": None}) + "\n"
                     continue
                 resp = await load_bom(db, payload)
+                await db.commit()
                 procesados += 1
                 items_insertados = getattr(resp, "items_insertados", None) or 0
                 if resp.sin_cambios:
@@ -658,19 +694,28 @@ async def api_ejecutar_actualizacion_boms_stream(
                     estado = "error"
                     mensaje = resp.mensaje
                 detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
+                logger.info("BOM parte fin: %s | estado=%s", numero_parte, estado)
                 yield json.dumps({"tipo": "parte", "parte_no": numero_parte, "estado": estado, "mensaje": mensaje, "items_insertados": items_insertados}) + "\n"
             except subprocess.TimeoutExpired:
+                await db.rollback()
                 errores += 1
                 estado = "error"
                 mensaje = f"Timeout ({timeout_sec}s)"
                 detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
+                logger.warning("BOM parte timeout: %s", numero_parte)
                 yield json.dumps({"tipo": "parte", "parte_no": numero_parte, "estado": estado, "mensaje": mensaje, "items_insertados": None}) + "\n"
             except Exception as e:
+                await db.rollback()
                 errores += 1
                 estado = "error"
                 mensaje = str(e)
                 detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
+                logger.exception("BOM parte excepción: %s", numero_parte)
                 yield json.dumps({"tipo": "parte", "parte_no": numero_parte, "estado": estado, "mensaje": mensaje, "items_insertados": None}) + "\n"
+        logger.info(
+            "BOM stream finalizado. total=%s procesados=%s con_cambios=%s sin_cambios=%s errores=%s",
+            total, procesados, con_cambios, sin_cambios, errores
+        )
         yield json.dumps({
             "tipo": "fin",
             "total": total,
@@ -684,8 +729,91 @@ async def api_ejecutar_actualizacion_boms_stream(
     return StreamingResponse(
         generate(),
         media_type="application/x-ndjson",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
     )
+
+
+@app.get("/api/actualizar-boms/tablas")
+async def api_actualizar_boms_tablas(
+    limit: int = 20,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Devuelve registros recientes de partes, bom, bom_revision y bom_item."""
+    from sqlalchemy import select
+    from app.db.models import Parte, Bom, BomRevision, BomItem
+
+    limit = max(1, min(limit, 200))
+
+    res_partes = await db.execute(select(Parte).order_by(Parte.id.desc()).limit(limit))
+    res_bom = await db.execute(select(Bom).order_by(Bom.id.desc()).limit(limit))
+    res_rev = await db.execute(select(BomRevision).order_by(BomRevision.id.desc()).limit(limit))
+    res_item = await db.execute(select(BomItem).order_by(BomItem.id.desc()).limit(limit))
+
+    partes = [
+        {
+            "id": p.id,
+            "numero_parte": p.numero_parte,
+            "descripcion": p.descripcion,
+            "valido": p.valido,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+        }
+        for p in res_partes.scalars().all()
+    ]
+    boms = [
+        {
+            "id": b.id,
+            "parte_id": b.parte_id,
+            "plant": b.plant,
+            "usage": b.usage,
+            "alternative": b.alternative,
+            "base_qty": float(b.base_qty) if b.base_qty is not None else None,
+            "reqd_qty": float(b.reqd_qty) if b.reqd_qty is not None else None,
+            "base_unit": b.base_unit,
+            "created_at": b.created_at.isoformat() if b.created_at else None,
+            "updated_at": b.updated_at.isoformat() if b.updated_at else None,
+        }
+        for b in res_bom.scalars().all()
+    ]
+    revisiones = [
+        {
+            "id": r.id,
+            "bom_id": r.bom_id,
+            "revision_no": r.revision_no,
+            "effective_from": str(r.effective_from) if r.effective_from else None,
+            "effective_to": str(r.effective_to) if r.effective_to else None,
+            "source": r.source,
+            "hash": r.hash,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in res_rev.scalars().all()
+    ]
+    items = [
+        {
+            "id": i.id,
+            "bom_revision_id": i.bom_revision_id,
+            "componente_id": i.componente_id,
+            "item_no": i.item_no,
+            "qty": float(i.qty) if i.qty is not None else None,
+            "measure": i.measure,
+            "origin": i.origin,
+            "created_at": i.created_at.isoformat() if i.created_at else None,
+        }
+        for i in res_item.scalars().all()
+    ]
+
+    return {
+        "ok": True,
+        "limit": limit,
+        "partes": partes,
+        "bom": boms,
+        "bom_revision": revisiones,
+        "bom_item": items,
+    }
 
 
 @app.get("/api/actualizar-boms/bom-vigente")
