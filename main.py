@@ -740,75 +740,171 @@ async def api_ejecutar_actualizacion_boms_stream(
 @app.get("/api/actualizar-boms/tablas")
 async def api_actualizar_boms_tablas(
     limit: int = 20,
+    parte_no: Optional[str] = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Devuelve registros recientes de partes, bom, bom_revision y bom_item."""
+    """Devuelve registros recientes de partes, bom, bom_revision y bom_item, con filtro opcional por numero_parte."""
     from sqlalchemy import select
     from app.db.models import Parte, Bom, BomRevision, BomItem
 
     limit = max(1, min(limit, 200))
+    parte_no = (parte_no or "").strip()
 
-    res_partes = await db.execute(select(Parte).order_by(Parte.id.desc()).limit(limit))
-    res_bom = await db.execute(select(Bom).order_by(Bom.id.desc()).limit(limit))
-    res_rev = await db.execute(select(BomRevision).order_by(BomRevision.id.desc()).limit(limit))
-    res_item = await db.execute(select(BomItem).order_by(BomItem.id.desc()).limit(limit))
+    if parte_no:
+        pattern = f"%{parte_no}%"
+        res_partes = await db.execute(
+            select(Parte)
+            .where(Parte.numero_parte.ilike(pattern))
+            .order_by(Parte.id.desc())
+            .limit(limit)
+        )
+        partes = [
+            {
+                "id": p.id,
+                "numero_parte": p.numero_parte,
+                "descripcion": p.descripcion,
+                "valido": p.valido,
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+            }
+            for p in res_partes.scalars().all()
+        ]
 
-    partes = [
-        {
-            "id": p.id,
-            "numero_parte": p.numero_parte,
-            "descripcion": p.descripcion,
-            "valido": p.valido,
-            "created_at": p.created_at.isoformat() if p.created_at else None,
-        }
-        for p in res_partes.scalars().all()
-    ]
-    boms = [
-        {
-            "id": b.id,
-            "parte_id": b.parte_id,
-            "plant": b.plant,
-            "usage": b.usage,
-            "alternative": b.alternative,
-            "base_qty": float(b.base_qty) if b.base_qty is not None else None,
-            "reqd_qty": float(b.reqd_qty) if b.reqd_qty is not None else None,
-            "base_unit": b.base_unit,
-            "created_at": b.created_at.isoformat() if b.created_at else None,
-            "updated_at": b.updated_at.isoformat() if b.updated_at else None,
-        }
-        for b in res_bom.scalars().all()
-    ]
-    revisiones = [
-        {
-            "id": r.id,
-            "bom_id": r.bom_id,
-            "revision_no": r.revision_no,
-            "effective_from": str(r.effective_from) if r.effective_from else None,
-            "effective_to": str(r.effective_to) if r.effective_to else None,
-            "source": r.source,
-            "hash": r.hash,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
-        }
-        for r in res_rev.scalars().all()
-    ]
-    items = [
-        {
-            "id": i.id,
-            "bom_revision_id": i.bom_revision_id,
-            "componente_id": i.componente_id,
-            "item_no": i.item_no,
-            "qty": float(i.qty) if i.qty is not None else None,
-            "measure": i.measure,
-            "origin": i.origin,
-            "created_at": i.created_at.isoformat() if i.created_at else None,
-        }
-        for i in res_item.scalars().all()
-    ]
+        res_bom = await db.execute(
+            select(Bom, Parte.numero_parte)
+            .join(Parte, Parte.id == Bom.parte_id)
+            .where(Parte.numero_parte.ilike(pattern))
+            .order_by(Bom.id.desc())
+            .limit(limit)
+        )
+        boms = [
+            {
+                "id": b.id,
+                "parte_id": b.parte_id,
+                "parte_no": parte_numero,
+                "plant": b.plant,
+                "usage": b.usage,
+                "alternative": b.alternative,
+                "base_qty": float(b.base_qty) if b.base_qty is not None else None,
+                "reqd_qty": float(b.reqd_qty) if b.reqd_qty is not None else None,
+                "base_unit": b.base_unit,
+                "created_at": b.created_at.isoformat() if b.created_at else None,
+                "updated_at": b.updated_at.isoformat() if b.updated_at else None,
+            }
+            for b, parte_numero in res_bom.all()
+        ]
+
+        res_rev = await db.execute(
+            select(BomRevision, Parte.numero_parte)
+            .join(Bom, Bom.id == BomRevision.bom_id)
+            .join(Parte, Parte.id == Bom.parte_id)
+            .where(Parte.numero_parte.ilike(pattern))
+            .order_by(BomRevision.id.desc())
+            .limit(limit)
+        )
+        revisiones = [
+            {
+                "id": r.id,
+                "bom_id": r.bom_id,
+                "parte_no": parte_numero,
+                "revision_no": r.revision_no,
+                "effective_from": str(r.effective_from) if r.effective_from else None,
+                "effective_to": str(r.effective_to) if r.effective_to else None,
+                "source": r.source,
+                "hash": r.hash,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r, parte_numero in res_rev.all()
+        ]
+
+        res_item = await db.execute(
+            select(BomItem, Parte.numero_parte)
+            .join(BomRevision, BomRevision.id == BomItem.bom_revision_id)
+            .join(Bom, Bom.id == BomRevision.bom_id)
+            .join(Parte, Parte.id == Bom.parte_id)
+            .where(Parte.numero_parte.ilike(pattern))
+            .order_by(BomItem.id.desc())
+            .limit(limit)
+        )
+        items = [
+            {
+                "id": i.id,
+                "bom_revision_id": i.bom_revision_id,
+                "parte_no": parte_numero,
+                "componente_id": i.componente_id,
+                "item_no": i.item_no,
+                "qty": float(i.qty) if i.qty is not None else None,
+                "measure": i.measure,
+                "origin": i.origin,
+                "created_at": i.created_at.isoformat() if i.created_at else None,
+            }
+            for i, parte_numero in res_item.all()
+        ]
+    else:
+        res_partes = await db.execute(select(Parte).order_by(Parte.id.desc()).limit(limit))
+        res_bom = await db.execute(select(Bom).order_by(Bom.id.desc()).limit(limit))
+        res_rev = await db.execute(select(BomRevision).order_by(BomRevision.id.desc()).limit(limit))
+        res_item = await db.execute(select(BomItem).order_by(BomItem.id.desc()).limit(limit))
+
+        partes = [
+            {
+                "id": p.id,
+                "numero_parte": p.numero_parte,
+                "descripcion": p.descripcion,
+                "valido": p.valido,
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+            }
+            for p in res_partes.scalars().all()
+        ]
+        boms = [
+            {
+                "id": b.id,
+                "parte_id": b.parte_id,
+                "parte_no": None,
+                "plant": b.plant,
+                "usage": b.usage,
+                "alternative": b.alternative,
+                "base_qty": float(b.base_qty) if b.base_qty is not None else None,
+                "reqd_qty": float(b.reqd_qty) if b.reqd_qty is not None else None,
+                "base_unit": b.base_unit,
+                "created_at": b.created_at.isoformat() if b.created_at else None,
+                "updated_at": b.updated_at.isoformat() if b.updated_at else None,
+            }
+            for b in res_bom.scalars().all()
+        ]
+        revisiones = [
+            {
+                "id": r.id,
+                "bom_id": r.bom_id,
+                "parte_no": None,
+                "revision_no": r.revision_no,
+                "effective_from": str(r.effective_from) if r.effective_from else None,
+                "effective_to": str(r.effective_to) if r.effective_to else None,
+                "source": r.source,
+                "hash": r.hash,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in res_rev.scalars().all()
+        ]
+        items = [
+            {
+                "id": i.id,
+                "bom_revision_id": i.bom_revision_id,
+                "parte_no": None,
+                "componente_id": i.componente_id,
+                "item_no": i.item_no,
+                "qty": float(i.qty) if i.qty is not None else None,
+                "measure": i.measure,
+                "origin": i.origin,
+                "created_at": i.created_at.isoformat() if i.created_at else None,
+            }
+            for i in res_item.scalars().all()
+        ]
 
     return {
         "ok": True,
         "limit": limit,
+        "parte_no": parte_no or None,
         "partes": partes,
         "bom": boms,
         "bom_revision": revisiones,

@@ -78,6 +78,10 @@
       <h3 class="text-lg font-semibold text-gray-900">Datos en base de datos (últimos registros)</h3>
       <div class="flex items-center gap-2">
         <label class="text-sm text-gray-600">
+          Nº parte:
+          <input type="text" id="db-parte-no" placeholder="Ej: 85D00029M" class="ml-1 w-44 rounded-md border border-gray-300 px-2 py-1 text-sm" />
+        </label>
+        <label class="text-sm text-gray-600">
           Límite:
           <input type="number" id="db-limit" min="1" max="200" value="20" class="ml-1 w-20 rounded-md border border-gray-300 px-2 py-1 text-sm" />
         </label>
@@ -102,7 +106,7 @@
       <summary class="cursor-pointer text-sm font-medium text-[#003D89] hover:underline">Tabla bom</summary>
       <div class="mt-2 max-h-56 overflow-y-auto rounded border border-gray-200 p-2 text-xs">
         <table class="min-w-full">
-          <thead><tr class="border-b text-left text-gray-500"><th class="py-1 pr-3">id</th><th class="py-1 pr-3">parte_id</th><th class="py-1 pr-3">plant</th><th class="py-1 pr-3">usage</th><th class="py-1 pr-3">alternative</th><th class="py-1 pr-3">base_qty</th><th class="py-1">updated_at</th></tr></thead>
+          <thead><tr class="border-b text-left text-gray-500"><th class="py-1 pr-3">id</th><th class="py-1 pr-3">parte_id</th><th class="py-1 pr-3">parte_no</th><th class="py-1 pr-3">plant</th><th class="py-1 pr-3">usage</th><th class="py-1 pr-3">alternative</th><th class="py-1 pr-3">base_qty</th><th class="py-1">updated_at</th></tr></thead>
           <tbody id="db-bom-body"></tbody>
         </table>
       </div>
@@ -112,7 +116,7 @@
       <summary class="cursor-pointer text-sm font-medium text-[#003D89] hover:underline">Tabla bom_revision</summary>
       <div class="mt-2 max-h-56 overflow-y-auto rounded border border-gray-200 p-2 text-xs">
         <table class="min-w-full">
-          <thead><tr class="border-b text-left text-gray-500"><th class="py-1 pr-3">id</th><th class="py-1 pr-3">bom_id</th><th class="py-1 pr-3">revision_no</th><th class="py-1 pr-3">effective_from</th><th class="py-1 pr-3">effective_to</th><th class="py-1">created_at</th></tr></thead>
+          <thead><tr class="border-b text-left text-gray-500"><th class="py-1 pr-3">id</th><th class="py-1 pr-3">bom_id</th><th class="py-1 pr-3">parte_no</th><th class="py-1 pr-3">revision_no</th><th class="py-1 pr-3">effective_from</th><th class="py-1 pr-3">effective_to</th><th class="py-1">created_at</th></tr></thead>
           <tbody id="db-bom-rev-body"></tbody>
         </table>
       </div>
@@ -122,7 +126,7 @@
       <summary class="cursor-pointer text-sm font-medium text-[#003D89] hover:underline">Tabla bom_item</summary>
       <div class="mt-2 max-h-56 overflow-y-auto rounded border border-gray-200 p-2 text-xs">
         <table class="min-w-full">
-          <thead><tr class="border-b text-left text-gray-500"><th class="py-1 pr-3">id</th><th class="py-1 pr-3">bom_revision_id</th><th class="py-1 pr-3">componente_id</th><th class="py-1 pr-3">item_no</th><th class="py-1 pr-3">qty</th><th class="py-1">created_at</th></tr></thead>
+          <thead><tr class="border-b text-left text-gray-500"><th class="py-1 pr-3">id</th><th class="py-1 pr-3">bom_revision_id</th><th class="py-1 pr-3">parte_no</th><th class="py-1 pr-3">componente_id</th><th class="py-1 pr-3">item_no</th><th class="py-1 pr-3">qty</th><th class="py-1">created_at</th></tr></thead>
           <tbody id="db-bom-item-body"></tbody>
         </table>
       </div>
@@ -169,6 +173,7 @@
   const progCon = document.getElementById('bom-progreso-con');
   const progSin = document.getElementById('bom-progreso-sin');
   const progErr = document.getElementById('bom-progreso-err');
+  const dbParteNoInput = document.getElementById('db-parte-no');
   const dbLimitInput = document.getElementById('db-limit');
   const btnRecargarTablas = document.getElementById('btn-recargar-tablas');
   const dbMsg = document.getElementById('db-tablas-msg');
@@ -211,19 +216,22 @@
   }
 
   async function cargarTablasDb() {
+    const parteNo = dbParteNoInput && dbParteNoInput.value ? dbParteNoInput.value.trim() : '';
     const limit = dbLimitInput && dbLimitInput.value ? parseInt(dbLimitInput.value, 10) : 20;
     const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(limit, 200) : 20;
     dbMsg.textContent = 'Cargando tablas...';
     try {
-      const res = await fetch('/api/actualizar-boms/tablas?limit=' + safeLimit, { credentials: 'same-origin' });
+      const params = new URLSearchParams({ limit: String(safeLimit) });
+      if (parteNo) params.set('parte_no', parteNo);
+      const res = await fetch('/api/actualizar-boms/tablas?' + params.toString(), { credentials: 'same-origin' });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.mensaje || 'Error al consultar tablas');
 
       renderRows('db-partes-body', data.partes || [], ['id', 'numero_parte', 'descripcion', 'valido', 'created_at']);
-      renderRows('db-bom-body', data.bom || [], ['id', 'parte_id', 'plant', 'usage', 'alternative', 'base_qty', 'updated_at']);
-      renderRows('db-bom-rev-body', data.bom_revision || [], ['id', 'bom_id', 'revision_no', 'effective_from', 'effective_to', 'created_at']);
-      renderRows('db-bom-item-body', data.bom_item || [], ['id', 'bom_revision_id', 'componente_id', 'item_no', 'qty', 'created_at']);
-      dbMsg.textContent = 'Tablas cargadas. Mostrando últimos ' + safeLimit + ' registros por tabla.';
+      renderRows('db-bom-body', data.bom || [], ['id', 'parte_id', 'parte_no', 'plant', 'usage', 'alternative', 'base_qty', 'updated_at']);
+      renderRows('db-bom-rev-body', data.bom_revision || [], ['id', 'bom_id', 'parte_no', 'revision_no', 'effective_from', 'effective_to', 'created_at']);
+      renderRows('db-bom-item-body', data.bom_item || [], ['id', 'bom_revision_id', 'parte_no', 'componente_id', 'item_no', 'qty', 'created_at']);
+      dbMsg.textContent = 'Tablas cargadas. Mostrando últimos ' + safeLimit + ' registros por tabla' + (parteNo ? (' para parte ' + parteNo) : '') + '.';
     } catch (e) {
       dbMsg.textContent = 'Error al cargar tablas: ' + (e.message || e);
     }
@@ -360,6 +368,9 @@
 
   btnRecargarTablas.addEventListener('click', function() {
     cargarTablasDb();
+  });
+  dbParteNoInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') cargarTablasDb();
   });
 
   cargarTablasDb();
