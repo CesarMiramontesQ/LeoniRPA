@@ -16,9 +16,6 @@
       <button type="button" id="btn-actualizar-boms" class="shrink-0 rounded-md bg-[#003D89] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#003D89] disabled:opacity-50">
         Actualizar
       </button>
-      <button type="button" id="btn-reprocesar-boms" class="shrink-0 rounded-md border border-amber-600 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 shadow-sm hover:bg-amber-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 disabled:opacity-50">
-        Reprocesar todo desde 0
-      </button>
       <button type="button" id="btn-parar-boms" class="hidden shrink-0 rounded-md border border-red-600 bg-white px-4 py-2 text-sm font-semibold text-red-600 shadow-sm hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600">
         Parar
       </button>
@@ -75,39 +72,6 @@
     </details>
   </div>
 
-  <!-- Tabla de partes con modal de detalle -->
-  <div class="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <h3 class="text-lg font-semibold text-gray-900">Números de parte cargados</h3>
-      <div class="flex items-center gap-2">
-        <input type="text" id="partes-search" placeholder="Buscar parte o descripción..." class="w-56 rounded-md border border-gray-300 px-2 py-1 text-sm" />
-        <label class="text-sm text-gray-600">
-          Límite:
-          <input type="number" id="partes-limit" min="1" max="200" value="50" class="ml-1 w-20 rounded-md border border-gray-300 px-2 py-1 text-sm" />
-        </label>
-        <button type="button" id="btn-recargar-partes" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
-          Recargar
-        </button>
-      </div>
-    </div>
-    <p id="partes-msg" class="mt-2 text-xs text-gray-500">Cargando partes...</p>
-    <div class="mt-3 max-h-80 overflow-y-auto rounded border border-gray-200">
-      <table class="min-w-full text-sm">
-        <thead class="bg-gray-50">
-          <tr class="border-b text-left text-gray-500">
-            <th class="py-2 px-3">Nº parte</th>
-            <th class="py-2 px-3">Descripción</th>
-            <th class="py-2 px-3">Válido</th>
-            <th class="py-2 px-3">BOMs</th>
-            <th class="py-2 px-3">Revisiones</th>
-            <th class="py-2 px-3">Acción</th>
-          </tr>
-        </thead>
-        <tbody id="partes-body"></tbody>
-      </table>
-    </div>
-  </div>
-
   <!-- Tarjetas de estadísticas -->
   <dl class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
     <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
@@ -127,6 +91,60 @@
       <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900">{{ ultima_actualizacion }}</dd>
     </div>
   </dl>
+
+  <!-- Tabla de partes con modal de detalle -->
+  <div class="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <h3 class="text-lg font-semibold text-gray-900">Números de parte con BOM</h3>
+      <div class="flex items-center gap-2">
+        <input type="text" id="partes-search" placeholder="Buscar parte o descripción..." class="w-56 rounded-md border border-gray-300 px-2 py-1 text-sm" />
+        <label class="text-sm text-gray-600">
+          Límite:
+          <input type="number" id="partes-limit" min="1" max="200" value="50" class="ml-1 w-20 rounded-md border border-gray-300 px-2 py-1 text-sm" />
+        </label>
+        <button type="button" id="btn-recargar-partes" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
+          Recargar
+        </button>
+      </div>
+    </div>
+    <p id="partes-msg" class="mt-2 text-xs text-gray-500">Cargando partes...</p>
+    <div class="mt-3 max-h-80 overflow-y-auto rounded border border-gray-200">
+      <table class="min-w-full text-sm">
+        <thead class="bg-gray-50">
+          <tr class="border-b text-left text-gray-500">
+            <th class="py-2 px-3">Nº parte</th>
+            <th class="py-2 px-3">Descripción</th>
+            <th class="py-2 px-3">Válido</th>
+            <th class="py-2 px-3">
+              <button type="button" id="sort-total-boms" class="inline-flex items-center gap-1 font-medium text-gray-600 hover:text-[#003D89]">
+                BOMs
+                <span id="sort-total-boms-ind" class="text-xs text-gray-400">↕</span>
+              </button>
+            </th>
+            <th class="py-2 px-3">
+              <button type="button" id="sort-total-revisiones" class="inline-flex items-center gap-1 font-medium text-gray-600 hover:text-[#003D89]">
+                Revisiones
+                <span id="sort-total-revisiones-ind" class="text-xs text-gray-400">↕</span>
+              </button>
+            </th>
+            <th class="py-2 px-3">Acción</th>
+          </tr>
+        </thead>
+        <tbody id="partes-body"></tbody>
+      </table>
+    </div>
+    <div class="mt-3 flex items-center justify-between gap-3">
+      <p id="partes-paginacion-texto" class="text-xs text-gray-500">Página 1 de 1</p>
+      <div class="flex items-center gap-2">
+        <button type="button" id="btn-partes-anterior" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+          Anterior
+        </button>
+        <button type="button" id="btn-partes-siguiente" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+          Siguiente
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- Ayuda -->
   <div class="rounded-lg bg-white p-6 shadow-sm">
@@ -217,7 +235,6 @@
 <script>
 (function() {
   const btn = document.getElementById('btn-actualizar-boms');
-  const btnReprocesar = document.getElementById('btn-reprocesar-boms');
   const btnParar = document.getElementById('btn-parar-boms');
   const estado = document.getElementById('bom-estado');
   const estadoTexto = document.getElementById('bom-estado-texto');
@@ -235,11 +252,29 @@
   const btnRecargarPartes = document.getElementById('btn-recargar-partes');
   const partesMsg = document.getElementById('partes-msg');
   const partesBody = document.getElementById('partes-body');
+  const partesPaginacionTexto = document.getElementById('partes-paginacion-texto');
+  const btnPartesAnterior = document.getElementById('btn-partes-anterior');
+  const btnPartesSiguiente = document.getElementById('btn-partes-siguiente');
+  const sortTotalBomsBtn = document.getElementById('sort-total-boms');
+  const sortTotalRevisionesBtn = document.getElementById('sort-total-revisiones');
+  const sortTotalBomsInd = document.getElementById('sort-total-boms-ind');
+  const sortTotalRevisionesInd = document.getElementById('sort-total-revisiones-ind');
   const modalParte = document.getElementById('modal-parte-detalle');
   const modalParteBackdrop = document.getElementById('modal-parte-backdrop');
   const modalParteCerrarBtn = document.getElementById('modal-parte-cerrar');
   let abortController = null;
-  let ejecutarResetAll = false;
+  let partesRows = [];
+  let partesCurrentPage = 1;
+  let partesSort = { key: null, direction: 'desc' };
+
+  function updatePaginationControls(total, limit) {
+    const totalPages = Math.max(1, Math.ceil((Number(total) || 0) / (Number(limit) || 1)));
+    if (partesPaginacionTexto) {
+      partesPaginacionTexto.textContent = 'Página ' + partesCurrentPage + ' de ' + totalPages;
+    }
+    if (btnPartesAnterior) btnPartesAnterior.disabled = partesCurrentPage <= 1;
+    if (btnPartesSiguiente) btnPartesSiguiente.disabled = partesCurrentPage >= totalPages;
+  }
 
   function addLog(line, clase) {
     const p = document.createElement('p');
@@ -269,47 +304,102 @@
     document.body.style.overflow = '';
   }
 
-  async function cargarResumenPartes() {
+  function getSortedPartesRows(rows) {
+    if (!partesSort.key) return rows.slice();
+    const factor = partesSort.direction === 'asc' ? 1 : -1;
+    return rows.slice().sort(function(a, b) {
+      const av = Number(a[partesSort.key] || 0);
+      const bv = Number(b[partesSort.key] || 0);
+      if (av === bv) return String(a.numero_parte || '').localeCompare(String(b.numero_parte || ''));
+      return (av - bv) * factor;
+    });
+  }
+
+  function updateSortIndicators() {
+    if (sortTotalBomsInd) {
+      sortTotalBomsInd.textContent = partesSort.key === 'total_boms' ? (partesSort.direction === 'asc' ? '↑' : '↓') : '↕';
+      sortTotalBomsInd.className = partesSort.key === 'total_boms' ? 'text-xs text-[#003D89]' : 'text-xs text-gray-400';
+    }
+    if (sortTotalRevisionesInd) {
+      sortTotalRevisionesInd.textContent = partesSort.key === 'total_revisiones' ? (partesSort.direction === 'asc' ? '↑' : '↓') : '↕';
+      sortTotalRevisionesInd.className = partesSort.key === 'total_revisiones' ? 'text-xs text-[#003D89]' : 'text-xs text-gray-400';
+    }
+  }
+
+  function renderPartesRows(rows) {
+    const rowsToRender = getSortedPartesRows(rows);
+    partesBody.innerHTML = '';
+    if (!rowsToRender || rowsToRender.length === 0) {
+      partesBody.innerHTML = '<tr><td colspan="6" class="py-3 px-3 text-gray-400">Sin resultados</td></tr>';
+      updateSortIndicators();
+      return;
+    }
+
+    partesBody.innerHTML = rowsToRender.map(function(row) {
+      var badge = row.valido
+        ? '<span class="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">Sí</span>'
+        : '<span class="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">No</span>';
+      return '<tr class="border-b border-gray-100">' +
+        '<td class="py-2 px-3 font-mono text-gray-900">' + esc(row.numero_parte) + '</td>' +
+        '<td class="py-2 px-3 text-gray-700">' + esc(row.descripcion || '') + '</td>' +
+        '<td class="py-2 px-3">' + badge + '</td>' +
+        '<td class="py-2 px-3 text-gray-700">' + esc(row.total_boms) + '</td>' +
+        '<td class="py-2 px-3 text-gray-700">' + esc(row.total_revisiones) + '</td>' +
+        '<td class="py-2 px-3"><button type="button" class="btn-ver-detalle rounded-md bg-[#003D89] px-3 py-1 text-xs font-semibold text-white hover:bg-[#003366]" data-parte-no="' + esc(row.numero_parte) + '">Ver detalle</button></td>' +
+      '</tr>';
+    }).join('');
+
+    partesBody.querySelectorAll('.btn-ver-detalle').forEach(function(btnDetalle) {
+      btnDetalle.addEventListener('click', function() {
+        const parteNo = this.getAttribute('data-parte-no');
+        verDetalleParte(parteNo);
+      });
+    });
+
+    updateSortIndicators();
+  }
+
+  function togglePartesSort(key) {
+    if (partesSort.key === key) {
+      partesSort.direction = partesSort.direction === 'asc' ? 'desc' : 'asc';
+    } else {
+      partesSort.key = key;
+      partesSort.direction = 'desc';
+    }
+    renderPartesRows(partesRows);
+  }
+
+  async function cargarResumenPartes(resetPage) {
+    if (resetPage) partesCurrentPage = 1;
     const q = partesSearchInput && partesSearchInput.value ? partesSearchInput.value.trim() : '';
     const limit = partesLimitInput && partesLimitInput.value ? parseInt(partesLimitInput.value, 10) : 50;
     const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(limit, 200) : 50;
+    const offset = (partesCurrentPage - 1) * safeLimit;
     partesMsg.textContent = 'Cargando partes...';
     try {
-      const params = new URLSearchParams({ limit: String(safeLimit), offset: '0' });
+      const params = new URLSearchParams({ limit: String(safeLimit), offset: String(offset) });
       if (q) params.set('q', q);
       const res = await fetch('/api/actualizar-boms/partes?' + params.toString(), { credentials: 'same-origin' });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.mensaje || 'Error al consultar partes');
 
-      partesBody.innerHTML = '';
-      if (!data.rows || data.rows.length === 0) {
-        partesBody.innerHTML = '<tr><td colspan="6" class="py-3 px-3 text-gray-400">Sin resultados</td></tr>';
-      } else {
-        partesBody.innerHTML = data.rows.map(function(row) {
-          var badge = row.valido
-            ? '<span class="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">Sí</span>'
-            : '<span class="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">No</span>';
-          return '<tr class="border-b border-gray-100">' +
-            '<td class="py-2 px-3 font-mono text-gray-900">' + esc(row.numero_parte) + '</td>' +
-            '<td class="py-2 px-3 text-gray-700">' + esc(row.descripcion || '') + '</td>' +
-            '<td class="py-2 px-3">' + badge + '</td>' +
-            '<td class="py-2 px-3 text-gray-700">' + esc(row.total_boms) + '</td>' +
-            '<td class="py-2 px-3 text-gray-700">' + esc(row.total_revisiones) + '</td>' +
-            '<td class="py-2 px-3"><button type="button" class="btn-ver-detalle rounded-md bg-[#003D89] px-3 py-1 text-xs font-semibold text-white hover:bg-[#003366]" data-parte-no="' + esc(row.numero_parte) + '">Ver detalle</button></td>' +
-          '</tr>';
-        }).join('');
-
-        partesBody.querySelectorAll('.btn-ver-detalle').forEach(function(btnDetalle) {
-          btnDetalle.addEventListener('click', function() {
-            const parteNo = this.getAttribute('data-parte-no');
-            verDetalleParte(parteNo);
-          });
-        });
+      const total = Number(data.total || 0);
+      const totalPages = Math.max(1, Math.ceil(total / safeLimit));
+      if (partesCurrentPage > totalPages) {
+        partesCurrentPage = totalPages;
+        return cargarResumenPartes(false);
       }
+      partesRows = Array.isArray(data.rows) ? data.rows : [];
+      renderPartesRows(partesRows);
+      updatePaginationControls(total, safeLimit);
 
-      partesMsg.textContent = 'Mostrando ' + (data.rows ? data.rows.length : 0) + ' de ' + (data.total || 0) + ' partes.';
+      const shown = Array.isArray(data.rows) ? data.rows.length : 0;
+      const desde = total === 0 ? 0 : offset + 1;
+      const hasta = offset + shown;
+      partesMsg.textContent = 'Mostrando ' + desde + '-' + hasta + ' de ' + total + ' partes con BOM.';
     } catch (e) {
       partesMsg.textContent = 'Error al cargar partes: ' + (e.message || e);
+      updatePaginationControls(0, safeLimit);
     }
   }
 
@@ -372,7 +462,6 @@
   btn.addEventListener('click', async function() {
     abortController = new AbortController();
     btn.disabled = true;
-    btnReprocesar.disabled = true;
     btnParar.classList.remove('hidden');
     estado.classList.remove('hidden');
     resultado.classList.add('hidden');
@@ -382,19 +471,15 @@
     estado.classList.add('bg-blue-50');
     estado.classList.remove('bg-red-50');
 
-    const resetAll = ejecutarResetAll;
-    ejecutarResetAll = false;
     const limit = limitInput.value.trim() ? parseInt(limitInput.value, 10) : null;
     const params = new URLSearchParams();
     if (limit != null && limit > 0) params.set('limit', String(limit));
-    if (resetAll) params.set('reset_all', 'true');
     const url = '/api/actualizar-boms/ejecutar-actualizacion-stream' + (params.toString() ? ('?' + params.toString()) : '');
 
     let con = 0, sin = 0, err = 0, n = 0, total = 0;
 
     function finProceso() {
       btn.disabled = false;
-      btnReprocesar.disabled = false;
       btnParar.classList.add('hidden');
       abortController = null;
     }
@@ -482,7 +567,7 @@
                 tr.innerHTML = '<td class="py-1 pr-4 font-mono text-gray-800">' + (row.parte_no || '') + '</td><td class="py-1 pr-4">' + (row.estado || '') + '</td><td class="py-1 text-gray-600">' + (row.mensaje || '') + '</td>';
                 tbody.appendChild(tr);
               });
-              await cargarResumenPartes();
+              await cargarResumenPartes(false);
               break;
             }
           } catch (parseErr) {
@@ -507,22 +592,38 @@
     if (abortController) abortController.abort();
   });
 
-  btnReprocesar.addEventListener('click', function() {
-    const ok = window.confirm('Se reiniciará BOM/revisiones/items y se reactivarán todas las partes (no se borra la tabla partes). ¿Continuar?');
-    if (!ok) return;
-    ejecutarResetAll = true;
-    btn.click();
-  });
-
   btnRecargarPartes.addEventListener('click', function() {
-    cargarResumenPartes();
+    cargarResumenPartes(true);
   });
   partesSearchInput.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') cargarResumenPartes();
+    if (e.key === 'Enter') cargarResumenPartes(true);
   });
   partesLimitInput.addEventListener('change', function() {
-    cargarResumenPartes();
+    cargarResumenPartes(true);
   });
+  if (btnPartesAnterior) {
+    btnPartesAnterior.addEventListener('click', function() {
+      if (partesCurrentPage <= 1) return;
+      partesCurrentPage -= 1;
+      cargarResumenPartes(false);
+    });
+  }
+  if (btnPartesSiguiente) {
+    btnPartesSiguiente.addEventListener('click', function() {
+      partesCurrentPage += 1;
+      cargarResumenPartes(false);
+    });
+  }
+  if (sortTotalBomsBtn) {
+    sortTotalBomsBtn.addEventListener('click', function() {
+      togglePartesSort('total_boms');
+    });
+  }
+  if (sortTotalRevisionesBtn) {
+    sortTotalRevisionesBtn.addEventListener('click', function() {
+      togglePartesSort('total_revisiones');
+    });
+  }
 
   modalParteCerrarBtn.addEventListener('click', cerrarModalParte);
   modalParteBackdrop.addEventListener('click', cerrarModalParte);
@@ -530,7 +631,7 @@
     if (e.key === 'Escape') cerrarModalParte();
   });
 
-  cargarResumenPartes();
+  cargarResumenPartes(true);
 })();
 </script>
 {% endblock %}

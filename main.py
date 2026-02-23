@@ -993,6 +993,8 @@ async def api_actualizar_boms_partes(
         rev_count_sq.label("total_revisiones"),
     )
     count_query = select(func.count()).select_from(Parte)
+    query = query.where(bom_count_sq > 0)
+    count_query = count_query.where(bom_count_sq > 0)
     if q:
         like_q = f"%{q}%"
         query = query.where(
