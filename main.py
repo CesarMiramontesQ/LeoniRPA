@@ -407,14 +407,30 @@ async def boms(request: Request, current_user: User = Depends(get_current_user),
 @app.get("/actualizar-boms")
 async def actualizar_boms(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Página Actualizar BOMs - requiere autenticación."""
-    from app.db.models import Parte
-    from sqlalchemy import select, func
+    from app.db.models import Parte, Bom, BomRevision
+    from sqlalchemy import select, func, distinct
     # Contar partes y última actualización real desde tabla partes
     total_partes = await db.execute(select(func.count()).select_from(Parte))
     cantidad_numeros_parte = total_partes.scalar() or 0
     ultima = await db.execute(select(func.max(Parte.created_at)).select_from(Parte))
     ultima_ts = ultima.scalar()
     ultima_actualizacion = ultima_ts.strftime("%d/%m/%Y %H:%M") if ultima_ts else "—"
+
+    # Estadística: partes que ya tienen al menos una revisión de BOM
+    partes_con_bom_q = await db.execute(
+        select(func.count(distinct(Parte.id)))
+        .select_from(Parte)
+        .join(Bom, Bom.parte_id == Parte.id)
+        .join(BomRevision, BomRevision.bom_id == Bom.id)
+    )
+    numeros_parte_con_bom = partes_con_bom_q.scalar() or 0
+
+    # Estadística: partes no válidas
+    partes_no_validas_q = await db.execute(
+        select(func.count()).select_from(Parte).where(Parte.valido.is_(False))
+    )
+    numeros_parte_no_validos = partes_no_validas_q.scalar() or 0
+
     return templates.TemplateResponse(
         "actualizar_boms.html",
         {
@@ -423,6 +439,8 @@ async def actualizar_boms(request: Request, current_user: User = Depends(get_cur
             "current_user": current_user,
             "cantidad_numeros_parte": cantidad_numeros_parte,
             "ultima_actualizacion": ultima_actualizacion,
+            "numeros_parte_con_bom": numeros_parte_con_bom,
+            "numeros_parte_no_validos": numeros_parte_no_validos,
         }
     )
 

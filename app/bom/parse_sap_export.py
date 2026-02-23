@@ -48,7 +48,7 @@ def _parse_header_columns(header_line: str) -> dict:
     indices = {}
     for i, part in enumerate(parts):
         key = _normalize_col(part)
-        if key == "object id":
+        if key in ("object id", "component number"):
             indices["object_id"] = i
         elif key == "object description":
             indices["object_description"] = i
