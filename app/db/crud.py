@@ -477,7 +477,7 @@ async def get_parte_by_numero(db: AsyncSession, numero_parte: str) -> Optional[P
 
 
 async def list_partes_numeros(db: AsyncSession, limit: Optional[int] = None) -> List[str]:
-    """Lista numero_parte pendientes de primera carga BOM: valido=True y sin revisiones."""
+    """Lista numero_parte activos para actualización BOM: valido=True y con revisiones existentes."""
     revision_exists = (
         select(BomRevision.id)
         .join(Bom, Bom.id == BomRevision.bom_id)
@@ -488,8 +488,21 @@ async def list_partes_numeros(db: AsyncSession, limit: Optional[int] = None) -> 
         select(Parte.numero_parte)
         .where(
             Parte.valido.is_(True),
-            ~revision_exists.exists(),
+            revision_exists.exists(),
         )
+        .order_by(Parte.numero_parte)
+    )
+    if limit is not None:
+        query = query.limit(limit)
+    result = await db.execute(query)
+    return [row[0] for row in result.all()]
+
+
+async def list_partes_numeros_no_validos(db: AsyncSession, limit: Optional[int] = None) -> List[str]:
+    """Lista numero_parte marcados como no válidos (valido=False) para reproceso vía SAP."""
+    query = (
+        select(Parte.numero_parte)
+        .where(Parte.valido.is_(False))
         .order_by(Parte.numero_parte)
     )
     if limit is not None:

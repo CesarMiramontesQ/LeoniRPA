@@ -459,12 +459,13 @@ async def api_load_bom(
 async def api_ejecutar_actualizacion_boms(
     limit: Optional[int] = None,
     reset_all: bool = False,
+    only_invalid: bool = False,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Para cada numero_parte en la tabla partes: ejecuta bom.vbs (SAP), lee el .txt,
-    parsea y carga/actualiza el BOM en la base de datos.
+    Para cada numero_parte activo que ya tiene BOM: ejecuta bom.vbs (SAP), lee el .txt,
+    parsea y actualiza el BOM en la base de datos.
     Requiere Windows, SAP GUI abierto y BOM_EXPORT_DIR configurado.
     limit: opcional; si se pasa, solo procesa los primeros N partes (útil para pruebas).
     """
@@ -506,7 +507,10 @@ async def api_ejecutar_actualizacion_boms(
         await db.commit()
         logger.info("BOM reproceso desde cero solicitado: %s", reset_info)
 
-    part_numbers = await crud.list_partes_numeros(db, limit=limit)
+    if only_invalid:
+        part_numbers = await crud.list_partes_numeros_no_validos(db, limit=limit)
+    else:
+        part_numbers = await crud.list_partes_numeros(db, limit=limit)
     total = len(part_numbers)
     procesados = 0
     con_cambios = 0
@@ -571,6 +575,8 @@ async def api_ejecutar_actualizacion_boms(
                 continue
             # 3) Insertar/actualizar en BD (partes, bom, bom_revision, bom_item) ANTES de pasar al siguiente numero de parte
             resp = await load_bom(db, payload)
+            if resp.ok:
+                await crud.set_parte_valido(db, numero_parte, True)
             await db.commit()
             procesados += 1
             if resp.sin_cambios:
@@ -617,12 +623,13 @@ async def api_ejecutar_actualizacion_boms(
 async def api_ejecutar_actualizacion_boms_stream(
     limit: Optional[int] = None,
     reset_all: bool = False,
+    only_invalid: bool = False,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Igual que ejecutar-actualizacion pero devuelve un stream NDJSON: un evento por cada
-    numero de parte procesado, para ver en tiempo real si se inserto u omitio.
+    numero de parte activo con BOM procesado, para ver en tiempo real si se inserto u omitio.
     """
     vbs_path = Path(settings.BOM_VBS_PATH or str(Path(__file__).resolve().parent / "bom.vbs")).resolve()
     export_dir_raw = settings.BOM_EXPORT_DIR or ""
@@ -646,7 +653,10 @@ async def api_ejecutar_actualizacion_boms_stream(
                 "detalle": reset_info,
             }) + "\n"
 
-        part_numbers = await crud.list_partes_numeros(db, limit=limit)
+        if only_invalid:
+            part_numbers = await crud.list_partes_numeros_no_validos(db, limit=limit)
+        else:
+            part_numbers = await crud.list_partes_numeros(db, limit=limit)
         total = len(part_numbers)
         logger.info("BOM stream iniciado. Total partes=%s", total)
         procesados = 0
@@ -717,6 +727,8 @@ async def api_ejecutar_actualizacion_boms_stream(
                     yield json.dumps({"tipo": "parte", "parte_no": numero_parte, "estado": estado, "mensaje": mensaje, "items_insertados": None}) + "\n"
                     continue
                 resp = await load_bom(db, payload)
+                if resp.ok:
+                    await crud.set_parte_valido(db, numero_parte, True)
                 await db.commit()
                 procesados += 1
                 items_insertados = getattr(resp, "items_insertados", None) or 0
@@ -1061,11 +1073,12 @@ async def api_actualizar_boms_parte_detalle(
         if rev_vigente:
             items_result = await db.execute(
                 select(BomItem, Parte)
-                .join(Parte, Parte.id == BomItem.componente_id)
+                .outerjoin(Parte, Parte.id == BomItem.componente_id)
                 .where(BomItem.bom_revision_id == rev_vigente.id)
                 .order_by(BomItem.item_no, BomItem.id)
             )
             for item, componente in items_result.all():
+                componente_no = componente.numero_parte if componente else f"ID:{item.componente_id}"
                 elementos.append({
                     "bom_id": bom.id,
                     "plant": bom.plant,
@@ -1073,7 +1086,7 @@ async def api_actualizar_boms_parte_detalle(
                     "alternative": bom.alternative,
                     "revision_no": rev_vigente.revision_no,
                     "item_no": item.item_no,
-                    "componente_no": componente.numero_parte,
+                    "componente_no": componente_no,
                     "qty": float(item.qty) if item.qty is not None else None,
                     "measure": item.measure,
                     "comm_code": item.comm_code,

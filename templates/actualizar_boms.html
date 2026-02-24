@@ -16,6 +16,9 @@
       <button type="button" id="btn-actualizar-boms" class="shrink-0 rounded-md bg-[#003D89] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#003D89] disabled:opacity-50">
         Actualizar
       </button>
+      <button type="button" id="btn-actualizar-boms-invalidos" class="shrink-0 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 disabled:opacity-50">
+        Actualizar solo FALSE
+      </button>
       <button type="button" id="btn-parar-boms" class="hidden shrink-0 rounded-md border border-red-600 bg-white px-4 py-2 text-sm font-semibold text-red-600 shadow-sm hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600">
         Parar
       </button>
@@ -73,18 +76,10 @@
   </div>
 
   <!-- Tarjetas de estadísticas -->
-  <dl class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-    <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
-      <dt class="truncate text-sm font-medium text-gray-500">Cantidad de números de parte</dt>
-      <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900">{{ "{:,}".format(cantidad_numeros_parte) }}</dd>
-    </div>
+  <dl class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-2">
     <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
       <dt class="truncate text-sm font-medium text-gray-500">Números de parte con BOM</dt>
       <dd class="mt-1 text-3xl font-semibold tracking-tight text-blue-700">{{ "{:,}".format(numeros_parte_con_bom) }}</dd>
-    </div>
-    <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
-      <dt class="truncate text-sm font-medium text-gray-500">Números de parte no válidos</dt>
-      <dd class="mt-1 text-3xl font-semibold tracking-tight text-red-700">{{ "{:,}".format(numeros_parte_no_validos) }}</dd>
     </div>
     <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
       <dt class="truncate text-sm font-medium text-gray-500">Última actualización</dt>
@@ -235,6 +230,7 @@
 <script>
 (function() {
   const btn = document.getElementById('btn-actualizar-boms');
+  const btnInvalidos = document.getElementById('btn-actualizar-boms-invalidos');
   const btnParar = document.getElementById('btn-parar-boms');
   const estado = document.getElementById('bom-estado');
   const estadoTexto = document.getElementById('bom-estado-texto');
@@ -459,27 +455,32 @@
     }
   }
 
-  btn.addEventListener('click', async function() {
+  async function iniciarActualizacion(onlyInvalid) {
     abortController = new AbortController();
     btn.disabled = true;
+    btnInvalidos.disabled = true;
     btnParar.classList.remove('hidden');
     estado.classList.remove('hidden');
     resultado.classList.add('hidden');
     progresoDiv.classList.add('hidden');
     logDiv.innerHTML = '';
-    estadoTexto.textContent = 'Ejecutando actualización (verás cada registro en tiempo real)...';
+    estadoTexto.textContent = onlyInvalid
+      ? 'Ejecutando actualización para partes con valido=FALSE (verás cada registro en tiempo real)...'
+      : 'Ejecutando actualización (verás cada registro en tiempo real)...';
     estado.classList.add('bg-blue-50');
     estado.classList.remove('bg-red-50');
 
     const limit = limitInput.value.trim() ? parseInt(limitInput.value, 10) : null;
     const params = new URLSearchParams();
     if (limit != null && limit > 0) params.set('limit', String(limit));
+    if (onlyInvalid) params.set('only_invalid', 'true');
     const url = '/api/actualizar-boms/ejecutar-actualizacion-stream' + (params.toString() ? ('?' + params.toString()) : '');
 
     let con = 0, sin = 0, err = 0, n = 0, total = 0;
 
     function finProceso() {
       btn.disabled = false;
+      btnInvalidos.disabled = false;
       btnParar.classList.add('hidden');
       abortController = null;
     }
@@ -586,6 +587,13 @@
       estado.classList.remove('bg-blue-50');
       finProceso();
     }
+  }
+
+  btn.addEventListener('click', function() {
+    iniciarActualizacion(false);
+  });
+  btnInvalidos.addEventListener('click', function() {
+    iniciarActualizacion(true);
   });
 
   btnParar.addEventListener('click', function() {
