@@ -17,7 +17,7 @@
         Actualizar
       </button>
       <button type="button" id="btn-actualizar-boms-invalidos" class="shrink-0 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 disabled:opacity-50">
-        Actualizar solo FALSE
+        Actualizar FALSE + 7*
       </button>
       <button type="button" id="btn-parar-boms" class="hidden shrink-0 rounded-md border border-red-600 bg-white px-4 py-2 text-sm font-semibold text-red-600 shadow-sm hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600">
         Parar
@@ -465,7 +465,7 @@
     progresoDiv.classList.add('hidden');
     logDiv.innerHTML = '';
     estadoTexto.textContent = onlyInvalid
-      ? 'Ejecutando actualización para partes con valido=FALSE (verás cada registro en tiempo real)...'
+      ? 'Ejecutando actualización para partes con valido=FALSE y número iniciando con 7 (verás cada registro en tiempo real)...'
       : 'Ejecutando actualización (verás cada registro en tiempo real)...';
     estado.classList.add('bg-blue-50');
     estado.classList.remove('bg-red-50');

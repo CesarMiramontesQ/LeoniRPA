@@ -499,10 +499,13 @@ async def list_partes_numeros(db: AsyncSession, limit: Optional[int] = None) -> 
 
 
 async def list_partes_numeros_no_validos(db: AsyncSession, limit: Optional[int] = None) -> List[str]:
-    """Lista numero_parte marcados como no válidos (valido=False) para reproceso vía SAP."""
+    """Lista numero_parte para reproceso SAP: valido=False y que empiezan con '7'."""
     query = (
         select(Parte.numero_parte)
-        .where(Parte.valido.is_(False))
+        .where(
+            Parte.valido.is_(False),
+            Parte.numero_parte.like("7%"),
+        )
         .order_by(Parte.numero_parte)
     )
     if limit is not None:
