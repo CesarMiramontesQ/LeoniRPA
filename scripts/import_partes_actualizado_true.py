@@ -3,12 +3,12 @@ Importa números de parte desde Excel a la tabla partes, forzando valido=True.
 
 Uso (desde la raíz del proyecto):
   python scripts/import_partes_actualizado_true.py
-  python scripts/import_partes_actualizado_true.py --file faltantes_sheet2_vs_sheet1.xlsx --sheet Sheet1
+  python scripts/import_partes_actualizado_true.py --file faltantes_sheet2_vs_sheet1.xlsx --sheet Faltantes
   python scripts/import_partes_actualizado_true.py --dry-run
 
 Comportamiento:
   - Lee columna de número de parte (obligatoria):
-      - Numero de parte / numero_parte / part_no
+      - numero_parte_faltante / Numero de parte / numero_parte / part_no
   - Hace upsert por partes.numero_parte:
       - Si no existe: inserta (numero_parte, descripcion=None, valido=True)
       - Si existe: actualiza solo valido=True (no toca descripcion)
@@ -41,7 +41,7 @@ def parse_args() -> argparse.Namespace:
         default="faltantes_sheet2_vs_sheet1.xlsx",
         help="Ruta del archivo Excel (default: faltantes_sheet2_vs_sheet1.xlsx)",
     )
-    parser.add_argument("--sheet", default="Sheet1", help="Nombre de hoja (default: Sheet1)")
+    parser.add_argument("--sheet", default="Faltantes", help="Nombre de hoja (default: Faltantes)")
     parser.add_argument("--dry-run", action="store_true", help="Simula la importación sin guardar cambios")
     return parser.parse_args()
 
@@ -60,17 +60,32 @@ async def run_import(file_path: Path, sheet_name: str, dry_run: bool) -> None:
     print("Importar partes desde Excel (valido=True)")
     print("=" * 68)
     print(f"Archivo: {file_path}")
-    print(f"Hoja:    {sheet_name}")
     print(f"Modo:    {'DRY-RUN (sin guardar)' if dry_run else 'ESCRITURA'}")
 
-    df = pd.read_excel(file_path, sheet_name=sheet_name)
+    excel = pd.ExcelFile(file_path)
+    hojas = list(excel.sheet_names)
+    if sheet_name in hojas:
+        hoja_objetivo = sheet_name
+    elif "Faltantes" in hojas:
+        hoja_objetivo = "Faltantes"
+        print(f"Hoja solicitada '{sheet_name}' no existe. Se usará: {hoja_objetivo}")
+    elif hojas:
+        hoja_objetivo = hojas[0]
+        print(f"Hoja solicitada '{sheet_name}' no existe. Se usará la primera hoja: {hoja_objetivo}")
+    else:
+        raise ValueError("El archivo no contiene hojas.")
+
+    print(f"Hoja:    {hoja_objetivo}")
+    df = pd.read_excel(file_path, sheet_name=hoja_objetivo, dtype=str)
     if df.empty:
         print("\nEl archivo no contiene filas.")
         return
 
     col_map = {normalize_col(c): c for c in df.columns}
     col_numero = (
-        col_map.get("numero de parte")
+        col_map.get("numero_parte_faltante")
+        or col_map.get("numero parte faltante")
+        or col_map.get("numero de parte")
         or col_map.get("numero_parte")
         or col_map.get("part_no")
     )
