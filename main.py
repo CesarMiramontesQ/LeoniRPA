@@ -508,7 +508,7 @@ async def api_ejecutar_actualizacion_boms(
         logger.info("BOM reproceso desde cero solicitado: %s", reset_info)
 
     if only_invalid:
-        part_numbers = await crud.list_partes_numeros_no_validos(db, limit=limit)
+        part_numbers = await crud.list_partes_numeros_true_sin_bom(db, limit=limit)
     else:
         part_numbers = await crud.list_partes_numeros(db, limit=limit)
     total = len(part_numbers)
@@ -654,7 +654,7 @@ async def api_ejecutar_actualizacion_boms_stream(
             }) + "\n"
 
         if only_invalid:
-            part_numbers = await crud.list_partes_numeros_no_validos(db, limit=limit)
+            part_numbers = await crud.list_partes_numeros_true_sin_bom(db, limit=limit)
         else:
             part_numbers = await crud.list_partes_numeros(db, limit=limit)
         total = len(part_numbers)
