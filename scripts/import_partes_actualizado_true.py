@@ -3,7 +3,7 @@ Importa números de parte desde Excel a la tabla partes, forzando valido=True.
 
 Uso (desde la raíz del proyecto):
   python scripts/import_partes_actualizado_true.py
-  python scripts/import_partes_actualizado_true.py --file partes_actualizado.xlsx --sheet Sheet1
+  python scripts/import_partes_actualizado_true.py --file faltantes_sheet2_vs_sheet1.xlsx --sheet Sheet1
   python scripts/import_partes_actualizado_true.py --dry-run
 
 Comportamiento:
@@ -38,8 +38,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--file",
-        default="partes_actualizado.xlsx",
-        help="Ruta del archivo Excel (default: partes_actualizado.xlsx)",
+        default="faltantes_sheet2_vs_sheet1.xlsx",
+        help="Ruta del archivo Excel (default: faltantes_sheet2_vs_sheet1.xlsx)",
     )
     parser.add_argument("--sheet", default="Sheet1", help="Nombre de hoja (default: Sheet1)")
     parser.add_argument("--dry-run", action="store_true", help="Simula la importación sin guardar cambios")
