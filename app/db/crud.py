@@ -546,7 +546,7 @@ async def reset_bom_para_reproceso(db: AsyncSession) -> Dict[str, int]:
     total_partes = (await db.execute(select(func.count()).select_from(Parte))).scalar_one()
 
     await db.execute(delete(Bom))
-    await db.execute(update(Parte).values(valido=True))
+    await db.execute(update(Parte).values(valido=True, qty_total=0))
     await db.flush()
 
     return {
@@ -563,6 +563,33 @@ async def set_parte_valido(db: AsyncSession, numero_parte: str, valido: bool) ->
     if parte is not None:
         parte.valido = valido
         await db.flush()
+
+
+async def actualizar_qty_total_parte(db: AsyncSession, parte_id: int) -> Decimal:
+    """
+    Recalcula y persiste qty_total para una parte como la suma de qty/1000
+    de todos sus componentes en revisiones vigentes (effective_to IS NULL).
+    """
+    qty_total_sq = (
+        select(func.coalesce(func.sum(BomItem.qty / 1000.0), 0))
+        .select_from(BomItem)
+        .join(BomRevision, BomRevision.id == BomItem.bom_revision_id)
+        .join(Bom, Bom.id == BomRevision.bom_id)
+        .where(
+            Bom.parte_id == parte_id,
+            BomRevision.effective_to.is_(None),
+        )
+        .scalar_subquery()
+    )
+    await db.execute(
+        update(Parte)
+        .where(Parte.id == parte_id)
+        .values(qty_total=qty_total_sq)
+    )
+    result = await db.execute(select(Parte.qty_total).where(Parte.id == parte_id))
+    qty_total = result.scalar_one_or_none()
+    await db.flush()
+    return qty_total if qty_total is not None else Decimal("0")
 
 
 async def upsert_parte(db: AsyncSession, numero_parte: str, descripcion: Optional[str] = None) -> Parte:

@@ -16,8 +16,8 @@
       <button type="button" id="btn-actualizar-boms" class="shrink-0 rounded-md bg-[#003D89] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#003D89] disabled:opacity-50">
         Actualizar
       </button>
-      <button type="button" id="btn-actualizar-boms-invalidos" class="shrink-0 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 disabled:opacity-50">
-        Reprocesar FALSE
+      <button type="button" id="btn-descargar-reporte" class="shrink-0 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 disabled:opacity-50">
+        Descargar reporte
       </button>
       <button type="button" id="btn-parar-boms" class="hidden shrink-0 rounded-md border border-red-600 bg-white px-4 py-2 text-sm font-semibold text-red-600 shadow-sm hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600">
         Parar
@@ -120,6 +120,13 @@
               <button type="button" id="sort-total-revisiones" class="inline-flex items-center gap-1 font-medium text-gray-600 hover:text-[#003D89]">
                 Revisiones
                 <span id="sort-total-revisiones-ind" class="text-xs text-gray-400">↕</span>
+              </button>
+            </th>
+            <th class="py-2 px-3">Qty total</th>
+            <th class="py-2 px-3">
+              <button type="button" id="sort-diferencia" class="inline-flex items-center gap-1 font-medium text-gray-600 hover:text-[#003D89]">
+                Diferencia
+                <span id="sort-diferencia-ind" class="text-xs text-gray-400">↕</span>
               </button>
             </th>
             <th class="py-2 px-3">Acción</th>
@@ -230,7 +237,7 @@
 <script>
 (function() {
   const btn = document.getElementById('btn-actualizar-boms');
-  const btnInvalidos = document.getElementById('btn-actualizar-boms-invalidos');
+  const btnDescargarReporte = document.getElementById('btn-descargar-reporte');
   const btnParar = document.getElementById('btn-parar-boms');
   const estado = document.getElementById('bom-estado');
   const estadoTexto = document.getElementById('bom-estado-texto');
@@ -253,8 +260,10 @@
   const btnPartesSiguiente = document.getElementById('btn-partes-siguiente');
   const sortTotalBomsBtn = document.getElementById('sort-total-boms');
   const sortTotalRevisionesBtn = document.getElementById('sort-total-revisiones');
+  const sortDiferenciaBtn = document.getElementById('sort-diferencia');
   const sortTotalBomsInd = document.getElementById('sort-total-boms-ind');
   const sortTotalRevisionesInd = document.getElementById('sort-total-revisiones-ind');
+  const sortDiferenciaInd = document.getElementById('sort-diferencia-ind');
   const modalParte = document.getElementById('modal-parte-detalle');
   const modalParteBackdrop = document.getElementById('modal-parte-backdrop');
   const modalParteCerrarBtn = document.getElementById('modal-parte-cerrar');
@@ -320,13 +329,17 @@
       sortTotalRevisionesInd.textContent = partesSort.key === 'total_revisiones' ? (partesSort.direction === 'asc' ? '↑' : '↓') : '↕';
       sortTotalRevisionesInd.className = partesSort.key === 'total_revisiones' ? 'text-xs text-[#003D89]' : 'text-xs text-gray-400';
     }
+    if (sortDiferenciaInd) {
+      sortDiferenciaInd.textContent = partesSort.key === 'diferencia' ? (partesSort.direction === 'asc' ? '↑' : '↓') : '↕';
+      sortDiferenciaInd.className = partesSort.key === 'diferencia' ? 'text-xs text-[#003D89]' : 'text-xs text-gray-400';
+    }
   }
 
   function renderPartesRows(rows) {
     const rowsToRender = getSortedPartesRows(rows);
     partesBody.innerHTML = '';
     if (!rowsToRender || rowsToRender.length === 0) {
-      partesBody.innerHTML = '<tr><td colspan="6" class="py-3 px-3 text-gray-400">Sin resultados</td></tr>';
+      partesBody.innerHTML = '<tr><td colspan="8" class="py-3 px-3 text-gray-400">Sin resultados</td></tr>';
       updateSortIndicators();
       return;
     }
@@ -335,12 +348,15 @@
       var badge = row.valido
         ? '<span class="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">Sí</span>'
         : '<span class="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">No</span>';
+      var diferenciaTexto = row.diferencia === null || row.diferencia === undefined ? 'NA' : row.diferencia;
       return '<tr class="border-b border-gray-100">' +
         '<td class="py-2 px-3 font-mono text-gray-900">' + esc(row.numero_parte) + '</td>' +
         '<td class="py-2 px-3 text-gray-700">' + esc(row.descripcion || '') + '</td>' +
         '<td class="py-2 px-3">' + badge + '</td>' +
         '<td class="py-2 px-3 text-gray-700">' + esc(row.total_boms) + '</td>' +
         '<td class="py-2 px-3 text-gray-700">' + esc(row.total_revisiones) + '</td>' +
+        '<td class="py-2 px-3 text-gray-700">' + esc(row.qty_total ?? 0) + '</td>' +
+        '<td class="py-2 px-3 text-gray-700">' + esc(diferenciaTexto) + '</td>' +
         '<td class="py-2 px-3"><button type="button" class="btn-ver-detalle rounded-md bg-[#003D89] px-3 py-1 text-xs font-semibold text-white hover:bg-[#003366]" data-parte-no="' + esc(row.numero_parte) + '">Ver detalle</button></td>' +
       '</tr>';
     }).join('');
@@ -458,7 +474,7 @@
   async function iniciarActualizacion(onlyInvalid) {
     abortController = new AbortController();
     btn.disabled = true;
-    btnInvalidos.disabled = true;
+    btnDescargarReporte.disabled = true;
     btnParar.classList.remove('hidden');
     estado.classList.remove('hidden');
     resultado.classList.add('hidden');
@@ -480,7 +496,7 @@
 
     function finProceso() {
       btn.disabled = false;
-      btnInvalidos.disabled = false;
+      btnDescargarReporte.disabled = false;
       btnParar.classList.add('hidden');
       abortController = null;
     }
@@ -592,8 +608,8 @@
   btn.addEventListener('click', function() {
     iniciarActualizacion(false);
   });
-  btnInvalidos.addEventListener('click', function() {
-    iniciarActualizacion(true);
+  btnDescargarReporte.addEventListener('click', function() {
+    window.location.href = '/api/actualizar-boms/descargar-reporte';
   });
 
   btnParar.addEventListener('click', function() {
@@ -630,6 +646,11 @@
   if (sortTotalRevisionesBtn) {
     sortTotalRevisionesBtn.addEventListener('click', function() {
       togglePartesSort('total_revisiones');
+    });
+  }
+  if (sortDiferenciaBtn) {
+    sortDiferenciaBtn.addEventListener('click', function() {
+      togglePartesSort('diferencia');
     });
   }
 

@@ -99,6 +99,7 @@ async def load_bom(db: AsyncSession, payload: LoadBomInput) -> LoadBomResponse:
 
         # Primera carga: si el BOM ya tiene al menos una revisión, omitir (no crear 2ª/3ª revisión si se re-ejecuta el proceso)
         if current_rev is not None:
+            await crud.actualizar_qty_total_parte(db, parte_id)
             await db.commit()
             return LoadBomResponse(
                 ok=True,
@@ -118,6 +119,7 @@ async def load_bom(db: AsyncSession, payload: LoadBomInput) -> LoadBomResponse:
             source="carga",
         )
         n = await crud.insert_bom_items(db, new_rev.id, componentes_con_id)
+        await crud.actualizar_qty_total_parte(db, parte_id)
         await db.commit()
         return LoadBomResponse(
             ok=True,

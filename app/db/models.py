@@ -31,6 +31,7 @@ class Parte(Base):
     numero_parte = Column(Text, nullable=False, unique=True, index=True)
     descripcion = Column(Text, nullable=True)
     valido = Column(Boolean, nullable=False, server_default=text("true"))
+    qty_total = Column(Numeric(18, 6), nullable=False, server_default=text("0"))
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relación con BOMs

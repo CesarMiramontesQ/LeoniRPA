@@ -407,7 +407,7 @@ async def boms(request: Request, current_user: User = Depends(get_current_user),
 @app.get("/actualizar-boms")
 async def actualizar_boms(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Página Actualizar BOMs - requiere autenticación."""
-    from app.db.models import Parte, Bom, BomRevision
+    from app.db.models import Parte, Bom, BomRevision, PesoNeto
     from sqlalchemy import select, func, distinct
     # Contar partes y última actualización real desde tabla partes
     total_partes = await db.execute(select(func.count()).select_from(Parte))
@@ -442,6 +442,128 @@ async def actualizar_boms(request: Request, current_user: User = Depends(get_cur
             "numeros_parte_con_bom": numeros_parte_con_bom,
             "numeros_parte_no_validos": numeros_parte_no_validos,
         }
+    )
+
+
+@app.get("/api/actualizar-boms/descargar-reporte")
+async def api_descargar_reporte_actualizar_boms(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Descarga reporte BOM por componente para partes con diferencia <= 0."""
+    import io
+    from sqlalchemy import select
+    from sqlalchemy.orm import aliased
+    from app.db.models import Parte, Bom, BomRevision, BomItem, PesoNeto
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+
+    headers = [
+        "Producto",
+        "Insumo",
+        "Incorporado",
+        "Desperdicio",
+        "Merma",
+        "Fecha Inicial",
+        "Fecha Final",
+        "Habilitado",
+        "Sustituto",
+    ]
+
+    producto = aliased(Parte)
+    insumo = aliased(Parte)
+    fecha_descarga = datetime.now().date()
+
+    query = (
+        select(
+            producto.numero_parte.label("producto"),
+            insumo.numero_parte.label("insumo"),
+            BomItem.qty.label("qty"),
+            (producto.qty_total - PesoNeto.kgm).label("diferencia"),
+        )
+        .select_from(BomItem)
+        .join(BomRevision, BomRevision.id == BomItem.bom_revision_id)
+        .join(Bom, Bom.id == BomRevision.bom_id)
+        .join(producto, producto.id == Bom.parte_id)
+        .join(insumo, insumo.id == BomItem.componente_id)
+        .join(PesoNeto, PesoNeto.numero_parte == producto.numero_parte)
+        .where(
+            BomRevision.effective_to.is_(None),
+            (producto.qty_total - PesoNeto.kgm) <= 0,
+        )
+        .order_by(producto.numero_parte, insumo.numero_parte)
+    )
+    result = await db.execute(query)
+    insumos_ajuste = ("3012", "3013", "3014", "3015", "3016", "3017")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Reporte"
+
+    purple_fill = PatternFill(fill_type="solid", start_color="7030A0", end_color="7030A0")
+    header_font = Font(bold=True, color="FFFFFF")
+
+    for col_idx, header in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.font = header_font
+        cell.fill = purple_fill
+        ws.column_dimensions[cell.column_letter].width = max(14, len(header) + 2)
+
+    row_idx = 2
+    producto_actual = None
+    ajuste_actual = None
+
+    def _append_insumos_ajuste(producto_no: str, incorporado_ajuste: float) -> int:
+        nonlocal row_idx
+        if not producto_no or incorporado_ajuste is None:
+            return 0
+        agregados = 0
+        for insumo_ajuste in insumos_ajuste:
+            ws.cell(row=row_idx, column=1, value=producto_no)
+            ws.cell(row=row_idx, column=2, value=insumo_ajuste)
+            ws.cell(row=row_idx, column=3, value=incorporado_ajuste)
+            ws.cell(row=row_idx, column=4, value=0)
+            ws.cell(row=row_idx, column=5, value=incorporado_ajuste * 0.03)
+            ws.cell(row=row_idx, column=6, value=fecha_descarga)
+            ws.cell(row=row_idx, column=7, value="")
+            ws.cell(row=row_idx, column=8, value=1)
+            ws.cell(row=row_idx, column=9, value="")
+            row_idx += 1
+            agregados += 1
+        return agregados
+
+    for producto_no, insumo_no, qty, diferencia in result.all():
+        if producto_actual is not None and producto_no != producto_actual:
+            _append_insumos_ajuste(producto_actual, ajuste_actual)
+            ajuste_actual = None
+
+        qty_value = float(qty or 0)
+        incorporado = qty_value / 1000.0
+        ws.cell(row=row_idx, column=1, value=producto_no or "")
+        ws.cell(row=row_idx, column=2, value=insumo_no or "")
+        ws.cell(row=row_idx, column=3, value=incorporado)
+        ws.cell(row=row_idx, column=4, value=0)
+        ws.cell(row=row_idx, column=5, value=incorporado * 0.03)
+        ws.cell(row=row_idx, column=6, value=fecha_descarga)
+        ws.cell(row=row_idx, column=7, value="")
+        ws.cell(row=row_idx, column=8, value=1)
+        ws.cell(row=row_idx, column=9, value="")
+        row_idx += 1
+        producto_actual = producto_no
+        if producto_no and diferencia is not None and float(diferencia) < 0:
+            ajuste_actual = abs(float(diferencia)) / 6.0
+
+    if producto_actual is not None:
+        _append_insumos_ajuste(producto_actual, ajuste_actual)
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="reporte_actualizar_boms.xlsx"'},
     )
 
 
@@ -975,7 +1097,7 @@ async def api_actualizar_boms_partes(
 ):
     """Lista números de parte para vista resumen con contador de BOMs y revisiones."""
     from sqlalchemy import select, func
-    from app.db.models import Parte, Bom, BomRevision
+    from app.db.models import Parte, Bom, BomRevision, PesoNeto
 
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
@@ -995,12 +1117,21 @@ async def api_actualizar_boms_partes(
         .correlate(Parte)
         .scalar_subquery()
     )
+    kgm_sq = (
+        select(PesoNeto.kgm)
+        .where(PesoNeto.numero_parte == Parte.numero_parte)
+        .limit(1)
+        .correlate(Parte)
+        .scalar_subquery()
+    )
 
     query = select(
         Parte.numero_parte,
         Parte.descripcion,
         Parte.valido,
         Parte.created_at,
+        Parte.qty_total,
+        kgm_sq.label("kgm_peso_neto"),
         bom_count_sq.label("total_boms"),
         rev_count_sq.label("total_revisiones"),
     )
@@ -1022,12 +1153,16 @@ async def api_actualizar_boms_partes(
     total = total_result.scalar_one()
 
     rows = []
-    for numero_parte, descripcion, valido, created_at, total_boms, total_revisiones in result.all():
+    for numero_parte, descripcion, valido, created_at, qty_total, kgm_peso_neto, total_boms, total_revisiones in result.all():
+        qty_total_value = qty_total or 0
+        diferencia = None if kgm_peso_neto is None else (qty_total_value - kgm_peso_neto)
         rows.append({
             "numero_parte": numero_parte,
             "descripcion": descripcion,
             "valido": bool(valido),
             "created_at": created_at.isoformat() if created_at else None,
+            "qty_total": float(qty_total_value),
+            "diferencia": None if diferencia is None else float(diferencia),
             "total_boms": int(total_boms or 0),
             "total_revisiones": int(total_revisiones or 0),
         })
