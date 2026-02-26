@@ -645,6 +645,9 @@
   .min-w-\[200px\] {
     min-width: 200px;
   }
+  .min-w-\[260px\] {
+    min-width: 260px;
+  }
   .min-w-full {
     min-width: 100%;
   }

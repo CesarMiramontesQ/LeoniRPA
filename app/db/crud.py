@@ -8,7 +8,7 @@ from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta, timezone, date
 from decimal import Decimal
-from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaProveedoresNacional, CargaProveedoresNacionalHistorial, CargaCliente, MasterUnificadoVirtuales, MasterUnificadoVirtualHistorial, MasterUnificadoVirtualOperacion, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente, Parte, Bom, BomRevision, BomItem
+from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaProveedoresNacional, CargaProveedoresNacionalHistorial, CargaCliente, MasterUnificadoVirtuales, MasterUnificadoVirtualHistorial, MasterUnificadoVirtualOperacion, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente, Parte, Bom, BomRevision, BomItem, PesoNeto
 from app.core.security import hash_password
 
 
@@ -512,6 +512,19 @@ async def list_partes_numeros_true_sin_bom(db: AsyncSession, limit: Optional[int
             Parte.valido.is_(True),
             ~revision_exists.exists(),
         )
+        .order_by(Parte.numero_parte)
+    )
+    if limit is not None:
+        query = query.limit(limit)
+    result = await db.execute(query)
+    return [row[0] for row in result.all()]
+
+
+async def list_partes_numeros_no_validos(db: AsyncSession, limit: Optional[int] = None) -> List[str]:
+    """Lista numero_parte marcados como no válidos (valido=False)."""
+    query = (
+        select(Parte.numero_parte)
+        .where(Parte.valido.is_(False))
         .order_by(Parte.numero_parte)
     )
     if limit is not None:
@@ -1636,6 +1649,49 @@ async def list_materiales(
     
     result = await db.execute(query)
     return list(result.scalars().all())
+
+
+async def list_pesos_netos(
+    db: AsyncSession,
+    search: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> List[PesoNeto]:
+    """Lista pesos netos con filtros opcionales."""
+    query = select(PesoNeto)
+
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                PesoNeto.numero_parte.ilike(search_pattern),
+                PesoNeto.descripcion.ilike(search_pattern),
+            )
+        )
+
+    query = query.order_by(PesoNeto.numero_parte).limit(limit).offset(offset)
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def count_pesos_netos(
+    db: AsyncSession,
+    search: Optional[str] = None,
+) -> int:
+    """Cuenta el total de registros de peso_neto con filtros opcionales."""
+    query = select(func.count(PesoNeto.numero_parte))
+
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                PesoNeto.numero_parte.ilike(search_pattern),
+                PesoNeto.descripcion.ilike(search_pattern),
+            )
+        )
+
+    result = await db.execute(query)
+    return result.scalar() or 0
 
 
 async def delete_material(

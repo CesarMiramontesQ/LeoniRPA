@@ -374,6 +374,28 @@ class="size-6 shrink-0 {% if active_page in ['carga_proveedor', 'carga_cliente',
                           Actualizar BOMs
                         </a>
                       </li>
+                      <li>
+                        <a
+                          href="/pesos-netos"
+                          class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page == 'pesos_netos' %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke-width="1.5"
+                            stroke="currentColor"
+                            class="size-6 shrink-0 {% if active_page == 'pesos_netos' %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              d="M7.5 3.75h9A2.25 2.25 0 0 1 18.75 6v12A2.25 2.25 0 0 1 16.5 20.25h-9A2.25 2.25 0 0 1 5.25 18V6A2.25 2.25 0 0 1 7.5 3.75Zm0 0V6m9-2.25V6M8.25 9.75h7.5m-7.5 3h7.5m-7.5 3h4.5"
+                            />
+                          </svg>
+                          Pesos Netos
+                        </a>
+                      </li>
                       {% if current_user and current_user.rol == 'admin' %}
                       <li>
                         <a
@@ -537,7 +559,7 @@ class="size-6 shrink-0 {% if active_page in ['carga_proveedor', 'carga_cliente',
                     <button
                       type="button"
                       id="compras-menu-toggle-desktop"
-                      class="group flex w-full items-center justify-between gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page in ['compras', 'proveedores', 'materiales', 'precios_compra', 'paises_origen'] %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                      class="group flex w-full items-center justify-between gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page in ['compras', 'todas_compras', 'proveedores', 'materiales', 'precios_compra', 'paises_origen'] %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
                     >
                       <div class="flex items-center gap-x-3">
                         <svg
@@ -546,7 +568,7 @@ class="size-6 shrink-0 {% if active_page in ['carga_proveedor', 'carga_cliente',
                           viewBox="0 0 24 24"
                           stroke-width="1.5"
                           stroke="currentColor"
-                          class="size-6 shrink-0 {% if active_page in ['compras', 'proveedores', 'materiales', 'precios_compra', 'paises_origen'] %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
+                          class="size-6 shrink-0 {% if active_page in ['compras', 'todas_compras', 'proveedores', 'materiales', 'precios_compra', 'paises_origen'] %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
                         >
                           <path
                             stroke-linecap="round"
@@ -558,7 +580,7 @@ class="size-6 shrink-0 {% if active_page in ['carga_proveedor', 'carga_cliente',
                       </div>
                       <svg
                         id="compras-menu-arrow-desktop"
-                        class="size-5 shrink-0 transition-transform duration-200 {% if active_page in ['compras', 'proveedores', 'materiales', 'precios_compra', 'paises_origen'] %}rotate-90 text-[#003D89]{% else %}text-gray-400{% endif %}"
+                        class="size-5 shrink-0 transition-transform duration-200 {% if active_page in ['compras', 'todas_compras', 'proveedores', 'materiales', 'precios_compra', 'paises_origen'] %}rotate-90 text-[#003D89]{% else %}text-gray-400{% endif %}"
                         xmlns="http://www.w3.org/2000/svg"
                         fill="none"
                         viewBox="0 0 24 24"
@@ -740,6 +762,28 @@ class="size-6 shrink-0 {% if active_page in ['carga_proveedor', 'carga_cliente',
                       />
                     </svg>
                     Actualizar BOMs
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href="/pesos-netos"
+                    class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page == 'pesos_netos' %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke-width="1.5"
+                      stroke="currentColor"
+                      class="size-6 shrink-0 {% if active_page == 'pesos_netos' %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M7.5 3.75h9A2.25 2.25 0 0 1 18.75 6v12A2.25 2.25 0 0 1 16.5 20.25h-9A2.25 2.25 0 0 1 5.25 18V6A2.25 2.25 0 0 1 7.5 3.75Zm0 0V6m9-2.25V6M8.25 9.75h7.5m-7.5 3h7.5m-7.5 3h4.5"
+                      />
+                    </svg>
+                    Pesos Netos
                   </a>
                 </li>
                 {% if current_user and current_user.rol == 'admin' %}

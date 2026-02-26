@@ -508,7 +508,7 @@ async def api_ejecutar_actualizacion_boms(
         logger.info("BOM reproceso desde cero solicitado: %s", reset_info)
 
     if only_invalid:
-        part_numbers = await crud.list_partes_numeros_true_sin_bom(db, limit=limit)
+        part_numbers = await crud.list_partes_numeros_no_validos(db, limit=limit)
     else:
         part_numbers = await crud.list_partes_numeros(db, limit=limit)
     total = len(part_numbers)
@@ -654,7 +654,7 @@ async def api_ejecutar_actualizacion_boms_stream(
             }) + "\n"
 
         if only_invalid:
-            part_numbers = await crud.list_partes_numeros_true_sin_bom(db, limit=limit)
+            part_numbers = await crud.list_partes_numeros_no_validos(db, limit=limit)
         else:
             part_numbers = await crud.list_partes_numeros(db, limit=limit)
         total = len(part_numbers)
@@ -1277,6 +1277,60 @@ async def materiales(request: Request, current_user: User = Depends(get_current_
             "historial_reciente": historial_reciente
         }
     )
+
+
+@app.get("/pesos-netos")
+async def pesos_netos(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Página de pesos netos - requiere autenticación."""
+    total_pesos_netos = await crud.count_pesos_netos(db)
+    return templates.TemplateResponse(
+        "pesos_netos.html",
+        {
+            "request": request,
+            "active_page": "pesos_netos",
+            "current_user": current_user,
+            "total_pesos_netos": total_pesos_netos,
+        },
+    )
+
+
+@app.get("/api/pesos-netos")
+async def api_pesos_netos(
+    q: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """API para listar pesos netos con búsqueda y paginación."""
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    q = (q or "").strip()
+
+    rows_db = await crud.list_pesos_netos(db, search=q or None, limit=limit, offset=offset)
+    total = await crud.count_pesos_netos(db, search=q or None)
+
+    rows = [
+        {
+            "numero_parte": row.numero_parte,
+            "descripcion": row.descripcion,
+            "gross": float(row.gross) if row.gross is not None else None,
+            "net": float(row.net) if row.net is not None else None,
+            "kgm": float(row.kgm) if row.kgm is not None else None,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        }
+        for row in rows_db
+    ]
+
+    return {
+        "ok": True,
+        "q": q or None,
+        "limit": limit,
+        "offset": offset,
+        "total": int(total),
+        "rows": rows,
+    }
 
 
 @app.get("/precios-compra")

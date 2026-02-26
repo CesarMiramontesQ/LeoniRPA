@@ -1108,6 +1108,23 @@ class CargaClienteHistorial(Base):
         return f"<CargaClienteHistorial(id={self.id}, codigo_cliente={self.codigo_cliente}, operacion={self.operacion.value}, created_at={self.created_at})>"
 
 
+class PesoNeto(Base):
+    """Tabla de pesos por número de parte."""
+    __tablename__ = "peso_neto"
+
+    numero_parte = Column(String, primary_key=True, index=True)
+    descripcion = Column(Text, nullable=True)
+    gross = Column(Numeric(18, 6), nullable=True)
+    net = Column(Numeric(18, 6), nullable=True)
+    kgm = Column(Numeric(18, 6), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f"<PesoNeto(numero_parte={self.numero_parte}, kgm={self.kgm})>"
+
+
 class Cliente(Base):
     """Modelo para clientes."""
     __tablename__ = "clientes"
