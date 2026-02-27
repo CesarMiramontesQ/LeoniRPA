@@ -1722,6 +1722,193 @@ async def cross_reference(
     )
 
 
+def _parse_cross_reference_txt(content: str) -> list[dict]:
+    """
+    Parsea export TXT de VD59 y extrae:
+    - customer
+    - material
+    - customer_material (Customer Material Number)
+    """
+    import re
+
+    lines = [line.rstrip("\r\n") for line in content.splitlines()]
+    header_idx = None
+    header_parts = []
+    col_customer = None
+    col_material = None
+    col_customer_material = None
+
+    for i, line in enumerate(lines):
+        if "|" not in line:
+            continue
+        if "Customer Material Number" in line and "Material" in line and "Customer" in line:
+            header_idx = i
+            header_parts = [p.strip() for p in line.split("|")]
+            break
+
+    if header_idx is None:
+        return []
+
+    for i, h in enumerate(header_parts):
+        key = " ".join(h.strip().lower().split())
+        key = re.sub(r"[^a-z0-9 ]+", "", key)
+        if key == "customer":
+            col_customer = i
+        elif key == "material":
+            col_material = i
+        elif key in ("customer material number", "customer material"):
+            col_customer_material = i
+
+    if col_customer is None or col_material is None or col_customer_material is None:
+        return []
+
+    rows = []
+    for line in lines[header_idx + 1:]:
+        if not line.startswith("|") or "---" in line:
+            continue
+        parts = [p.strip() for p in line.split("|")]
+        max_idx = max(col_customer, col_material, col_customer_material)
+        if len(parts) <= max_idx:
+            continue
+        customer = parts[col_customer].strip()
+        material = parts[col_material].strip()
+        customer_material = parts[col_customer_material].strip()
+        if not customer or not material or not customer_material:
+            continue
+        rows.append(
+            {
+                "customer": customer,
+                "material": material,
+                "customer_material": customer_material,
+            }
+        )
+    return rows
+
+
+@app.post("/api/cross-reference/actualizar")
+async def api_actualizar_cross_reference_desde_sap(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Ejecuta VD59 por cada cliente y hace upsert en cross_reference
+    (customer, material, customer_material).
+    """
+    from sqlalchemy import select, text
+    from app.db.models import Cliente
+
+    vbs_path = Path(
+        settings.CROSS_REFERENCE_VBS_PATH or str(Path(__file__).resolve().parent / "cross_reference.vbs")
+    ).resolve()
+    export_dir_raw = settings.CROSS_REFERENCE_EXPORT_DIR or ""
+    export_dir = str(Path(export_dir_raw).resolve()) if export_dir_raw else ""
+    timeout_sec = settings.CROSS_REFERENCE_VBS_TIMEOUT_SEC
+
+    if not export_dir_raw or not Path(export_dir).is_dir():
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "mensaje": "Configura CROSS_REFERENCE_EXPORT_DIR y asegúrate de que exista."},
+        )
+    if platform.system() != "Windows":
+        return JSONResponse(
+            status_code=501,
+            content={"ok": False, "mensaje": "La ejecución de cross_reference.vbs solo está soportada en Windows."},
+        )
+
+    clientes_result = await db.execute(select(Cliente.codigo_cliente).order_by(Cliente.codigo_cliente))
+    clientes = [str(c) for c in clientes_result.scalars().all() if c is not None]
+    if not clientes:
+        return {"ok": True, "mensaje": "No hay clientes para procesar.", "resumen": {"clientes": 0, "upserts": 0, "errores": 0}}
+
+    upsert_sql = text(
+        """
+        INSERT INTO cross_reference (customer, material, customer_material, updated_at)
+        VALUES (:customer, :material, :customer_material, now())
+        ON CONFLICT (customer, material, customer_material) DO UPDATE
+        SET updated_at = now()
+        RETURNING (xmax = 0) AS inserted
+        """
+    )
+
+    total_upserts = 0
+    errores = []
+    procesados_ok = 0
+
+    for codigo_cliente in clientes:
+        try:
+            logger.info("[cross_reference] Cliente %s: inicio procesamiento", codigo_cliente)
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ["cscript", "//nologo", str(vbs_path), codigo_cliente, export_dir],
+                capture_output=True,
+                timeout=timeout_sec,
+                cwd=str(vbs_path.parent),
+                text=True,
+            )
+            if result.returncode != 0:
+                err = (result.stderr or "").strip() or (result.stdout or "").strip()
+                errores.append({"cliente": codigo_cliente, "mensaje": f"VBS falló: {err[:200]}"})
+                logger.warning("[cross_reference] Cliente %s: ERROR VBS - %s", codigo_cliente, err[:200])
+                continue
+
+            archivo = Path(export_dir) / f"{codigo_cliente}.txt"
+            for _ in range(10):
+                await asyncio.sleep(1)
+                if archivo.is_file():
+                    break
+            if not archivo.is_file():
+                errores.append({"cliente": codigo_cliente, "mensaje": "No se generó TXT de salida."})
+                logger.warning("[cross_reference] Cliente %s: ERROR no se generó TXT", codigo_cliente)
+                continue
+
+            contenido = archivo.read_text(encoding="utf-8", errors="replace")
+            rows = _parse_cross_reference_txt(contenido)
+            if not rows:
+                errores.append({"cliente": codigo_cliente, "mensaje": "Sin filas parseables en el TXT."})
+                logger.warning("[cross_reference] Cliente %s: ERROR sin filas parseables", codigo_cliente)
+                continue
+
+            inserted_count = 0
+            updated_count = 0
+            for row in rows:
+                r = await db.execute(upsert_sql, row)
+                was_inserted = bool(r.scalar_one())
+                if was_inserted:
+                    inserted_count += 1
+                else:
+                    updated_count += 1
+                total_upserts += 1
+            await db.commit()
+            procesados_ok += 1
+            logger.info(
+                "[cross_reference] Cliente %s: OK filas=%s insertados=%s actualizados=%s",
+                codigo_cliente,
+                len(rows),
+                inserted_count,
+                updated_count,
+            )
+        except subprocess.TimeoutExpired:
+            await db.rollback()
+            errores.append({"cliente": codigo_cliente, "mensaje": f"Timeout ({timeout_sec}s)."})
+            logger.warning("[cross_reference] Cliente %s: ERROR timeout (%ss)", codigo_cliente, timeout_sec)
+        except Exception as e:
+            await db.rollback()
+            errores.append({"cliente": codigo_cliente, "mensaje": str(e)[:240]})
+            logger.exception("[cross_reference] Cliente %s: ERROR excepción", codigo_cliente)
+
+    return {
+        "ok": True,
+        "mensaje": f"Cross Reference actualizado. Clientes OK: {procesados_ok}/{len(clientes)}. Upserts: {total_upserts}. Errores: {len(errores)}.",
+        "resumen": {
+            "clientes_total": len(clientes),
+            "clientes_ok": procesados_ok,
+            "upserts": total_upserts,
+            "errores": len(errores),
+            "detalle_errores": errores[:50],
+        },
+    }
+
+
 @app.get("/api/cross-reference")
 async def api_cross_reference(
     q: Optional[str] = None,

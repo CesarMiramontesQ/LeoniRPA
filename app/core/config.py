@@ -40,6 +40,14 @@ class Settings:
     )  # carpeta donde SAP guarda los .txt; debe existir
     BOM_VBS_TIMEOUT_SEC: int = int(os.getenv("BOM_VBS_TIMEOUT_SEC", "90"))  # tiempo máximo por cada parte
 
+    # Cross Reference actualización desde SAP (VD59)
+    CROSS_REFERENCE_VBS_PATH: Optional[str] = os.getenv("CROSS_REFERENCE_VBS_PATH")
+    CROSS_REFERENCE_EXPORT_DIR: Optional[str] = os.getenv(
+        "CROSS_REFERENCE_EXPORT_DIR",
+        r"C:\Users\anad5004\Documents\Leoni_RPA\cross",
+    )
+    CROSS_REFERENCE_VBS_TIMEOUT_SEC: int = int(os.getenv("CROSS_REFERENCE_VBS_TIMEOUT_SEC", "120"))
+
 
 settings = Settings()
 

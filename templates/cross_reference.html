@@ -86,6 +86,7 @@
   (function () {
     const inputSearch = document.getElementById('cr-search');
     const inputLimit = document.getElementById('cr-limit');
+    const btnActualizar = document.getElementById('cr-actualizar');
     const btnRecargar = document.getElementById('cr-recargar');
     const tbody = document.getElementById('cr-body');
     const msg = document.getElementById('cr-msg');
@@ -179,6 +180,31 @@
       currentPage += 1;
       cargar(false);
     });
+    if (btnActualizar) {
+      btnActualizar.addEventListener('click', async function () {
+        const ok = window.confirm('¿Ejecutar actualización de Cross Reference desde SAP para todos los clientes?');
+        if (!ok) return;
+        btnActualizar.disabled = true;
+        const prev = btnActualizar.textContent;
+        btnActualizar.textContent = 'Actualizando...';
+        msg.textContent = 'Ejecutando VD59 por cliente y actualizando base de datos...';
+        try {
+          const res = await fetch('/api/cross-reference/actualizar', {
+            method: 'POST',
+            credentials: 'same-origin'
+          });
+          const data = await res.json().catch(function () { return {}; });
+          if (!res.ok || !data.ok) throw new Error(data.mensaje || 'No se pudo actualizar cross reference.');
+          msg.textContent = data.mensaje || 'Cross Reference actualizado.';
+          await cargar(true);
+        } catch (e) {
+          msg.textContent = 'Error al actualizar: ' + (e.message || e);
+        } finally {
+          btnActualizar.disabled = false;
+          btnActualizar.textContent = prev;
+        }
+      });
+    }
 
     cargar(true);
   })();
