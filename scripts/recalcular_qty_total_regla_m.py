@@ -3,8 +3,7 @@ Recalcula partes.qty_total con regla de UOM y actualiza partes.diferencia.
 
 Regla de qty_total:
 - Si measure == 'M': contribución = (qty / 1000) * kgm(componente)
-  donde kgm(componente) se busca en peso_neto por prefijo de 9 caracteres
-  del número de parte del componente.
+  donde kgm(componente) se busca en peso_neto por número de parte completo.
 - Si measure != 'M': contribución = qty / 1000.
 
 Regla de diferencia:
@@ -56,7 +55,7 @@ SQL_UPDATE_QTY_TOTAL = text(
             pn.kgm
         FROM componentes c
         LEFT JOIN peso_neto pn
-            ON left(pn.numero_parte, 9) = left(c.comp_no, 9)
+            ON pn.numero_parte = c.comp_no
     ),
     totales AS (
         SELECT
@@ -109,7 +108,7 @@ SQL_UPDATE_DIFERENCIA = text(
         JOIN partes pcomp
             ON pcomp.id = bi.componente_id
         LEFT JOIN peso_neto pn_comp
-            ON left(pn_comp.numero_parte, 9) = left(pcomp.numero_parte, 9)
+            ON pn_comp.numero_parte = pcomp.numero_parte
         WHERE upper(trim(coalesce(bi.measure, ''))) = 'M'
           AND pn_comp.kgm IS NULL
     ),
@@ -171,7 +170,7 @@ SQL_RESUMEN = text(
         JOIN partes pcomp
             ON pcomp.id = bi.componente_id
         LEFT JOIN peso_neto pn_comp
-            ON left(pn_comp.numero_parte, 9) = left(pcomp.numero_parte, 9)
+            ON pn_comp.numero_parte = pcomp.numero_parte
         WHERE upper(trim(coalesce(bi.measure, ''))) = 'M'
           AND pn_comp.kgm IS NULL
     )
@@ -186,7 +185,7 @@ SQL_RESUMEN = text(
 
 async def main() -> None:
     print("=" * 70)
-    print("Recalculando qty_total con regla UOM=M + KGM (prefijo 9)")
+    print("Recalculando qty_total con regla UOM=M + KGM (match exacto)")
     print("=" * 70)
 
     try:
