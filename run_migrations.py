@@ -127,6 +127,35 @@ async def run_migration_partes_qty_total():
     print("  ✓ Columna 'qty_total' agregada/recalculada en partes.")
 
 
+async def run_migration_partes_diferencia():
+    """Agrega columna diferencia a partes y recalcula como qty_total - kgm."""
+    from app.db.base import engine
+    from sqlalchemy import text
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            ALTER TABLE partes
+            ADD COLUMN IF NOT EXISTS diferencia NUMERIC(18, 6)
+        """))
+        await conn.execute(text("""
+            UPDATE partes p
+            SET diferencia = p.qty_total - pn.kgm
+            FROM peso_neto pn
+            WHERE pn.numero_parte = p.numero_parte
+              AND pn.kgm IS NOT NULL
+        """))
+        await conn.execute(text("""
+            UPDATE partes p
+            SET diferencia = NULL
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM peso_neto pn
+                WHERE pn.numero_parte = p.numero_parte
+                  AND pn.kgm IS NOT NULL
+            )
+        """))
+    print("  ✓ Columna 'diferencia' agregada/recalculada en partes.")
+
+
 async def run_migration_bom():
     """Crea la tabla bom y el índice ix_bom_parte_id si no existen."""
     from app.db.base import engine
@@ -253,52 +282,56 @@ async def main():
 
     try:
         # 1. Crear todas las tablas
-        print("\n[1/12] Creando tablas desde modelos...")
+        print("\n[1/13] Creando tablas desde modelos...")
         await run_init_db()
 
         # 2. Migración: enum EJECUCION
-        print("\n[2/12] Migración: enum carga_cliente_operacion_enum...")
+        print("\n[2/13] Migración: enum carga_cliente_operacion_enum...")
         await run_migration_add_ejecucion()
 
         # 3. Migración: columna escenario
-        print("\n[3/12] Migración: columna escenario en master_unificado_virtuales...")
+        print("\n[3/13] Migración: columna escenario en master_unificado_virtuales...")
         await run_migration_escenario()
 
         # 4. Migración: columna materialidad
-        print("\n[4/12] Migración: columna materialidad en master_unificado_virtuales...")
+        print("\n[4/13] Migración: columna materialidad en master_unificado_virtuales...")
         await run_migration_materialidad()
 
         # 5. Migración: tabla partes
-        print("\n[5/12] Migración: tabla partes...")
+        print("\n[5/13] Migración: tabla partes...")
         await run_migration_partes()
 
         # 6. Migración: tabla bom
-        print("\n[6/12] Migración: tabla bom...")
+        print("\n[6/13] Migración: tabla bom...")
         await run_migration_bom()
 
         # 7. Migración: tabla bom_revision
-        print("\n[7/12] Migración: tabla bom_revision...")
+        print("\n[7/13] Migración: tabla bom_revision...")
         await run_migration_bom_revision()
 
         # 8. Migración: tabla bom_item
-        print("\n[8/12] Migración: tabla bom_item...")
+        print("\n[8/13] Migración: tabla bom_item...")
         await run_migration_bom_item()
 
         # 9. Migración: columna valido en partes
-        print("\n[9/12] Migración: columna valido en partes...")
+        print("\n[9/13] Migración: columna valido en partes...")
         await run_migration_partes_valido()
 
         # 10. Migración: columna qty_total en partes
-        print("\n[10/12] Migración: columna qty_total en partes...")
+        print("\n[10/13] Migración: columna qty_total en partes...")
         await run_migration_partes_qty_total()
 
         # 11. Migración: columna comm_code en bom_item
-        print("\n[11/12] Migración: columna comm_code en bom_item...")
+        print("\n[11/13] Migración: columna comm_code en bom_item...")
         await run_migration_bom_item_comm_code()
 
         # 12. Migración: tabla peso_neto
-        print("\n[12/12] Migración: tabla peso_neto...")
+        print("\n[12/13] Migración: tabla peso_neto...")
         await run_migration_peso_neto()
+
+        # 13. Migración: columna diferencia en partes
+        print("\n[13/13] Migración: columna diferencia en partes...")
+        await run_migration_partes_diferencia()
 
         print("\n" + "=" * 60)
         print("Todas las migraciones se completaron correctamente.")

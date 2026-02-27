@@ -528,6 +528,9 @@
   .max-h-96 {
     max-height: calc(var(--spacing) * 96);
   }
+  .max-h-\[38rem\] {
+    max-height: 38rem;
+  }
   .max-h-\[70vh\] {
     max-height: 70vh;
   }
@@ -1545,6 +1548,13 @@
     &:hover {
       @media (hover: hover) {
         background-color: var(--color-amber-700);
+      }
+    }
+  }
+  .hover\:bg-blue-50 {
+    &:hover {
+      @media (hover: hover) {
+        background-color: var(--color-blue-50);
       }
     }
   }

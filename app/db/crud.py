@@ -546,7 +546,7 @@ async def reset_bom_para_reproceso(db: AsyncSession) -> Dict[str, int]:
     total_partes = (await db.execute(select(func.count()).select_from(Parte))).scalar_one()
 
     await db.execute(delete(Bom))
-    await db.execute(update(Parte).values(valido=True, qty_total=0))
+    await db.execute(update(Parte).values(valido=True, qty_total=0, diferencia=None))
     await db.flush()
 
     return {
@@ -590,6 +590,37 @@ async def actualizar_qty_total_parte(db: AsyncSession, parte_id: int) -> Decimal
     qty_total = result.scalar_one_or_none()
     await db.flush()
     return qty_total if qty_total is not None else Decimal("0")
+
+
+async def recalcular_diferencia_partes(db: AsyncSession) -> Dict[str, int]:
+    """
+    Recalcula y persiste partes.diferencia = qty_total - kgm (peso_neto).
+    Si no existe kgm para la parte, diferencia queda NULL.
+    """
+    update_with_kgm = await db.execute(text("""
+        UPDATE partes p
+        SET diferencia = p.qty_total - pn.kgm
+        FROM peso_neto pn
+        WHERE pn.numero_parte = p.numero_parte
+          AND pn.kgm IS NOT NULL
+    """))
+
+    update_without_kgm = await db.execute(text("""
+        UPDATE partes p
+        SET diferencia = NULL
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM peso_neto pn
+            WHERE pn.numero_parte = p.numero_parte
+              AND pn.kgm IS NOT NULL
+        )
+    """))
+
+    await db.flush()
+    return {
+        "actualizados_con_kgm": int(update_with_kgm.rowcount or 0),
+        "sin_kgm_en_null": int(update_without_kgm.rowcount or 0),
+    }
 
 
 async def upsert_parte(db: AsyncSession, numero_parte: str, descripcion: Optional[str] = None) -> Parte:

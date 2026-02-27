@@ -407,7 +407,7 @@ async def boms(request: Request, current_user: User = Depends(get_current_user),
 @app.get("/actualizar-boms")
 async def actualizar_boms(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Página Actualizar BOMs - requiere autenticación."""
-    from app.db.models import Parte, Bom, BomRevision, PesoNeto
+    from app.db.models import Parte, Bom, BomRevision
     from sqlalchemy import select, func, distinct
     # Contar partes y última actualización real desde tabla partes
     total_partes = await db.execute(select(func.count()).select_from(Parte))
@@ -431,6 +431,47 @@ async def actualizar_boms(request: Request, current_user: User = Depends(get_cur
     )
     numeros_parte_no_validos = partes_no_validas_q.scalar() or 0
 
+    # Estadísticas por diferencia (solo partes con BOM/revisión)
+    bom_count_sq = (
+        select(func.count(BomRevision.id))
+        .select_from(BomRevision)
+        .join(Bom, Bom.id == BomRevision.bom_id)
+        .where(Bom.parte_id == Parte.id)
+        .correlate(Parte)
+        .scalar_subquery()
+    )
+    diff_gt0_q = await db.execute(
+        select(func.count())
+        .select_from(Parte)
+        .where(
+            bom_count_sq > 0,
+            Parte.diferencia.is_not(None),
+            Parte.diferencia > 0,
+        )
+    )
+    numeros_parte_diferencia_gt0 = diff_gt0_q.scalar() or 0
+
+    diff_le0_q = await db.execute(
+        select(func.count())
+        .select_from(Parte)
+        .where(
+            bom_count_sq > 0,
+            Parte.diferencia.is_not(None),
+            Parte.diferencia <= 0,
+        )
+    )
+    numeros_parte_diferencia_le0 = diff_le0_q.scalar() or 0
+
+    diff_na_q = await db.execute(
+        select(func.count())
+        .select_from(Parte)
+        .where(
+            bom_count_sq > 0,
+            Parte.diferencia.is_(None),
+        )
+    )
+    numeros_parte_diferencia_na = diff_na_q.scalar() or 0
+
     return templates.TemplateResponse(
         "actualizar_boms.html",
         {
@@ -441,6 +482,9 @@ async def actualizar_boms(request: Request, current_user: User = Depends(get_cur
             "ultima_actualizacion": ultima_actualizacion,
             "numeros_parte_con_bom": numeros_parte_con_bom,
             "numeros_parte_no_validos": numeros_parte_no_validos,
+            "numeros_parte_diferencia_gt0": numeros_parte_diferencia_gt0,
+            "numeros_parte_diferencia_le0": numeros_parte_diferencia_le0,
+            "numeros_parte_diferencia_na": numeros_parte_diferencia_na,
         }
     )
 
@@ -565,6 +609,21 @@ async def api_descargar_reporte_actualizar_boms(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": 'attachment; filename="reporte_actualizar_boms.xlsx"'},
     )
+
+
+@app.post("/api/actualizar-boms/recalcular-diferencia")
+async def api_recalcular_diferencia_partes(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Recalcula y persiste diferencia (qty_total - kgm) en la tabla partes."""
+    resumen = await crud.recalcular_diferencia_partes(db)
+    await db.commit()
+    return {
+        "ok": True,
+        "mensaje": "Diferencia recalculada y registrada.",
+        "resumen": resumen,
+    }
 
 
 @app.post("/api/actualizar-boms/load-bom", response_model=LoadBomResponse)
@@ -1092,12 +1151,14 @@ async def api_actualizar_boms_partes(
     q: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
+    sort_key: Optional[str] = None,
+    sort_direction: str = "desc",
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Lista números de parte para vista resumen con contador de BOMs y revisiones."""
-    from sqlalchemy import select, func
-    from app.db.models import Parte, Bom, BomRevision, PesoNeto
+    from sqlalchemy import select, func, asc, desc
+    from app.db.models import Parte, Bom, BomRevision
 
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
@@ -1117,21 +1178,13 @@ async def api_actualizar_boms_partes(
         .correlate(Parte)
         .scalar_subquery()
     )
-    kgm_sq = (
-        select(PesoNeto.kgm)
-        .where(PesoNeto.numero_parte == Parte.numero_parte)
-        .limit(1)
-        .correlate(Parte)
-        .scalar_subquery()
-    )
-
     query = select(
         Parte.numero_parte,
         Parte.descripcion,
         Parte.valido,
         Parte.created_at,
         Parte.qty_total,
-        kgm_sq.label("kgm_peso_neto"),
+        Parte.diferencia,
         bom_count_sq.label("total_boms"),
         rev_count_sq.label("total_revisiones"),
     )
@@ -1147,15 +1200,22 @@ async def api_actualizar_boms_partes(
             Parte.numero_parte.ilike(like_q) | Parte.descripcion.ilike(like_q)
         )
 
-    query = query.order_by(Parte.numero_parte).offset(offset).limit(limit)
+    sort_key = (sort_key or "").strip().lower()
+    sort_direction = (sort_direction or "desc").strip().lower()
+    if sort_key == "diferencia":
+        direction_fn = asc if sort_direction == "asc" else desc
+        query = query.order_by(direction_fn(Parte.diferencia).nulls_last(), Parte.numero_parte)
+    else:
+        query = query.order_by(Parte.numero_parte)
+
+    query = query.offset(offset).limit(limit)
     result = await db.execute(query)
     total_result = await db.execute(count_query)
     total = total_result.scalar_one()
 
     rows = []
-    for numero_parte, descripcion, valido, created_at, qty_total, kgm_peso_neto, total_boms, total_revisiones in result.all():
+    for numero_parte, descripcion, valido, created_at, qty_total, diferencia, total_boms, total_revisiones in result.all():
         qty_total_value = qty_total or 0
-        diferencia = None if kgm_peso_neto is None else (qty_total_value - kgm_peso_neto)
         rows.append({
             "numero_parte": numero_parte,
             "descripcion": descripcion,
@@ -1172,6 +1232,8 @@ async def api_actualizar_boms_partes(
         "q": q or None,
         "limit": limit,
         "offset": offset,
+        "sort_key": sort_key or None,
+        "sort_direction": sort_direction,
         "total": int(total),
         "rows": rows,
     }

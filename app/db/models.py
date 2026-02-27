@@ -32,6 +32,7 @@ class Parte(Base):
     descripcion = Column(Text, nullable=True)
     valido = Column(Boolean, nullable=False, server_default=text("true"))
     qty_total = Column(Numeric(18, 6), nullable=False, server_default=text("0"))
+    diferencia = Column(Numeric(18, 6), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relación con BOMs

@@ -76,7 +76,7 @@
   </div>
 
   <!-- Tarjetas de estadísticas -->
-  <dl class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-2">
+  <dl class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-5">
     <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
       <dt class="truncate text-sm font-medium text-gray-500">Números de parte con BOM</dt>
       <dd class="mt-1 text-3xl font-semibold tracking-tight text-blue-700">{{ "{:,}".format(numeros_parte_con_bom) }}</dd>
@@ -84,6 +84,18 @@
     <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
       <dt class="truncate text-sm font-medium text-gray-500">Última actualización</dt>
       <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900">{{ ultima_actualizacion }}</dd>
+    </div>
+    <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
+      <dt class="truncate text-sm font-medium text-gray-500">Diferencia &gt; 0</dt>
+      <dd class="mt-1 text-3xl font-semibold tracking-tight text-red-700">{{ "{:,}".format(numeros_parte_diferencia_gt0) }}</dd>
+    </div>
+    <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
+      <dt class="truncate text-sm font-medium text-gray-500">Diferencia &lt;= 0</dt>
+      <dd class="mt-1 text-3xl font-semibold tracking-tight text-green-700">{{ "{:,}".format(numeros_parte_diferencia_le0) }}</dd>
+    </div>
+    <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
+      <dt class="truncate text-sm font-medium text-gray-500">Diferencia NA</dt>
+      <dd class="mt-1 text-3xl font-semibold tracking-tight text-amber-700">{{ "{:,}".format(numeros_parte_diferencia_na) }}</dd>
     </div>
   </dl>
 
@@ -100,10 +112,13 @@
         <button type="button" id="btn-recargar-partes" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
           Recargar
         </button>
+        <button type="button" id="btn-recalcular-diferencia" class="rounded-md border border-[#003D89] bg-white px-3 py-1.5 text-sm font-medium text-[#003D89] hover:bg-blue-50">
+          Calcular diferencia
+        </button>
       </div>
     </div>
     <p id="partes-msg" class="mt-2 text-xs text-gray-500">Cargando partes...</p>
-    <div class="mt-3 max-h-80 overflow-y-auto rounded border border-gray-200">
+    <div class="mt-3 max-h-[38rem] overflow-y-auto rounded border border-gray-200">
       <table class="min-w-full text-sm">
         <thead class="bg-gray-50">
           <tr class="border-b text-left text-gray-500">
@@ -148,17 +163,6 @@
     </div>
   </div>
 
-  <!-- Ayuda -->
-  <div class="rounded-lg bg-white p-6 shadow-sm">
-    <h3 class="text-sm font-semibold text-gray-900">Requisitos</h3>
-    <ul class="mt-2 list-inside list-disc text-sm text-gray-600">
-      <li><strong>La aplicación (uvicorn) debe estar corriendo en la misma PC y la misma sesión de Windows donde tienes SAP GUI abierto.</strong> Si el servidor corre en otro equipo, el script no podrá conectar con SAP.</li>
-      <li>SAP GUI instalado, con una sesión abierta (el script usa la primera ventana disponible).</li>
-      <li>Carpeta de exportación configurada (<code class="rounded bg-gray-100 px-1">BOM_EXPORT_DIR</code> o la ruta por defecto). Debe existir en disco.</li>
-      <li>Opcional: <code class="rounded bg-gray-100 px-1">BOM_VBS_PATH</code> (ruta a bom.vbs) y <code class="rounded bg-gray-100 px-1">BOM_VBS_TIMEOUT_SEC</code> (segundos por parte).</li>
-    </ul>
-    <p class="mt-2 text-sm text-amber-700">Si al pulsar Actualizar no pasa nada en SAP, revisa el detalle por parte al finalizar: ahí aparecerá el error del script (p. ej. &quot;ActiveX component can't create object&quot; si SAP no está accesible).</p>
-  </div>
 </div>
 
 <!-- Modal detalle BOM -->
@@ -253,6 +257,7 @@
   const partesSearchInput = document.getElementById('partes-search');
   const partesLimitInput = document.getElementById('partes-limit');
   const btnRecargarPartes = document.getElementById('btn-recargar-partes');
+  const btnRecalcularDiferencia = document.getElementById('btn-recalcular-diferencia');
   const partesMsg = document.getElementById('partes-msg');
   const partesBody = document.getElementById('partes-body');
   const partesPaginacionTexto = document.getElementById('partes-paginacion-texto');
@@ -310,6 +315,7 @@
   }
 
   function getSortedPartesRows(rows) {
+    if (partesSort.key === 'diferencia') return rows.slice();
     if (!partesSort.key) return rows.slice();
     const factor = partesSort.direction === 'asc' ? 1 : -1;
     return rows.slice().sort(function(a, b) {
@@ -378,6 +384,10 @@
       partesSort.key = key;
       partesSort.direction = 'desc';
     }
+    if (key === 'diferencia') {
+      cargarResumenPartes(true);
+      return;
+    }
     renderPartesRows(partesRows);
   }
 
@@ -391,6 +401,10 @@
     try {
       const params = new URLSearchParams({ limit: String(safeLimit), offset: String(offset) });
       if (q) params.set('q', q);
+      if (partesSort.key === 'diferencia') {
+        params.set('sort_key', 'diferencia');
+        params.set('sort_direction', partesSort.direction === 'asc' ? 'asc' : 'desc');
+      }
       const res = await fetch('/api/actualizar-boms/partes?' + params.toString(), { credentials: 'same-origin' });
       const data = await res.json();
       if (!res.ok || !data.ok) throw new Error(data.mensaje || 'Error al consultar partes');
@@ -619,6 +633,29 @@
   btnRecargarPartes.addEventListener('click', function() {
     cargarResumenPartes(true);
   });
+  if (btnRecalcularDiferencia) {
+    btnRecalcularDiferencia.addEventListener('click', async function() {
+      btnRecalcularDiferencia.disabled = true;
+      partesMsg.textContent = 'Recalculando diferencia...';
+      try {
+        const res = await fetch('/api/actualizar-boms/recalcular-diferencia', {
+          method: 'POST',
+          credentials: 'same-origin'
+        });
+        const data = await res.json().catch(function() { return {}; });
+        if (!res.ok || !data.ok) {
+          throw new Error(data.mensaje || 'No se pudo recalcular la diferencia.');
+        }
+        const detalle = data.resumen || {};
+        partesMsg.textContent = 'Diferencia recalculada. Con KGM: ' + (detalle.actualizados_con_kgm || 0) + ', sin KGM: ' + (detalle.sin_kgm_en_null || 0) + '.';
+        await cargarResumenPartes(false);
+      } catch (e) {
+        partesMsg.textContent = 'Error al recalcular diferencia: ' + (e.message || e);
+      } finally {
+        btnRecalcularDiferencia.disabled = false;
+      }
+    });
+  }
   partesSearchInput.addEventListener('keydown', function(e) {
     if (e.key === 'Enter') cargarResumenPartes(true);
   });
