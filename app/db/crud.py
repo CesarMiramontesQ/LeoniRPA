@@ -616,6 +616,47 @@ async def actualizar_qty_total_parte(db: AsyncSession, parte_id: int) -> Decimal
     return qty_total if qty_total is not None else Decimal("0")
 
 
+async def recalcular_qty_total_partes(db: AsyncSession) -> Dict[str, int]:
+    """
+    Recalcula y persiste qty_total para TODAS las partes como SUM(qty/1000)
+    de sus componentes en revisiones vigentes (effective_to IS NULL).
+    """
+    update_with_bom = await db.execute(text("""
+        UPDATE partes p
+        SET qty_total = COALESCE(agg.total_qty, 0)
+        FROM (
+            SELECT
+                b.parte_id,
+                SUM(bi.qty / 1000.0) AS total_qty
+            FROM bom b
+            JOIN bom_revision br ON br.bom_id = b.id
+            JOIN bom_item bi ON bi.bom_revision_id = br.id
+            WHERE br.effective_to IS NULL
+            GROUP BY b.parte_id
+        ) agg
+        WHERE agg.parte_id = p.id
+    """))
+
+    update_without_bom = await db.execute(text("""
+        UPDATE partes p
+        SET qty_total = 0
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM bom b
+            JOIN bom_revision br ON br.bom_id = b.id
+            JOIN bom_item bi ON bi.bom_revision_id = br.id
+            WHERE br.effective_to IS NULL
+              AND b.parte_id = p.id
+        )
+    """))
+
+    await db.flush()
+    return {
+        "qty_total_actualizado_con_bom": int(update_with_bom.rowcount or 0),
+        "qty_total_en_cero_sin_bom": int(update_without_bom.rowcount or 0),
+    }
+
+
 async def recalcular_diferencia_partes(db: AsyncSession) -> Dict[str, int]:
     """
     Recalcula y persiste partes.diferencia = qty_total - kgm (peso_neto).

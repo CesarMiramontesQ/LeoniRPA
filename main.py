@@ -675,11 +675,15 @@ async def api_recalcular_diferencia_partes(
     db: AsyncSession = Depends(get_db),
 ):
     """Recalcula y persiste diferencia (qty_total - kgm) en la tabla partes."""
-    resumen = await crud.recalcular_diferencia_partes(db)
+    resumen_qty = await crud.recalcular_qty_total_partes(db)
+    resumen_diff = await crud.recalcular_diferencia_partes(db)
     await db.commit()
+    resumen = {}
+    resumen.update(resumen_qty)
+    resumen.update(resumen_diff)
     return {
         "ok": True,
-        "mensaje": "Diferencia recalculada y registrada.",
+        "mensaje": "Qty total recalculada y después diferencia registrada.",
         "resumen": resumen,
     }
 
