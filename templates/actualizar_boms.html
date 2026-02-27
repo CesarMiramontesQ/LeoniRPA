@@ -16,6 +16,9 @@
       <button type="button" id="btn-actualizar-boms" class="shrink-0 rounded-md bg-[#003D89] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#003D89] disabled:opacity-50">
         Actualizar
       </button>
+      <button type="button" id="btn-reprocesar-diff-gt0" class="shrink-0 rounded-md bg-red-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 disabled:opacity-50">
+        Reprocesar diferencia &gt; 0
+      </button>
       <button type="button" id="btn-descargar-reporte" class="shrink-0 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 disabled:opacity-50">
         Descargar reporte
       </button>
@@ -241,6 +244,7 @@
 <script>
 (function() {
   const btn = document.getElementById('btn-actualizar-boms');
+  const btnReprocesarDiffGt0 = document.getElementById('btn-reprocesar-diff-gt0');
   const btnDescargarReporte = document.getElementById('btn-descargar-reporte');
   const btnParar = document.getElementById('btn-parar-boms');
   const estado = document.getElementById('bom-estado');
@@ -485,18 +489,23 @@
     }
   }
 
-  async function iniciarActualizacion(onlyInvalid) {
+  async function iniciarActualizacion(onlyInvalid, onlyDiffGt0) {
     abortController = new AbortController();
     btn.disabled = true;
+    if (btnReprocesarDiffGt0) btnReprocesarDiffGt0.disabled = true;
     btnDescargarReporte.disabled = true;
     btnParar.classList.remove('hidden');
     estado.classList.remove('hidden');
     resultado.classList.add('hidden');
     progresoDiv.classList.add('hidden');
     logDiv.innerHTML = '';
-    estadoTexto.textContent = onlyInvalid
-      ? 'Ejecutando reproceso para partes con valido=FALSE (verás cada registro en tiempo real)...'
-      : 'Ejecutando actualización (verás cada registro en tiempo real)...';
+    if (onlyInvalid) {
+      estadoTexto.textContent = 'Ejecutando reproceso para partes con valido=FALSE (verás cada registro en tiempo real)...';
+    } else if (onlyDiffGt0) {
+      estadoTexto.textContent = 'Ejecutando reproceso SAP para partes con diferencia > 0 (verás cada registro en tiempo real)...';
+    } else {
+      estadoTexto.textContent = 'Ejecutando actualización (verás cada registro en tiempo real)...';
+    }
     estado.classList.add('bg-blue-50');
     estado.classList.remove('bg-red-50');
 
@@ -504,12 +513,14 @@
     const params = new URLSearchParams();
     if (limit != null && limit > 0) params.set('limit', String(limit));
     if (onlyInvalid) params.set('only_invalid', 'true');
+    if (onlyDiffGt0) params.set('only_diff_gt0', 'true');
     const url = '/api/actualizar-boms/ejecutar-actualizacion-stream' + (params.toString() ? ('?' + params.toString()) : '');
 
     let con = 0, sin = 0, err = 0, n = 0, total = 0;
 
     function finProceso() {
       btn.disabled = false;
+      if (btnReprocesarDiffGt0) btnReprocesarDiffGt0.disabled = false;
       btnDescargarReporte.disabled = false;
       btnParar.classList.add('hidden');
       abortController = null;
@@ -620,7 +631,12 @@
   }
 
   btn.addEventListener('click', function() {
-    iniciarActualizacion(false);
+    iniciarActualizacion(false, false);
+  });
+  if (btnReprocesarDiffGt0) {
+    btnReprocesarDiffGt0.addEventListener('click', function() {
+      iniciarActualizacion(false, true);
+    });
   });
   btnDescargarReporte.addEventListener('click', function() {
     window.location.href = '/api/actualizar-boms/descargar-reporte';

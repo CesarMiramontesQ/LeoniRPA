@@ -699,6 +699,7 @@ async def api_ejecutar_actualizacion_boms(
     limit: Optional[int] = None,
     reset_all: bool = False,
     only_invalid: bool = False,
+    only_diff_gt0: bool = False,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -746,8 +747,24 @@ async def api_ejecutar_actualizacion_boms(
         await db.commit()
         logger.info("BOM reproceso desde cero solicitado: %s", reset_info)
 
+    if only_invalid and only_diff_gt0:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "mensaje": "Solo puedes usar uno de estos filtros: only_invalid u only_diff_gt0.",
+                "total": 0,
+                "procesados": 0,
+                "con_cambios": 0,
+                "sin_cambios": 0,
+                "errores": 0,
+                "detalle": [],
+            },
+        )
     if only_invalid:
         part_numbers = await crud.list_partes_numeros_no_validos(db, limit=limit)
+    elif only_diff_gt0:
+        part_numbers = await crud.list_partes_numeros_diferencia_gt0(db, limit=limit)
     else:
         part_numbers = await crud.list_partes_numeros(db, limit=limit)
     total = len(part_numbers)
@@ -863,6 +880,7 @@ async def api_ejecutar_actualizacion_boms_stream(
     limit: Optional[int] = None,
     reset_all: bool = False,
     only_invalid: bool = False,
+    only_diff_gt0: bool = False,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -892,8 +910,13 @@ async def api_ejecutar_actualizacion_boms_stream(
                 "detalle": reset_info,
             }) + "\n"
 
+        if only_invalid and only_diff_gt0:
+            yield json.dumps({"tipo": "error", "mensaje": "Solo puedes usar uno de estos filtros: only_invalid u only_diff_gt0."}) + "\n"
+            return
         if only_invalid:
             part_numbers = await crud.list_partes_numeros_no_validos(db, limit=limit)
+        elif only_diff_gt0:
+            part_numbers = await crud.list_partes_numeros_diferencia_gt0(db, limit=limit)
         else:
             part_numbers = await crud.list_partes_numeros(db, limit=limit)
         total = len(part_numbers)

@@ -533,6 +533,30 @@ async def list_partes_numeros_no_validos(db: AsyncSession, limit: Optional[int] 
     return [row[0] for row in result.all()]
 
 
+async def list_partes_numeros_diferencia_gt0(db: AsyncSession, limit: Optional[int] = None) -> List[str]:
+    """Lista numero_parte válidos con BOM/revisión y diferencia > 0."""
+    revision_exists = (
+        select(BomRevision.id)
+        .join(Bom, Bom.id == BomRevision.bom_id)
+        .where(Bom.parte_id == Parte.id)
+        .limit(1)
+    )
+    query = (
+        select(Parte.numero_parte)
+        .where(
+            Parte.valido.is_(True),
+            Parte.diferencia.is_not(None),
+            Parte.diferencia > 0,
+            revision_exists.exists(),
+        )
+        .order_by(Parte.numero_parte)
+    )
+    if limit is not None:
+        query = query.limit(limit)
+    result = await db.execute(query)
+    return [row[0] for row in result.all()]
+
+
 async def reset_bom_para_reproceso(db: AsyncSession) -> Dict[str, int]:
     """
     Reinicia datos BOM para reprocesar desde cero sin borrar la tabla partes.
