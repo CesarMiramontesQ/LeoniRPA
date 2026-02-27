@@ -102,6 +102,7 @@ async def load_bom(db: AsyncSession, payload: LoadBomInput) -> LoadBomResponse:
         if current_rev is not None:
             if current_rev.hash == new_hash:
                 await crud.actualizar_qty_total_parte(db, parte_id)
+                await crud.recalcular_diferencia_parte(db, parte_id)
                 await db.commit()
                 return LoadBomResponse(
                     ok=True,
@@ -131,6 +132,7 @@ async def load_bom(db: AsyncSession, payload: LoadBomInput) -> LoadBomResponse:
             )
             n = await crud.insert_bom_items(db, new_rev.id, componentes_con_id)
             await crud.actualizar_qty_total_parte(db, parte_id)
+            await crud.recalcular_diferencia_parte(db, parte_id)
             await db.commit()
             return LoadBomResponse(
                 ok=True,
@@ -153,6 +155,7 @@ async def load_bom(db: AsyncSession, payload: LoadBomInput) -> LoadBomResponse:
         )
         n = await crud.insert_bom_items(db, new_rev.id, componentes_con_id)
         await crud.actualizar_qty_total_parte(db, parte_id)
+        await crud.recalcular_diferencia_parte(db, parte_id)
         await db.commit()
         return LoadBomResponse(
             ok=True,

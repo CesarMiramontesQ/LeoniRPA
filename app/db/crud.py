@@ -591,49 +591,152 @@ async def set_parte_valido(db: AsyncSession, numero_parte: str, valido: bool) ->
 
 async def actualizar_qty_total_parte(db: AsyncSession, parte_id: int) -> Decimal:
     """
-    Recalcula y persiste qty_total para una parte como la suma de qty/1000
-    de todos sus componentes en revisiones vigentes (effective_to IS NULL).
+    Recalcula y persiste qty_total para una parte con regla de UOM:
+    - Si measure = 'M': (qty/1000) * kgm(componente)
+    - Si measure != 'M': (qty/1000)
+    Si falta kgm(componente) para un item en 'M', su contribución es 0.
     """
-    qty_total_sq = (
-        select(func.coalesce(func.sum(BomItem.qty / 1000.0), 0))
-        .select_from(BomItem)
-        .join(BomRevision, BomRevision.id == BomItem.bom_revision_id)
-        .join(Bom, Bom.id == BomRevision.bom_id)
-        .where(
-            Bom.parte_id == parte_id,
-            BomRevision.effective_to.is_(None),
+    await db.execute(text("""
+        WITH componentes AS (
+            SELECT
+                bi.qty::numeric AS qty,
+                upper(trim(coalesce(bi.measure, ''))) AS measure,
+                pcomp.numero_parte AS comp_no
+            FROM bom_item bi
+            JOIN bom_revision br
+                ON br.id = bi.bom_revision_id
+               AND br.effective_to IS NULL
+            JOIN bom b
+                ON b.id = br.bom_id
+            JOIN partes pcomp
+                ON pcomp.id = bi.componente_id
+            WHERE b.parte_id = :parte_id
+        ),
+        componentes_con_kgm AS (
+            SELECT
+                c.qty,
+                c.measure,
+                pn.kgm
+            FROM componentes c
+            LEFT JOIN peso_neto pn
+                ON pn.numero_parte = c.comp_no
+        ),
+        total AS (
+            SELECT
+                COALESCE(
+                    SUM(
+                        CASE
+                            WHEN measure = 'M' THEN (qty / 1000.0) * COALESCE(kgm, 0)
+                            ELSE (qty / 1000.0)
+                        END
+                    ),
+                    0
+                )::numeric(18, 6) AS qty_total_nuevo
+            FROM componentes_con_kgm
         )
-        .scalar_subquery()
-    )
-    await db.execute(
-        update(Parte)
-        .where(Parte.id == parte_id)
-        .values(qty_total=qty_total_sq)
-    )
+        UPDATE partes p
+        SET qty_total = (SELECT qty_total_nuevo FROM total)
+        WHERE p.id = :parte_id
+    """), {"parte_id": parte_id})
+
     result = await db.execute(select(Parte.qty_total).where(Parte.id == parte_id))
     qty_total = result.scalar_one_or_none()
     await db.flush()
     return qty_total if qty_total is not None else Decimal("0")
 
 
+async def recalcular_diferencia_parte(db: AsyncSession, parte_id: int) -> Optional[Decimal]:
+    """
+    Recalcula diferencia para una parte:
+    - NULL si hay algún componente 'M' sin kgm
+    - NULL si no existe kgm para la parte padre
+    - En otro caso: qty_total - kgm(parte padre)
+    """
+    await db.execute(text("""
+        UPDATE partes p
+        SET diferencia = CASE
+            WHEN EXISTS (
+                SELECT 1
+                FROM bom_item bi
+                JOIN bom_revision br
+                    ON br.id = bi.bom_revision_id
+                   AND br.effective_to IS NULL
+                JOIN bom b
+                    ON b.id = br.bom_id
+                JOIN partes pcomp
+                    ON pcomp.id = bi.componente_id
+                LEFT JOIN peso_neto pn_comp
+                    ON pn_comp.numero_parte = pcomp.numero_parte
+                WHERE b.parte_id = p.id
+                  AND upper(trim(coalesce(bi.measure, ''))) = 'M'
+                  AND pn_comp.kgm IS NULL
+            ) THEN NULL
+            WHEN (
+                SELECT pn_padre.kgm
+                FROM peso_neto pn_padre
+                WHERE pn_padre.numero_parte = p.numero_parte
+                LIMIT 1
+            ) IS NULL THEN NULL
+            ELSE p.qty_total - (
+                SELECT pn_padre.kgm
+                FROM peso_neto pn_padre
+                WHERE pn_padre.numero_parte = p.numero_parte
+                LIMIT 1
+            )
+        END
+        WHERE p.id = :parte_id
+    """), {"parte_id": parte_id})
+
+    result = await db.execute(select(Parte.diferencia).where(Parte.id == parte_id))
+    diferencia = result.scalar_one_or_none()
+    await db.flush()
+    return diferencia
+
+
 async def recalcular_qty_total_partes(db: AsyncSession) -> Dict[str, int]:
     """
-    Recalcula y persiste qty_total para TODAS las partes como SUM(qty/1000)
-    de sus componentes en revisiones vigentes (effective_to IS NULL).
+    Recalcula y persiste qty_total para TODAS las partes con regla de UOM:
+    - measure = 'M' => (qty/1000) * kgm(componente)
+    - measure != 'M' => qty/1000
     """
     update_with_bom = await db.execute(text("""
-        UPDATE partes p
-        SET qty_total = COALESCE(agg.total_qty, 0)
-        FROM (
+        WITH componentes AS (
             SELECT
                 b.parte_id,
-                SUM(bi.qty / 1000.0) AS total_qty
+                bi.qty::numeric AS qty,
+                upper(trim(coalesce(bi.measure, ''))) AS measure,
+                pcomp.numero_parte AS comp_no
             FROM bom b
             JOIN bom_revision br ON br.bom_id = b.id
             JOIN bom_item bi ON bi.bom_revision_id = br.id
+            JOIN partes pcomp ON pcomp.id = bi.componente_id
             WHERE br.effective_to IS NULL
-            GROUP BY b.parte_id
-        ) agg
+        ),
+        componentes_con_kgm AS (
+            SELECT
+                c.parte_id,
+                c.qty,
+                c.measure,
+                pn.kgm
+            FROM componentes c
+            LEFT JOIN peso_neto pn
+                ON pn.numero_parte = c.comp_no
+        ),
+        agg AS (
+            SELECT
+                parte_id,
+                SUM(
+                    CASE
+                        WHEN measure = 'M' THEN (qty / 1000.0) * coalesce(kgm, 0)
+                        ELSE (qty / 1000.0)
+                    END
+                )::numeric(18, 6) AS total_qty
+            FROM componentes_con_kgm
+            GROUP BY parte_id
+        )
+        UPDATE partes p
+        SET qty_total = COALESCE(agg.total_qty, 0)
+        FROM agg
         WHERE agg.parte_id = p.id
     """))
 
@@ -660,14 +763,46 @@ async def recalcular_qty_total_partes(db: AsyncSession) -> Dict[str, int]:
 async def recalcular_diferencia_partes(db: AsyncSession) -> Dict[str, int]:
     """
     Recalcula y persiste partes.diferencia = qty_total - kgm (peso_neto).
-    Si no existe kgm para la parte, diferencia queda NULL.
+    Regla:
+    - Si hay componentes 'M' sin kgm, diferencia = NULL.
+    - Si no existe kgm para la parte padre, diferencia = NULL.
+    - En otro caso, diferencia = qty_total - kgm(parte padre).
     """
     update_with_kgm = await db.execute(text("""
+        WITH faltantes_m AS (
+            SELECT DISTINCT b.parte_id
+            FROM bom_item bi
+            JOIN bom_revision br
+                ON br.id = bi.bom_revision_id
+               AND br.effective_to IS NULL
+            JOIN bom b
+                ON b.id = br.bom_id
+            JOIN partes pcomp
+                ON pcomp.id = bi.componente_id
+            LEFT JOIN peso_neto pn_comp
+                ON pn_comp.numero_parte = pcomp.numero_parte
+            WHERE upper(trim(coalesce(bi.measure, ''))) = 'M'
+              AND pn_comp.kgm IS NULL
+        ),
+        estado AS (
+            SELECT
+                p.id AS parte_id,
+                pn_padre.kgm AS kgm_padre,
+                (fm.parte_id IS NOT NULL) AS tiene_faltante_m
+            FROM partes p
+            LEFT JOIN peso_neto pn_padre
+                ON pn_padre.numero_parte = p.numero_parte
+            LEFT JOIN faltantes_m fm
+                ON fm.parte_id = p.id
+        )
         UPDATE partes p
-        SET diferencia = p.qty_total - pn.kgm
-        FROM peso_neto pn
-        WHERE pn.numero_parte = p.numero_parte
-          AND pn.kgm IS NOT NULL
+        SET diferencia = CASE
+            WHEN e.tiene_faltante_m THEN NULL
+            WHEN e.kgm_padre IS NULL THEN NULL
+            ELSE p.qty_total - e.kgm_padre
+        END
+        FROM estado e
+        WHERE e.parte_id = p.id
     """))
 
     update_without_kgm = await db.execute(text("""
