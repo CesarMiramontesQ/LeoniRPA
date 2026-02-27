@@ -19,6 +19,9 @@
       <button type="button" id="btn-descargar-reporte" class="shrink-0 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 disabled:opacity-50">
         Descargar reporte
       </button>
+      <button type="button" id="btn-descargar-4-tablas" class="shrink-0 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 disabled:opacity-50">
+        Descargar 4 tablas
+      </button>
       <button type="button" id="btn-parar-boms" class="hidden shrink-0 rounded-md border border-red-600 bg-white px-4 py-2 text-sm font-semibold text-red-600 shadow-sm hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600">
         Parar
       </button>
@@ -241,6 +244,7 @@
 <script>
 (function() {
   const btn = document.getElementById('btn-actualizar-boms');
+  const btnDescargar4Tablas = document.getElementById('btn-descargar-4-tablas');
   const btnDescargarReporte = document.getElementById('btn-descargar-reporte');
   const btnParar = document.getElementById('btn-parar-boms');
   const estado = document.getElementById('bom-estado');
@@ -622,6 +626,11 @@
   btn.addEventListener('click', function() {
     iniciarActualizacion(false);
   });
+  if (btnDescargar4Tablas) {
+    btnDescargar4Tablas.addEventListener('click', function() {
+      window.location.href = '/api/actualizar-boms/descargar-tablas';
+    });
+  }
   btnDescargarReporte.addEventListener('click', function() {
     window.location.href = '/api/actualizar-boms/descargar-reporte';
   });

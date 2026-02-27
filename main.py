@@ -611,6 +611,64 @@ async def api_descargar_reporte_actualizar_boms(
     )
 
 
+@app.get("/api/actualizar-boms/descargar-tablas")
+async def api_descargar_tablas_actualizar_boms(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Descarga un Excel con las 4 tablas de BOM: partes, bom, bom_revision y bom_item."""
+    import io
+    import pandas as pd
+    from sqlalchemy import select
+    from app.db.models import Parte, Bom, BomRevision, BomItem
+
+    def _to_rows(objs, model):
+        cols = [c.name for c in model.__table__.columns]
+        rows = []
+        for o in objs:
+            row = {}
+            for c in cols:
+                v = getattr(o, c, None)
+                if hasattr(v, "isoformat"):
+                    row[c] = v.isoformat()
+                else:
+                    row[c] = v
+            rows.append(row)
+        return rows, cols
+
+    partes_result = await db.execute(select(Parte).order_by(Parte.id))
+    bom_result = await db.execute(select(Bom).order_by(Bom.id))
+    revision_result = await db.execute(select(BomRevision).order_by(BomRevision.id))
+    item_result = await db.execute(select(BomItem).order_by(BomItem.id))
+
+    partes_rows, partes_cols = _to_rows(partes_result.scalars().all(), Parte)
+    bom_rows, bom_cols = _to_rows(bom_result.scalars().all(), Bom)
+    revision_rows, revision_cols = _to_rows(revision_result.scalars().all(), BomRevision)
+    item_rows, item_cols = _to_rows(item_result.scalars().all(), BomItem)
+
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        pd.DataFrame(partes_rows, columns=partes_cols).to_excel(
+            writer, index=False, sheet_name="partes"
+        )
+        pd.DataFrame(bom_rows, columns=bom_cols).to_excel(
+            writer, index=False, sheet_name="bom"
+        )
+        pd.DataFrame(revision_rows, columns=revision_cols).to_excel(
+            writer, index=False, sheet_name="bom_revision"
+        )
+        pd.DataFrame(item_rows, columns=item_cols).to_excel(
+            writer, index=False, sheet_name="bom_item"
+        )
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="actualizar_boms_tablas.xlsx"'},
+    )
+
+
 @app.post("/api/actualizar-boms/recalcular-diferencia")
 async def api_recalcular_diferencia_partes(
     current_user: User = Depends(get_current_user),
