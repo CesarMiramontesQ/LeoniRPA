@@ -51,6 +51,13 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory="templates")
 logger = logging.getLogger("bom_update")
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setLevel(logging.INFO)
+    _handler.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
+    logger.addHandler(_handler)
+logger.propagate = False
 
 # CORS: permite acceso desde otras máquinas en la red.
 # allow_origins=["*"] admite cualquier origen; en producción se puede restringir.
