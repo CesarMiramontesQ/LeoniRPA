@@ -59,9 +59,11 @@ def _parse_header_columns(header_line: str) -> dict:
         elif key == "un":
             if "un" not in indices:
                 indices["un"] = i  # primera Un (la requerida)
-        elif key == "quantity":
-            if "quantity" not in indices:
-                indices["quantity"] = i  # primera Quantity (la requerida)
+        elif key == "quantity" or key.startswith("qty"):
+            # Tomar SIEMPRE la primera columna de cantidad, sin importar si
+            # viene como "Quantity", "Qty (BUn)" o "Qty (CUn)".
+            if "quantity" not in indices or i < indices["quantity"]:
+                indices["quantity"] = i
         elif key in ("comm. code", "comm code"):
             indices["comm_code"] = i
     return indices

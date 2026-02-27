@@ -331,29 +331,6 @@ class="size-6 shrink-0 {% if active_page in ['carga_proveedor', 'carga_cliente',
                       </li>
                       <li>
                         <a
-                          href="/boms"
-                          class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page == 'boms' %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
-                        >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke-width="1.5"
-                            stroke="currentColor"
-                            class="size-6 shrink-0 {% if active_page == 'boms' %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
-                          >
-                            <path
-                              stroke-linecap="round"
-                              stroke-linejoin="round"
-                              d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z"
-                            />
-                          </svg>
-
-                          BOMs
-                        </a>
-                      </li>
-                      <li>
-                        <a
                           href="/actualizar-boms"
                           class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page == 'actualizar_boms' %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
                         >
@@ -394,6 +371,24 @@ class="size-6 shrink-0 {% if active_page in ['carga_proveedor', 'carga_cliente',
                             />
                           </svg>
                           Pesos Netos
+                        </a>
+                      </li>
+                      <li>
+                        <a
+                          href="/cross-reference"
+                          class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page == 'cross_reference' %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke-width="1.5"
+                            stroke="currentColor"
+                            class="size-6 shrink-0 {% if active_page == 'cross_reference' %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
+                          >
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9m-9 6h9m-9 6h9M4.5 6h.008v.008H4.5V6Zm0 6h.008v.008H4.5V12Zm0 6h.008v.008H4.5V18Z" />
+                          </svg>
+                          Cross Reference
                         </a>
                       </li>
                       {% if current_user and current_user.rol == 'admin' %}
@@ -722,28 +717,6 @@ class="size-6 shrink-0 {% if active_page in ['carga_proveedor', 'carga_cliente',
                 </li>
                 <li>
                   <a
-                    href="/boms"
-                    class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page == 'boms' %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
-                  >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke-width="1.5"
-                      stroke="currentColor"
-                      class="size-6 shrink-0 {% if active_page == 'boms' %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 0 1 0 3.75H5.625a1.875 1.875 0 0 1 0-3.75Z"
-                      />
-                    </svg>
-                    BOMs
-                  </a>
-                </li>
-                <li>
-                  <a
                     href="/actualizar-boms"
                     class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page == 'actualizar_boms' %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
                   >
@@ -784,6 +757,24 @@ class="size-6 shrink-0 {% if active_page in ['carga_proveedor', 'carga_cliente',
                       />
                     </svg>
                     Pesos Netos
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href="/cross-reference"
+                    class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page == 'cross_reference' %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke-width="1.5"
+                      stroke="currentColor"
+                      class="size-6 shrink-0 {% if active_page == 'cross_reference' %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
+                    >
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9m-9 6h9m-9 6h9M4.5 6h.008v.008H4.5V6Zm0 6h.008v.008H4.5V12Zm0 6h.008v.008H4.5V18Z" />
+                    </svg>
+                    Cross Reference
                   </a>
                 </li>
                 {% if current_user and current_user.rol == 'admin' %}

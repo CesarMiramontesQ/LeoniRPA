@@ -8,7 +8,7 @@ from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta, timezone, date
 from decimal import Decimal
-from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaProveedoresNacional, CargaProveedoresNacionalHistorial, CargaCliente, MasterUnificadoVirtuales, MasterUnificadoVirtualHistorial, MasterUnificadoVirtualOperacion, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente, Parte, Bom, BomRevision, BomItem, PesoNeto
+from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaProveedoresNacional, CargaProveedoresNacionalHistorial, CargaCliente, MasterUnificadoVirtuales, MasterUnificadoVirtualHistorial, MasterUnificadoVirtualOperacion, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente, Parte, Bom, BomRevision, BomItem, PesoNeto, CrossReference
 from app.core.security import hash_password
 
 
@@ -1769,6 +1769,55 @@ async def count_pesos_netos(
             or_(
                 PesoNeto.numero_parte.ilike(search_pattern),
                 PesoNeto.descripcion.ilike(search_pattern),
+            )
+        )
+
+    result = await db.execute(query)
+    return result.scalar() or 0
+
+
+async def list_cross_reference(
+    db: AsyncSession,
+    search: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> List[CrossReference]:
+    """Lista registros de cross_reference con filtros opcionales."""
+    query = select(CrossReference)
+
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                CrossReference.customer.ilike(search_pattern),
+                CrossReference.material.ilike(search_pattern),
+                CrossReference.customer_material.ilike(search_pattern),
+            )
+        )
+
+    query = (
+        query.order_by(CrossReference.customer, CrossReference.material, CrossReference.customer_material)
+        .limit(limit)
+        .offset(offset)
+    )
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def count_cross_reference(
+    db: AsyncSession,
+    search: Optional[str] = None,
+) -> int:
+    """Cuenta el total de registros de cross_reference con filtros opcionales."""
+    query = select(func.count()).select_from(CrossReference)
+
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                CrossReference.customer.ilike(search_pattern),
+                CrossReference.material.ilike(search_pattern),
+                CrossReference.customer_material.ilike(search_pattern),
             )
         )
 

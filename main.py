@@ -694,6 +694,94 @@ async def api_load_bom(
     return await load_bom(db, payload)
 
 
+@app.post("/api/actualizar-boms/actualizar-parte")
+async def api_actualizar_bom_parte(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Actualiza desde SAP un solo número de parte."""
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"ok": False, "mensaje": "JSON inválido."})
+
+    numero_parte = (data.get("parte_no") or "").strip()
+    if not numero_parte:
+        return JSONResponse(status_code=400, content={"ok": False, "mensaje": "parte_no es requerido."})
+
+    vbs_path = Path(settings.BOM_VBS_PATH or str(Path(__file__).resolve().parent / "bom.vbs")).resolve()
+    export_dir_raw = settings.BOM_EXPORT_DIR or ""
+    export_dir = str(Path(export_dir_raw).resolve()) if export_dir_raw else ""
+    timeout_sec = settings.BOM_VBS_TIMEOUT_SEC
+
+    if not export_dir_raw or not Path(export_dir).is_dir():
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "mensaje": "Configura BOM_EXPORT_DIR y asegúrate de que la carpeta exista."},
+        )
+    if platform.system() != "Windows":
+        return JSONResponse(
+            status_code=501,
+            content={"ok": False, "mensaje": "La ejecución del script SAP (bom.vbs) solo está soportada en Windows."},
+        )
+
+    try:
+        result = await asyncio.to_thread(
+            subprocess.run,
+            ["cscript", "//nologo", str(vbs_path), numero_parte, export_dir],
+            capture_output=True,
+            timeout=timeout_sec,
+            cwd=str(vbs_path.parent),
+            text=True,
+        )
+        if result.returncode != 0:
+            err = (result.stderr or "").strip() or (result.stdout or "").strip()
+            mensaje = f"Script VBS falló (código {result.returncode}): {err[:250]}"
+            try:
+                await crud.set_parte_valido(db, numero_parte, False)
+                await db.commit()
+                mensaje += " Se marcó la parte como no válida."
+            except Exception:
+                await db.rollback()
+            return JSONResponse(status_code=400, content={"ok": False, "mensaje": mensaje})
+
+        archivo = Path(export_dir) / f"{numero_parte}.txt"
+        for _ in range(15):
+            await asyncio.sleep(1)
+            if archivo.is_file():
+                break
+        if not archivo.is_file():
+            return JSONResponse(
+                status_code=400,
+                content={"ok": False, "mensaje": "No se generó el archivo .txt para esa parte."},
+            )
+
+        contenido = archivo.read_text(encoding="utf-8", errors="replace")
+        payload = parse_sap_bom_txt(contenido)
+        if not payload:
+            return JSONResponse(status_code=400, content={"ok": False, "mensaje": "No se pudo parsear el archivo exportado."})
+
+        resp = await load_bom(db, payload)
+        if resp.ok:
+            await crud.set_parte_valido(db, numero_parte, True)
+        await db.commit()
+
+        return {
+            "ok": bool(resp.ok),
+            "parte_no": numero_parte,
+            "estado": "sin_cambios" if getattr(resp, "sin_cambios", False) else ("actualizado" if resp.ok else "error"),
+            "mensaje": resp.mensaje,
+            "items_insertados": getattr(resp, "items_insertados", None),
+        }
+    except subprocess.TimeoutExpired:
+        await db.rollback()
+        return JSONResponse(status_code=408, content={"ok": False, "mensaje": f"Timeout ({timeout_sec}s) ejecutando SAP."})
+    except Exception as e:
+        await db.rollback()
+        return JSONResponse(status_code=500, content={"ok": False, "mensaje": f"Error actualizando parte: {e}"})
+
+
 @app.post("/api/actualizar-boms/ejecutar-actualizacion")
 async def api_ejecutar_actualizacion_boms(
     limit: Optional[int] = None,
@@ -1595,6 +1683,62 @@ async def api_pesos_netos(
             "gross": float(row.gross) if row.gross is not None else None,
             "net": float(row.net) if row.net is not None else None,
             "kgm": float(row.kgm) if row.kgm is not None else None,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        }
+        for row in rows_db
+    ]
+
+    return {
+        "ok": True,
+        "q": q or None,
+        "limit": limit,
+        "offset": offset,
+        "total": int(total),
+        "rows": rows,
+    }
+
+
+@app.get("/cross-reference")
+async def cross_reference(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Página de cross reference - requiere autenticación."""
+    total_cross_reference = await crud.count_cross_reference(db)
+    return templates.TemplateResponse(
+        "cross_reference.html",
+        {
+            "request": request,
+            "active_page": "cross_reference",
+            "current_user": current_user,
+            "total_cross_reference": total_cross_reference,
+        },
+    )
+
+
+@app.get("/api/cross-reference")
+async def api_cross_reference(
+    q: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """API para listar cross_reference con búsqueda y paginación."""
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    q = (q or "").strip()
+
+    rows_db = await crud.list_cross_reference(db, search=q or None, limit=limit, offset=offset)
+    total = await crud.count_cross_reference(db, search=q or None)
+
+    rows = [
+        {
+            "customer": row.customer,
+            "material": row.material,
+            "customer_material": row.customer_material,
             "created_at": row.created_at.isoformat() if row.created_at else None,
             "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         }

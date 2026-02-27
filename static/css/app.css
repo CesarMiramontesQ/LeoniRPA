@@ -24,12 +24,10 @@
     --color-yellow-50: oklch(98.7% 0.026 102.212);
     --color-yellow-100: oklch(97.3% 0.071 103.193);
     --color-yellow-200: oklch(94.5% 0.129 101.54);
-    --color-yellow-300: oklch(90.5% 0.182 98.111);
     --color-yellow-400: oklch(85.2% 0.199 91.936);
     --color-yellow-600: oklch(68.1% 0.162 75.834);
     --color-yellow-700: oklch(55.4% 0.135 66.442);
     --color-yellow-800: oklch(47.6% 0.114 61.907);
-    --color-yellow-900: oklch(42.1% 0.095 57.708);
     --color-green-50: oklch(98.2% 0.018 155.826);
     --color-green-100: oklch(96.2% 0.044 156.743);
     --color-green-200: oklch(92.5% 0.084 155.995);
@@ -38,6 +36,8 @@
     --color-green-600: oklch(62.7% 0.194 149.214);
     --color-green-700: oklch(52.7% 0.154 150.069);
     --color-green-800: oklch(44.8% 0.119 151.328);
+    --color-emerald-600: oklch(59.6% 0.145 163.225);
+    --color-emerald-700: oklch(50.8% 0.118 165.612);
     --color-blue-50: oklch(97% 0.014 254.604);
     --color-blue-100: oklch(93.2% 0.032 255.585);
     --color-blue-200: oklch(88.2% 0.059 254.128);
@@ -514,17 +514,11 @@
   .max-h-48 {
     max-height: calc(var(--spacing) * 48);
   }
-  .max-h-56 {
-    max-height: calc(var(--spacing) * 56);
-  }
   .max-h-64 {
     max-height: calc(var(--spacing) * 64);
   }
   .max-h-72 {
     max-height: calc(var(--spacing) * 72);
-  }
-  .max-h-80 {
-    max-height: calc(var(--spacing) * 80);
   }
   .max-h-96 {
     max-height: calc(var(--spacing) * 96);
@@ -594,9 +588,6 @@
   }
   .w-40 {
     width: calc(var(--spacing) * 40);
-  }
-  .w-44 {
-    width: calc(var(--spacing) * 44);
   }
   .w-56 {
     width: calc(var(--spacing) * 56);
@@ -907,9 +898,6 @@
   .border-\[\#003D89\] {
     border-color: #003D89;
   }
-  .border-amber-600 {
-    border-color: var(--color-amber-600);
-  }
   .border-blue-200 {
     border-color: var(--color-blue-200);
   }
@@ -958,9 +946,6 @@
   .bg-\[\#003D89\]\/10 {
     background-color: color-mix(in oklab, #003D89 10%, transparent);
   }
-  .bg-amber-50 {
-    background-color: var(--color-amber-50);
-  }
   .bg-amber-500 {
     background-color: var(--color-amber-500);
   }
@@ -978,6 +963,9 @@
   }
   .bg-blue-600 {
     background-color: var(--color-blue-600);
+  }
+  .bg-emerald-600 {
+    background-color: var(--color-emerald-600);
   }
   .bg-gray-50 {
     background-color: var(--color-gray-50);
@@ -1027,9 +1015,6 @@
   .bg-indigo-100 {
     background-color: var(--color-indigo-100);
   }
-  .bg-indigo-600 {
-    background-color: var(--color-indigo-600);
-  }
   .bg-purple-100 {
     background-color: var(--color-purple-100);
   }
@@ -1074,9 +1059,6 @@
   }
   .p-6 {
     padding: calc(var(--spacing) * 6);
-  }
-  .px-1 {
-    padding-inline: calc(var(--spacing) * 1);
   }
   .px-2 {
     padding-inline: calc(var(--spacing) * 2);
@@ -1534,13 +1516,6 @@
       }
     }
   }
-  .hover\:bg-amber-100 {
-    &:hover {
-      @media (hover: hover) {
-        background-color: var(--color-amber-100);
-      }
-    }
-  }
   .hover\:bg-amber-600 {
     &:hover {
       @media (hover: hover) {
@@ -1569,6 +1544,13 @@
       }
     }
   }
+  .hover\:bg-emerald-700 {
+    &:hover {
+      @media (hover: hover) {
+        background-color: var(--color-emerald-700);
+      }
+    }
+  }
   .hover\:bg-gray-50 {
     &:hover {
       @media (hover: hover) {
@@ -1587,20 +1569,6 @@
     &:hover {
       @media (hover: hover) {
         background-color: var(--color-green-700);
-      }
-    }
-  }
-  .hover\:bg-indigo-500 {
-    &:hover {
-      @media (hover: hover) {
-        background-color: var(--color-indigo-500);
-      }
-    }
-  }
-  .hover\:bg-indigo-700 {
-    &:hover {
-      @media (hover: hover) {
-        background-color: var(--color-indigo-700);
       }
     }
   }
@@ -1812,11 +1780,6 @@
   .focus-visible\:outline-green-600 {
     &:focus-visible {
       outline-color: var(--color-green-600);
-    }
-  }
-  .focus-visible\:outline-indigo-600 {
-    &:focus-visible {
-      outline-color: var(--color-indigo-600);
     }
   }
   .focus-visible\:outline-red-600 {
@@ -2183,11 +2146,6 @@
   .lg\:flex-none {
     @media (width >= 64rem) {
       flex: none;
-    }
-  }
-  .lg\:grid-cols-2 {
-    @media (width >= 64rem) {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
   }
   .lg\:grid-cols-3 {

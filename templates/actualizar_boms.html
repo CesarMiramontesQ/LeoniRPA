@@ -367,7 +367,10 @@
         '<td class="py-2 px-3 text-gray-700">' + esc(row.total_revisiones) + '</td>' +
         '<td class="py-2 px-3 text-gray-700">' + esc(row.qty_total ?? 0) + '</td>' +
         '<td class="py-2 px-3 text-gray-700">' + esc(diferenciaTexto) + '</td>' +
-        '<td class="py-2 px-3"><button type="button" class="btn-ver-detalle rounded-md bg-[#003D89] px-3 py-1 text-xs font-semibold text-white hover:bg-[#003366]" data-parte-no="' + esc(row.numero_parte) + '">Ver detalle</button></td>' +
+        '<td class="py-2 px-3"><div class="flex items-center gap-2">' +
+          '<button type="button" class="btn-actualizar-parte rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700" data-parte-no="' + esc(row.numero_parte) + '">Actualizar SAP</button>' +
+          '<button type="button" class="btn-ver-detalle rounded-md bg-[#003D89] px-3 py-1 text-xs font-semibold text-white hover:bg-[#003366]" data-parte-no="' + esc(row.numero_parte) + '">Ver detalle</button>' +
+        '</div></td>' +
       '</tr>';
     }).join('');
 
@@ -375,6 +378,38 @@
       btnDetalle.addEventListener('click', function() {
         const parteNo = this.getAttribute('data-parte-no');
         verDetalleParte(parteNo);
+      });
+    });
+    partesBody.querySelectorAll('.btn-actualizar-parte').forEach(function(btnActualizarParte) {
+      btnActualizarParte.addEventListener('click', async function() {
+        const parteNo = this.getAttribute('data-parte-no');
+        if (!parteNo) return;
+        const ok = window.confirm('¿Actualizar en SAP solo la parte ' + parteNo + '?');
+        if (!ok) return;
+        this.disabled = true;
+        const prev = this.textContent;
+        this.textContent = 'Actualizando...';
+        partesMsg.textContent = 'Actualizando ' + parteNo + '...';
+        try {
+          const res = await fetch('/api/actualizar-boms/actualizar-parte', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ parte_no: parteNo })
+          });
+          const data = await res.json().catch(function() { return {}; });
+          if (!res.ok || !data.ok) throw new Error(data.mensaje || 'Error al actualizar la parte');
+          const estado = data.estado || 'actualizado';
+          addLog(parteNo + ' — ' + estado + ': ' + (data.mensaje || ''), estado === 'actualizado' ? 'text-green-700' : 'text-gray-700');
+          partesMsg.textContent = 'Parte ' + parteNo + ' actualizada.';
+          await cargarResumenPartes(false);
+        } catch (e) {
+          partesMsg.textContent = 'Error en ' + parteNo + ': ' + (e.message || e);
+          addLog(parteNo + ' — Error: ' + (e.message || e), 'text-red-700');
+        } finally {
+          this.disabled = false;
+          this.textContent = prev;
+        }
       });
     });
 

@@ -30,6 +30,8 @@ class Parte(Base):
     id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
     numero_parte = Column(Text, nullable=False, unique=True, index=True)
     descripcion = Column(Text, nullable=True)
+    descripcion_aduanal = Column(Text, nullable=True)
+    fraccion = Column(Text, nullable=True)
     valido = Column(Boolean, nullable=False, server_default=text("true"))
     qty_total = Column(Numeric(18, 6), nullable=False, server_default=text("0"))
     diferencia = Column(Numeric(18, 6), nullable=True)
@@ -1274,4 +1276,19 @@ class MasterUnificadoVirtualHistorial(Base):
     
     def __repr__(self):
         return f"<MasterUnificadoVirtualHistorial(id={self.id}, numero={self.numero}, operacion={self.operacion.value})>"
+
+
+class CrossReference(Base):
+    """Tabla de referencia cruzada entre cliente, material y material del cliente."""
+    __tablename__ = "cross_reference"
+
+    customer = Column(String, primary_key=True, index=True)
+    material = Column(String, primary_key=True, index=True)
+    customer_material = Column(String, primary_key=True, index=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f"<CrossReference(customer={self.customer}, material={self.material}, customer_material={self.customer_material})>"
 
