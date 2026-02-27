@@ -2,6 +2,7 @@
 import hashlib
 import json
 from datetime import date
+from datetime import timedelta
 from decimal import Decimal
 from typing import List, Dict, Any
 
@@ -97,16 +98,48 @@ async def load_bom(db: AsyncSession, payload: LoadBomInput) -> LoadBomResponse:
         # 5) Revisión vigente (solo una por BOM)
         current_rev = await crud.get_current_bom_revision(db, bom.id)
 
-        # Primera carga: si el BOM ya tiene al menos una revisión, omitir (no crear 2ª/3ª revisión si se re-ejecuta el proceso)
+        # Si ya existe revisión vigente, comparar hash para decidir si crea nueva revisión.
         if current_rev is not None:
+            if current_rev.hash == new_hash:
+                await crud.actualizar_qty_total_parte(db, parte_id)
+                await db.commit()
+                return LoadBomResponse(
+                    ok=True,
+                    mensaje="BOM sin cambios: se conserva la revisión vigente.",
+                    sin_cambios=True,
+                    revision_anterior_cerrada=False,
+                    nueva_revision_creada=False,
+                    revision_no=current_rev.revision_no,
+                )
+
+            # Hubo cambios: cerrar revisión vigente y crear siguiente revisión.
+            close_date = today
+            if current_rev.effective_from is not None and close_date <= current_rev.effective_from:
+                # Respeta check constraint: effective_to debe ser > effective_from.
+                close_date = current_rev.effective_from + timedelta(days=1)
+
+            await crud.close_bom_revision(db, current_rev.id, close_date)
+
+            next_revision_no = (current_rev.revision_no or 0) + 1
+            new_rev = await crud.create_bom_revision(
+                db,
+                bom_id=bom.id,
+                revision_no=next_revision_no,
+                effective_from=close_date,
+                hash_value=new_hash,
+                source="carga",
+            )
+            n = await crud.insert_bom_items(db, new_rev.id, componentes_con_id)
             await crud.actualizar_qty_total_parte(db, parte_id)
             await db.commit()
             return LoadBomResponse(
                 ok=True,
-                mensaje="BOM ya cargado, omitido.",
-                sin_cambios=True,
-                revision_anterior_cerrada=False,
-                nueva_revision_creada=False,
+                mensaje=f"BOM actualizado: revisión {next_revision_no} creada con {n} items.",
+                sin_cambios=False,
+                revision_anterior_cerrada=True,
+                nueva_revision_creada=True,
+                revision_no=next_revision_no,
+                items_insertados=n,
             )
 
         # Primera revisión para este BOM
