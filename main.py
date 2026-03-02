@@ -1710,6 +1710,391 @@ async def api_pesos_netos(
     }
 
 
+def _peso_neto_normalize_col(name) -> str:
+    import unicodedata
+
+    if name is None:
+        return ""
+    s = str(name).strip().lower().replace("\ufeff", "")
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.combining(ch))
+    return " ".join(s.split())
+
+
+def _peso_neto_to_decimal(value):
+    import math
+    from decimal import Decimal, InvalidOperation
+
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return value
+    if isinstance(value, int):
+        return Decimal(value)
+    if isinstance(value, float):
+        if math.isnan(value):
+            return None
+        return Decimal(str(value))
+
+    s = str(value).strip()
+    if not s or s.lower() == "nan":
+        return None
+    s = s.replace(" ", "")
+    if "," in s and "." in s:
+        s = s.replace(",", "")
+    elif "," in s:
+        s = s.replace(",", ".")
+
+    try:
+        return Decimal(s)
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _peso_neto_load_source_dataframe(file_path: Path):
+    import pandas as pd
+
+    errors: list[str] = []
+
+    for enc in ("utf-16", "utf-16le", "utf-8-sig", "cp1252", "latin1"):
+        try:
+            df = pd.read_csv(file_path, sep="\t", dtype=object, encoding=enc)
+            if not df.empty and len(df.columns) >= 3:
+                return df
+        except Exception as exc:
+            errors.append(f"read_csv({enc}): {exc}")
+
+    try:
+        df = pd.read_excel(file_path, dtype=object)
+        if not df.empty:
+            return df
+    except Exception as exc:
+        errors.append(f"read_excel: {exc}")
+
+    try:
+        tables = pd.read_html(file_path)
+        if tables:
+            return sorted(tables, key=lambda t: len(t), reverse=True)[0]
+    except Exception as exc:
+        errors.append(f"read_html: {exc}")
+
+    raise ValueError(
+        "No se pudo leer el archivo de pesos netos como TSV, Excel o HTML.\n"
+        + "\n".join(errors[-5:])
+    )
+
+
+def _peso_neto_realign_header(df):
+    """Realinea encabezado cuando el export de SAP trae filas en blanco o header corrido."""
+    if df is None or df.empty:
+        return df
+
+    normalized_cols = {_peso_neto_normalize_col(c) for c in df.columns}
+    if "material" in normalized_cols and ("net weight" in normalized_cols or "peso neto" in normalized_cols):
+        return df
+
+    raw = df.copy()
+    try:
+        raw.columns = [f"c{i}" for i in range(len(raw.columns))]
+    except Exception:
+        return df
+
+    max_scan = min(len(raw), 15)
+    header_idx = None
+    for i in range(max_scan):
+        row_vals = [str(v).strip() for v in raw.iloc[i].tolist() if str(v).strip() and str(v).strip().lower() != "nan"]
+        row_norm = {_peso_neto_normalize_col(v) for v in row_vals}
+        if "material" in row_norm and ("net weight" in row_norm or "peso neto" in row_norm):
+            header_idx = i
+            break
+
+    if header_idx is None:
+        return df
+
+    new_cols = []
+    for idx, v in enumerate(raw.iloc[header_idx].tolist()):
+        col_name = str(v).strip()
+        if not col_name or col_name.lower() == "nan":
+            col_name = f"unnamed_{idx}"
+        new_cols.append(col_name)
+
+    data = raw.iloc[header_idx + 1 :].copy()
+    data.columns = new_cols
+    data = data.reset_index(drop=True)
+
+    # Limpia filas completamente vacías.
+    data = data.dropna(how="all")
+    return data
+
+
+def _peso_neto_parse_records(file_path: Path) -> tuple[list[dict], dict]:
+    from decimal import Decimal
+
+    df = _peso_neto_realign_header(_peso_neto_load_source_dataframe(file_path))
+    if df.empty:
+        raise ValueError("El archivo exportado no contiene filas.")
+
+    col_map = {_peso_neto_normalize_col(c): c for c in df.columns}
+    col_numero = (
+        col_map.get("material")
+        or col_map.get("numeros de parte")
+        or col_map.get("numero de parte")
+        or col_map.get("numero_parte")
+        or col_map.get("part_no")
+    )
+    col_descripcion = (
+        col_map.get("descripcion del material")
+        or col_map.get("material description")
+        or col_map.get("descripcion")
+    )
+    col_gross = col_map.get("peso bruto") or col_map.get("gross weight") or col_map.get("gross")
+    col_net = col_map.get("peso neto") or col_map.get("net weight") or col_map.get("net")
+
+    if not col_numero:
+        raise ValueError("No se encontró la columna de número de parte (ej. 'Material').")
+    if not col_net:
+        raise ValueError("No se encontró la columna de peso neto (ej. 'Peso neto').")
+
+    total_filas = len(df)
+    filas_invalidas = 0
+    duplicados_archivo = 0
+    candidatos: list[dict] = []
+    idx_by_numero: dict[str, int] = {}
+
+    for _, row in df.iterrows():
+        numero_raw = row.get(col_numero)
+        numero = str(numero_raw).strip() if numero_raw is not None else ""
+        if not numero or numero.lower() == "nan":
+            filas_invalidas += 1
+            continue
+        if numero.endswith(".0"):
+            numero = numero[:-2]
+
+        descripcion = (
+            str(row.get(col_descripcion)).strip()
+            if col_descripcion and row.get(col_descripcion) is not None
+            else None
+        )
+        gross = _peso_neto_to_decimal(row.get(col_gross)) if col_gross else None
+        net = _peso_neto_to_decimal(row.get(col_net))
+
+        if net is None:
+            kgm = None
+        elif net == 0:
+            kgm = Decimal("0")
+        else:
+            kgm = net / Decimal("1000")
+
+        rec = {
+            "numero_parte": numero,
+            "descripcion": descripcion,
+            "gross": gross,
+            "net": net,
+            "kgm": kgm,
+        }
+
+        if numero in idx_by_numero:
+            duplicados_archivo += 1
+            candidatos[idx_by_numero[numero]] = rec
+        else:
+            idx_by_numero[numero] = len(candidatos)
+            candidatos.append(rec)
+
+    resumen = {
+        "filas_archivo": total_filas,
+        "filas_invalidas": filas_invalidas,
+        "duplicados_archivo": duplicados_archivo,
+        "candidatos_unicos": len(candidatos),
+    }
+    return candidatos, resumen
+
+
+@app.post("/api/pesos-netos/actualizar")
+async def api_actualizar_pesos_netos_desde_sap(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Ejecuta MM17 (peso_neto.vbs), procesa el archivo exportado y hace upsert en peso_neto.
+    """
+    from sqlalchemy import select, text
+    from app.db.models import PesoNeto
+
+    _ = current_user
+    vbs_path = Path(
+        settings.PESO_NETO_VBS_PATH or str(Path(__file__).resolve().parent / "peso_neto.vbs")
+    ).resolve()
+    export_dir = Path(settings.PESO_NETO_EXPORT_DIR or r"C:\Users\anad5004\Documents\Leoni_RPA\peso_neto").resolve()
+    export_file = export_dir / (settings.PESO_NETO_EXPORT_FILENAME or "pesos_netos.xls")
+    timeout_sec = settings.PESO_NETO_VBS_TIMEOUT_SEC
+
+    logger.info(
+        "[peso_neto] Inicio actualización usuario=%s vbs=%s export=%s",
+        getattr(current_user, "email", None),
+        vbs_path,
+        export_file,
+    )
+
+    if platform.system() != "Windows":
+        logger.warning("[peso_neto] Cancelado: plataforma no Windows (%s)", platform.system())
+        return JSONResponse(
+            status_code=501,
+            content={"ok": False, "mensaje": "La ejecución de peso_neto.vbs solo está soportada en Windows."},
+        )
+    if not vbs_path.is_file():
+        logger.warning("[peso_neto] Cancelado: no existe VBS (%s)", vbs_path)
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "mensaje": f"No se encontró el script VBS: {vbs_path}"},
+        )
+    try:
+        export_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as mk_err:
+        logger.exception("[peso_neto] Error creando carpeta de exportación")
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "mensaje": f"No se pudo preparar la carpeta de exportación: {mk_err}"},
+        )
+
+    mtime_anterior = export_file.stat().st_mtime if export_file.exists() else None
+    try:
+        result = await asyncio.to_thread(
+            subprocess.run,
+            ["cscript", "//nologo", str(vbs_path), str(export_dir)],
+            capture_output=True,
+            timeout=timeout_sec,
+            cwd=str(vbs_path.parent),
+            text=True,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning("[peso_neto] Timeout ejecutando VBS (%ss)", timeout_sec)
+        return JSONResponse(
+            status_code=504,
+            content={"ok": False, "mensaje": f"Timeout ejecutando MM17 ({timeout_sec}s)."},
+        )
+    except Exception as e:
+        logger.exception("[peso_neto] Error ejecutando VBS")
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "mensaje": f"Error al ejecutar peso_neto.vbs: {str(e)}"},
+        )
+
+    if result.returncode != 0:
+        err = (result.stderr or "").strip() or (result.stdout or "").strip()
+        logger.warning("[peso_neto] VBS returncode=%s detalle=%s", result.returncode, err[:300])
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "mensaje": f"VBS falló: {err[:400]}"},
+        )
+
+    for _ in range(45):
+        await asyncio.sleep(1)
+        if not export_file.is_file():
+            continue
+        if mtime_anterior is None:
+            break
+        if export_file.stat().st_mtime > mtime_anterior:
+            break
+    else:
+        logger.warning("[peso_neto] No se detectó archivo actualizado: %s", export_file)
+        return JSONResponse(
+            status_code=500,
+            content={
+                "ok": False,
+                "mensaje": f"No se detectó archivo de salida actualizado: {export_file.name}",
+            },
+        )
+
+    try:
+        candidatos, resumen_parseo = await asyncio.to_thread(_peso_neto_parse_records, export_file)
+        logger.info(
+            "[peso_neto] Parseo OK archivo=%s filas=%s invalidas=%s duplicados=%s unicos=%s",
+            export_file.name,
+            resumen_parseo.get("filas_archivo"),
+            resumen_parseo.get("filas_invalidas"),
+            resumen_parseo.get("duplicados_archivo"),
+            resumen_parseo.get("candidatos_unicos"),
+        )
+    except Exception as parse_err:
+        logger.exception("[peso_neto] Error parseando archivo")
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "mensaje": f"Error procesando archivo de pesos netos: {parse_err}"},
+        )
+
+    if not candidatos:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "mensaje": "El archivo no contiene registros válidos para importar."},
+        )
+
+    upsert_sql = text(
+        """
+        INSERT INTO peso_neto (numero_parte, descripcion, gross, net, kgm, updated_at)
+        VALUES (:numero_parte, :descripcion, :gross, :net, :kgm, now())
+        ON CONFLICT (numero_parte) DO UPDATE
+        SET
+            descripcion = EXCLUDED.descripcion,
+            gross = EXCLUDED.gross,
+            net = EXCLUDED.net,
+            kgm = EXCLUDED.kgm,
+            updated_at = now()
+        """
+    )
+
+    try:
+        chunk_size = 2000
+        existentes: set[str] = set()
+        numeros = [str(r["numero_parte"]) for r in candidatos]
+        for i in range(0, len(numeros), chunk_size):
+            chunk_numeros = numeros[i : i + chunk_size]
+            existing_rows = await db.execute(
+                select(PesoNeto.numero_parte).where(PesoNeto.numero_parte.in_(chunk_numeros))
+            )
+            existentes.update(str(v) for v in existing_rows.scalars().all())
+
+        insertados = len(candidatos) - len(existentes)
+        actualizados = len(existentes)
+
+        chunk_size = 2000
+        upserts = 0
+        for i in range(0, len(candidatos), chunk_size):
+            chunk = candidatos[i : i + chunk_size]
+            await db.execute(upsert_sql, chunk)
+            upserts += len(chunk)
+        await db.commit()
+        logger.info(
+            "[peso_neto] Fin OK archivo=%s upserts=%s insertados=%s actualizados=%s",
+            export_file.name,
+            upserts,
+            insertados,
+            actualizados,
+        )
+    except Exception as db_err:
+        await db.rollback()
+        logger.exception("[peso_neto] Error guardando en BD")
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "mensaje": f"Error guardando pesos netos en BD: {db_err}"},
+        )
+
+    return {
+        "ok": True,
+        "mensaje": (
+            f"Pesos netos actualizados correctamente. "
+            f"Archivo procesado: {export_file.name}. "
+            f"Insertados: {insertados}. Actualizados: {actualizados}."
+        ),
+        "resumen": {
+            **resumen_parseo,
+            "upserts": upserts,
+            "insertados": insertados,
+            "actualizados": actualizados,
+            "archivo": str(export_file),
+        },
+    }
+
+
 @app.get("/cross-reference")
 async def cross_reference(
     request: Request,

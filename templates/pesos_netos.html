@@ -88,6 +88,7 @@
   (function () {
     const inputSearch = document.getElementById('peso-search');
     const inputLimit = document.getElementById('peso-limit');
+    const btnActualizar = document.getElementById('peso-actualizar');
     const btnRecargar = document.getElementById('peso-recargar');
     const tbody = document.getElementById('peso-body');
     const msg = document.getElementById('peso-msg');
@@ -190,6 +191,39 @@
       currentPage += 1;
       cargar(false);
     });
+    if (btnActualizar) {
+      btnActualizar.addEventListener('click', async function () {
+        const ok = window.confirm('¿Ejecutar actualización de pesos netos desde SAP (MM17)?');
+        if (!ok) return;
+        btnActualizar.disabled = true;
+        const prev = btnActualizar.textContent;
+        btnActualizar.textContent = 'Actualizando...';
+        msg.textContent = 'Ejecutando transacción en SAP y procesando archivo para base de datos...';
+        try {
+          const res = await fetch('/api/pesos-netos/actualizar', {
+            method: 'POST',
+            credentials: 'same-origin'
+          });
+          const data = await res.json().catch(function () { return {}; });
+          if (!res.ok || !data.ok) throw new Error(data.mensaje || 'No se pudo actualizar pesos netos.');
+          await cargar(true);
+          const resumen = data.resumen || {};
+          const partes = [
+            data.mensaje || 'Pesos netos actualizados.',
+            'Filas archivo: ' + (resumen.filas_archivo ?? 'N/A'),
+            'Únicos: ' + (resumen.candidatos_unicos ?? 'N/A'),
+            'Insertados: ' + (resumen.insertados ?? 'N/A'),
+            'Actualizados: ' + (resumen.actualizados ?? 'N/A')
+          ];
+          msg.textContent = partes.join(' | ');
+        } catch (e) {
+          msg.textContent = 'Error al actualizar: ' + (e.message || e);
+        } finally {
+          btnActualizar.disabled = false;
+          btnActualizar.textContent = prev;
+        }
+      });
+    }
 
     cargar(true);
   })();

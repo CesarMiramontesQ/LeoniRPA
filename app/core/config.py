@@ -48,6 +48,15 @@ class Settings:
     )
     CROSS_REFERENCE_VBS_TIMEOUT_SEC: int = int(os.getenv("CROSS_REFERENCE_VBS_TIMEOUT_SEC", "120"))
 
+    # Pesos netos actualización desde SAP (MM17)
+    PESO_NETO_VBS_PATH: Optional[str] = os.getenv("PESO_NETO_VBS_PATH")
+    PESO_NETO_EXPORT_DIR: Optional[str] = os.getenv(
+        "PESO_NETO_EXPORT_DIR",
+        r"C:\Users\anad5004\Documents\Leoni_RPA\peso_neto",
+    )
+    PESO_NETO_EXPORT_FILENAME: str = os.getenv("PESO_NETO_EXPORT_FILENAME", "pesos_netos.xls")
+    PESO_NETO_VBS_TIMEOUT_SEC: int = int(os.getenv("PESO_NETO_VBS_TIMEOUT_SEC", "180"))
+
 
 settings = Settings()
 
