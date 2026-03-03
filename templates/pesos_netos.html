@@ -82,6 +82,34 @@
       </div>
     </div>
   </div>
+
+  <div class="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 class="text-lg font-semibold text-gray-900">Últimos 5 movimientos</h2>
+        <p class="mt-1 text-sm text-gray-600">
+          Historial reciente de cambios y detalles de ejecución.
+        </p>
+      </div>
+    </div>
+
+    <p id="peso-mov-msg" class="mt-3 text-xs text-gray-500">Cargando movimientos...</p>
+
+    <div class="mt-3 overflow-x-auto rounded border border-gray-200">
+      <table class="min-w-full text-sm">
+        <thead class="bg-gray-50">
+          <tr class="border-b text-left text-gray-500">
+            <th class="px-3 py-2">Fecha</th>
+            <th class="px-3 py-2">Usuario</th>
+            <th class="px-3 py-2">Acción</th>
+            <th class="px-3 py-2">Registros</th>
+            <th class="px-3 py-2">Detalles</th>
+          </tr>
+        </thead>
+        <tbody id="peso-mov-body"></tbody>
+      </table>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -92,6 +120,8 @@
     const btnRecargar = document.getElementById('peso-recargar');
     const tbody = document.getElementById('peso-body');
     const msg = document.getElementById('peso-msg');
+    const movTbody = document.getElementById('peso-mov-body');
+    const movMsg = document.getElementById('peso-mov-msg');
     const pageText = document.getElementById('peso-page-text');
     const btnPrev = document.getElementById('peso-prev');
     const btnNext = document.getElementById('peso-next');
@@ -120,6 +150,43 @@
       const d = new Date(value);
       if (Number.isNaN(d.getTime())) return '—';
       return d.toLocaleString('es-MX');
+    }
+
+    function renderMovimientos(rows) {
+      if (!movTbody || !movMsg) return;
+      if (!rows.length) {
+        movTbody.innerHTML = '<tr><td colspan="5" class="px-3 py-3 text-gray-400">Sin movimientos recientes</td></tr>';
+        movMsg.textContent = 'No hay movimientos para mostrar.';
+        return;
+      }
+      movTbody.innerHTML = rows.slice(0, 5).map(function (r) {
+        const registros = r.upserts ?? r.candidatos_unicos ?? r.filas_archivo ?? null;
+        const detalle = (r.estado ? ('[' + r.estado + '] ') : '') + (r.detalle || '—');
+        return '<tr class="border-b border-gray-100">' +
+          '<td class="px-3 py-2 text-gray-700">' + fmtDate(r.fecha) + '</td>' +
+          '<td class="px-3 py-2 text-gray-700">' + esc(r.usuario || '—') + '</td>' +
+          '<td class="px-3 py-2 text-gray-700">' + esc(r.accion || '—') + '</td>' +
+          '<td class="px-3 py-2 text-gray-700">' + fmtNum(registros) + '</td>' +
+          '<td class="px-3 py-2 text-gray-600">' + esc(detalle) + '</td>' +
+        '</tr>';
+      }).join('');
+      movMsg.textContent = 'Mostrando los últimos ' + Math.min(5, rows.length) + ' movimientos.';
+    }
+
+    async function cargarMovimientos() {
+      if (!movMsg) return;
+      movMsg.textContent = 'Cargando movimientos...';
+      try {
+        const res = await fetch('/api/pesos-netos/movimientos?limit=5', { credentials: 'same-origin' });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.mensaje || 'Error al cargar movimientos');
+        renderMovimientos(Array.isArray(data.rows) ? data.rows : []);
+      } catch (e) {
+        if (movTbody) {
+          movTbody.innerHTML = '<tr><td colspan="5" class="px-3 py-3 text-red-600">Error al cargar movimientos</td></tr>';
+        }
+        movMsg.textContent = 'Error: ' + (e.message || e);
+      }
     }
 
     async function cargar(resetPage) {
@@ -219,12 +286,14 @@
         } catch (e) {
           msg.textContent = 'Error al actualizar: ' + (e.message || e);
         } finally {
+          await cargarMovimientos();
           btnActualizar.disabled = false;
           btnActualizar.textContent = prev;
         }
       });
     }
 
+    cargarMovimientos();
     cargar(true);
   })();
 </script>

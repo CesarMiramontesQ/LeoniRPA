@@ -1,0 +1,430 @@
+{% extends "base.html" %} {% block content %}
+<div class="space-y-6">
+  <div class="flex flex-wrap items-center justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-semibold text-gray-900">Precios de Venta</h1>
+      <p class="mt-1 text-sm text-gray-600">
+        Consulta de precios de venta por cliente, número de parte y tipo de cable.
+      </p>
+    </div>
+    <button
+      id="pv-actualizar"
+      type="button"
+      class="rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#003366]"
+    >
+      Actualizar
+    </button>
+  </div>
+
+  <dl class="grid grid-cols-1 gap-5 sm:grid-cols-1">
+    <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
+      <dt class="truncate text-sm font-medium text-gray-500">Total de registros</dt>
+      <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900">{{ "{:,}".format(total_precios_venta) }}</dd>
+    </div>
+  </dl>
+
+  <div class="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+    <div class="flex flex-wrap items-end gap-3">
+      <div class="min-w-[260px] flex-1">
+        <label for="pv-search" class="block text-sm font-medium text-gray-900">Buscar</label>
+        <input
+          id="pv-search"
+          type="text"
+          placeholder="Cliente, número de parte, tipo de cable o comentario..."
+          class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+        />
+      </div>
+      <div>
+        <label for="pv-limit" class="block text-sm font-medium text-gray-900">Límite</label>
+        <select id="pv-limit" class="mt-1 rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]">
+          <option value="25" selected>25</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
+          <option value="200">200</option>
+        </select>
+      </div>
+      <button
+        id="pv-recargar"
+        type="button"
+        class="rounded-md border border-gray-300 bg-white px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+      >
+        Recargar
+      </button>
+    </div>
+
+    <p id="pv-msg" class="mt-3 text-xs text-gray-500">Cargando registros...</p>
+
+    <div class="mt-3 overflow-x-auto rounded border border-gray-200">
+      <table class="min-w-full text-sm">
+        <thead class="bg-gray-50">
+          <tr class="border-b text-left text-gray-500">
+            <th class="px-3 py-2">Código Cliente</th>
+            <th class="px-3 py-2">Cliente</th>
+            <th class="px-3 py-2">Grupo</th>
+            <th class="px-3 py-2">Número Parte</th>
+            <th class="px-3 py-2">Descripción</th>
+            <th class="px-3 py-2">Tipo Cable</th>
+            <th class="px-3 py-2">Precio Venta</th>
+            <th class="px-3 py-2">Actualizado</th>
+            <th class="px-3 py-2">Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="pv-body"></tbody>
+      </table>
+    </div>
+
+    <div class="mt-3 flex items-center justify-between gap-3">
+      <p id="pv-page-text" class="text-xs text-gray-500">Página 1 de 1</p>
+      <div class="flex items-center gap-2">
+        <button id="pv-prev" type="button" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+          Anterior
+        </button>
+        <button id="pv-next" type="button" class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+          Siguiente
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+    <div class="flex items-center justify-between">
+      <h2 class="text-lg font-semibold text-gray-900">Últimos 5 movimientos</h2>
+      <button
+        id="pv-historial-recargar"
+        type="button"
+        class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+      >
+        Recargar
+      </button>
+    </div>
+    <p id="pv-historial-msg" class="mt-3 text-xs text-gray-500">Cargando historial...</p>
+    <div class="mt-3 overflow-x-auto rounded border border-gray-200">
+      <table class="min-w-full text-sm">
+        <thead class="bg-gray-50">
+          <tr class="border-b text-left text-gray-500">
+            <th class="px-3 py-2">Fecha</th>
+            <th class="px-3 py-2">Usuario</th>
+            <th class="px-3 py-2">Cliente</th>
+            <th class="px-3 py-2">Número Parte</th>
+            <th class="px-3 py-2">Tipo Cable</th>
+            <th class="px-3 py-2">Campos</th>
+            <th class="px-3 py-2">Detalle</th>
+          </tr>
+        </thead>
+        <tbody id="pv-historial-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    const inputSearch = document.getElementById('pv-search');
+    const inputLimit = document.getElementById('pv-limit');
+    const btnRecargar = document.getElementById('pv-recargar');
+    const btnActualizar = document.getElementById('pv-actualizar');
+    const btnHistorialRecargar = document.getElementById('pv-historial-recargar');
+    const tbody = document.getElementById('pv-body');
+    const msg = document.getElementById('pv-msg');
+    const historialBody = document.getElementById('pv-historial-body');
+    const historialMsg = document.getElementById('pv-historial-msg');
+    const pageText = document.getElementById('pv-page-text');
+    const btnPrev = document.getElementById('pv-prev');
+    const btnNext = document.getElementById('pv-next');
+
+    let currentPage = 1;
+
+    function esc(value) {
+      if (value === null || value === undefined) return '';
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function fmtDate(value) {
+      if (!value) return '—';
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return '—';
+      return d.toLocaleString('es-MX');
+    }
+
+    function fmtPrice(value) {
+      if (value === null || value === undefined || value === '') return '—';
+      const n = Number(value);
+      if (Number.isNaN(n)) return esc(value);
+      return n.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+    }
+
+    function resumenHistorial(m) {
+      if (m.detalle) return m.detalle;
+      const before = (m && m.datos_antes) || {};
+      const after = (m && m.datos_despues) || {};
+      const cambios = Array.isArray(m.campos_modificados) ? m.campos_modificados : [];
+      if (!cambios.length) return '—';
+      return cambios.map(function (c) {
+        const a = before[c];
+        const d = after[c];
+        return c + ': ' + (a === null || a === undefined ? '—' : a) + ' -> ' + (d === null || d === undefined ? '—' : d);
+      }).join(' | ');
+    }
+
+    async function cargarHistorial() {
+      historialMsg.textContent = 'Cargando historial...';
+      try {
+        const res = await fetch('/api/precios-venta/historial', { credentials: 'same-origin' });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.mensaje || 'Error al cargar historial');
+        const items = Array.isArray(data.movimientos) ? data.movimientos : [];
+        if (!items.length) {
+          historialBody.innerHTML = '<tr><td colspan="7" class="px-3 py-3 text-gray-400">Sin movimientos</td></tr>';
+          historialMsg.textContent = 'No hay movimientos registrados.';
+          return;
+        }
+        historialBody.innerHTML = items.map(function (m) {
+          return '<tr class="border-b border-gray-100">' +
+            '<td class="px-3 py-2 text-gray-500">' + fmtDate(m.created_at) + '</td>' +
+            '<td class="px-3 py-2 text-gray-700">' + esc(m.user_nombre || m.user_email || 'Sistema') + '</td>' +
+            '<td class="px-3 py-2 font-mono text-gray-700">' + esc(m.codigo_cliente) + '</td>' +
+            '<td class="px-3 py-2 font-mono text-gray-700">' + esc(m.numero_parte) + '</td>' +
+            '<td class="px-3 py-2 text-gray-700">' + esc(m.tipo_cable || '—') + '</td>' +
+            '<td class="px-3 py-2 text-gray-700">' + esc((m.campos_modificados || []).join(', ') || '—') + '</td>' +
+            '<td class="px-3 py-2 text-gray-600">' + esc(resumenHistorial(m)) + '</td>' +
+          '</tr>';
+        }).join('');
+        historialMsg.textContent = 'Mostrando los últimos ' + items.length + ' movimientos.';
+      } catch (e) {
+        historialBody.innerHTML = '<tr><td colspan="7" class="px-3 py-3 text-red-600">Error al cargar historial</td></tr>';
+        historialMsg.textContent = 'Error: ' + (e.message || e);
+      }
+    }
+
+    async function cargar(resetPage) {
+      if (resetPage) currentPage = 1;
+      const limit = Math.min(200, Math.max(1, parseInt(inputLimit.value || '25', 10)));
+      const offset = (currentPage - 1) * limit;
+      const q = inputSearch.value.trim();
+
+      msg.textContent = 'Cargando registros...';
+      try {
+        const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+        if (q) params.set('q', q);
+        const res = await fetch('/api/precios-venta?' + params.toString(), { credentials: 'same-origin' });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.mensaje || 'Error al cargar datos');
+
+        const total = Number(data.total || 0);
+        const totalPages = Math.max(1, Math.ceil(total / limit));
+        if (currentPage > totalPages) {
+          currentPage = totalPages;
+          return cargar(false);
+        }
+
+        const rows = Array.isArray(data.rows) ? data.rows : [];
+        if (!rows.length) {
+          tbody.innerHTML = '<tr><td colspan="9" class="px-3 py-3 text-gray-400">Sin resultados</td></tr>';
+        } else {
+          tbody.innerHTML = rows.map(function (r) {
+            return '<tr class="border-b border-gray-100">' +
+              '<td class="px-3 py-2 font-mono text-gray-900">' + esc(r.codigo_cliente) + '</td>' +
+              '<td class="px-3 py-2 text-gray-700">' + esc(r.nombre_cliente || '—') + '</td>' +
+              '<td class="px-3 py-2 text-gray-700">' + esc(r.grupo_cliente || '—') + '</td>' +
+              '<td class="px-3 py-2 font-mono text-gray-700">' + esc(r.numero_parte) + '</td>' +
+              '<td class="px-3 py-2 text-gray-700">' + esc(r.descripcion_parte || '—') + '</td>' +
+              '<td class="px-3 py-2 text-gray-700">' + esc(r.tipo_cable || '—') + '</td>' +
+              '<td class="px-3 py-2 text-gray-700">' + fmtPrice(r.precio_venta) + '</td>' +
+              '<td class="px-3 py-2 text-gray-500">' + fmtDate(r.updated_at) + '</td>' +
+              '<td class="px-3 py-2 text-gray-700">' +
+                '<button type="button" class="pv-editar rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-medium hover:bg-gray-50" ' +
+                'data-id="' + esc(r.id) + '" ' +
+                'data-codigo-cliente="' + esc(r.codigo_cliente) + '" ' +
+                'data-numero-parte="' + esc(r.numero_parte) + '" ' +
+                'data-tipo-cable="' + esc(r.tipo_cable || '') + '" ' +
+                'data-comentario="' + esc(r.comentario || '') + '" ' +
+                'data-comentario-2="' + esc(r.comentario_2 || '') + '" ' +
+                'data-comentario-3="' + esc(r.comentario_3 || '') + '"' +
+                '>Editar comentarios</button>' +
+              '</td>' +
+            '</tr>';
+          }).join('');
+        }
+
+        const shown = rows.length;
+        const from = total === 0 ? 0 : offset + 1;
+        const to = offset + shown;
+        msg.textContent = 'Mostrando ' + from + '-' + to + ' de ' + total + ' registros.';
+        pageText.textContent = 'Página ' + currentPage + ' de ' + totalPages;
+        btnPrev.disabled = currentPage <= 1;
+        btnNext.disabled = currentPage >= totalPages;
+      } catch (e) {
+        tbody.innerHTML = '<tr><td colspan="9" class="px-3 py-3 text-red-600">Error al cargar datos</td></tr>';
+        msg.textContent = 'Error: ' + (e.message || e);
+        pageText.textContent = 'Página 1 de 1';
+        btnPrev.disabled = true;
+        btnNext.disabled = true;
+      }
+    }
+
+    let debounceTimer = null;
+    inputSearch.addEventListener('input', function () {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(function () { cargar(true); }, 300);
+    });
+    inputLimit.addEventListener('change', function () { cargar(true); });
+    btnRecargar.addEventListener('click', function () { cargar(false); });
+    btnPrev.addEventListener('click', function () {
+      if (currentPage <= 1) return;
+      currentPage -= 1;
+      cargar(false);
+    });
+    btnNext.addEventListener('click', function () {
+      currentPage += 1;
+      cargar(false);
+    });
+
+    if (btnActualizar) {
+      btnActualizar.addEventListener('click', async function () {
+        const ok = window.confirm(
+          'Se actualizará precio_venta desde la última venta por cliente y número de parte (solo con sales_km). ¿Deseas continuar?'
+        );
+        if (!ok) return;
+        btnActualizar.disabled = true;
+        const prev = btnActualizar.textContent;
+        btnActualizar.textContent = 'Actualizando...';
+        msg.textContent = 'Actualizando precios desde ventas...';
+        try {
+          const res = await fetch('/api/precios-venta/actualizar-desde-ventas', {
+            method: 'POST',
+            credentials: 'same-origin'
+          });
+          const data = await res.json().catch(function () { return {}; });
+          if (!res.ok || !data.ok) throw new Error(data.mensaje || 'No se pudo actualizar.');
+          msg.textContent = data.mensaje || 'Actualización completada.';
+          await cargar(false);
+          await cargarHistorial();
+        } catch (e) {
+          msg.textContent = 'Error al actualizar: ' + (e.message || e);
+        } finally {
+          btnActualizar.disabled = false;
+          btnActualizar.textContent = prev;
+        }
+      });
+    }
+
+    // Modal de edición de comentarios (sin edición de precio).
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 z-50 hidden';
+    modal.id = 'pv-modal-comentarios';
+    modal.innerHTML = '' +
+      '<div class="fixed inset-0 bg-black/40"></div>' +
+      '<div class="fixed inset-0 flex items-center justify-center p-4">' +
+        '<div class="w-full max-w-2xl rounded-lg bg-white p-6 shadow-xl">' +
+          '<div class="flex items-start justify-between gap-4">' +
+            '<div>' +
+              '<h3 class="text-lg font-semibold text-gray-900">Editar comentarios</h3>' +
+              '<p id="pv-modal-subtitulo" class="mt-1 text-xs text-gray-500"></p>' +
+            '</div>' +
+            '<button id="pv-modal-cerrar-x" type="button" class="rounded-md px-2 py-1 text-gray-500 hover:bg-gray-100">✕</button>' +
+          '</div>' +
+          '<div class="mt-4 space-y-3">' +
+            '<div><label class="block text-sm font-medium text-gray-700">Comentario</label><textarea id="pv-modal-comentario" rows="3" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"></textarea></div>' +
+            '<div><label class="block text-sm font-medium text-gray-700">Comentario 2</label><textarea id="pv-modal-comentario-2" rows="3" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"></textarea></div>' +
+            '<div><label class="block text-sm font-medium text-gray-700">Comentario 3</label><textarea id="pv-modal-comentario-3" rows="3" class="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"></textarea></div>' +
+          '</div>' +
+          '<p id="pv-modal-msg" class="mt-3 text-xs text-gray-500"></p>' +
+          '<div class="mt-5 flex justify-end gap-2">' +
+            '<button id="pv-modal-cancelar" type="button" class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancelar</button>' +
+            '<button id="pv-modal-guardar" type="button" class="rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white hover:bg-[#003366]">Guardar</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(modal);
+
+    const modalSubtitulo = document.getElementById('pv-modal-subtitulo');
+    const modalComentario = document.getElementById('pv-modal-comentario');
+    const modalComentario2 = document.getElementById('pv-modal-comentario-2');
+    const modalComentario3 = document.getElementById('pv-modal-comentario-3');
+    const modalMsg = document.getElementById('pv-modal-msg');
+    const btnModalCerrarX = document.getElementById('pv-modal-cerrar-x');
+    const btnModalCancelar = document.getElementById('pv-modal-cancelar');
+    const btnModalGuardar = document.getElementById('pv-modal-guardar');
+
+    let editandoId = null;
+
+    function abrirModal(data) {
+      editandoId = data.id;
+      modalSubtitulo.textContent = 'Cliente ' + (data.codigoCliente || '—') + ' | Parte ' + (data.numeroParte || '—') + ' | Tipo ' + (data.tipoCable || '—');
+      modalComentario.value = data.comentario || '';
+      modalComentario2.value = data.comentario2 || '';
+      modalComentario3.value = data.comentario3 || '';
+      modalMsg.textContent = 'Solo se editarán comentarios. El precio se modifica por otro flujo.';
+      modal.classList.remove('hidden');
+    }
+
+    function cerrarModal() {
+      modal.classList.add('hidden');
+      editandoId = null;
+      modalMsg.textContent = '';
+    }
+
+    tbody.addEventListener('click', function (evt) {
+      const btn = evt.target.closest('.pv-editar');
+      if (!btn) return;
+      abrirModal({
+        id: btn.getAttribute('data-id'),
+        codigoCliente: btn.getAttribute('data-codigo-cliente'),
+        numeroParte: btn.getAttribute('data-numero-parte'),
+        tipoCable: btn.getAttribute('data-tipo-cable'),
+        comentario: btn.getAttribute('data-comentario'),
+        comentario2: btn.getAttribute('data-comentario-2'),
+        comentario3: btn.getAttribute('data-comentario-3')
+      });
+    });
+
+    btnModalCerrarX.addEventListener('click', cerrarModal);
+    btnModalCancelar.addEventListener('click', cerrarModal);
+
+    btnModalGuardar.addEventListener('click', async function () {
+      if (!editandoId) return;
+      btnModalGuardar.disabled = true;
+      const prev = btnModalGuardar.textContent;
+      btnModalGuardar.textContent = 'Guardando...';
+      modalMsg.textContent = 'Guardando cambios...';
+      try {
+        const res = await fetch('/api/precios-venta/' + encodeURIComponent(editandoId) + '/actualizar-comentarios', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            comentario: modalComentario.value,
+            comentario_2: modalComentario2.value,
+            comentario_3: modalComentario3.value
+          })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.mensaje || 'No se pudo guardar.');
+        modalMsg.textContent = data.mensaje || 'Comentarios guardados.';
+        await cargar(false);
+        await cargarHistorial();
+        cerrarModal();
+      } catch (e) {
+        modalMsg.textContent = 'Error: ' + (e.message || e);
+      } finally {
+        btnModalGuardar.disabled = false;
+        btnModalGuardar.textContent = prev;
+      }
+    });
+
+    if (btnHistorialRecargar) {
+      btnHistorialRecargar.addEventListener('click', function () {
+        cargarHistorial();
+      });
+    }
+
+    cargar(true);
+    cargarHistorial();
+  })();
+</script>
+{% endblock %}

@@ -470,7 +470,7 @@
        data-porcentaje-compra="{% if precio.Porcentaje_Compra %}{{ precio.Porcentaje_Compra }}{% else %}{% endif %}"
        data-comentario="{{ precio.Comentario or '' }}"
        data-updated-at="{% if precio.updated_at %}{{ precio.updated_at.isoformat() }}{% else %}{% endif %}"
-       data-proveedor-nombre="{% if precio.proveedor %}{{ precio.proveedor.nombre }}{% else %}{% endif %}"
+       data-proveedor-nombre="{{ precio.proveedor_nombre or '' }}"
        data-material-descripcion="{% if precio.material %}{{ precio.material.descripcion_material or '' }}{% else %}{% endif %}">
   </div>
   {% endfor %}

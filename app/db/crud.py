@@ -1,6 +1,6 @@
 """Operaciones CRUD para usuarios, ejecuciones y BOM."""
 import json
-from sqlalchemy import select, desc, func, or_, String, text, delete, update
+from sqlalchemy import select, desc, func, or_, String, text, delete, update, cast
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -8,7 +8,7 @@ from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta, timezone, date
 from decimal import Decimal
-from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaProveedoresNacional, CargaProveedoresNacionalHistorial, CargaCliente, MasterUnificadoVirtuales, MasterUnificadoVirtualHistorial, MasterUnificadoVirtualOperacion, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente, Parte, Bom, BomRevision, BomItem, PesoNeto, CrossReference
+from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaProveedoresNacional, CargaProveedoresNacionalHistorial, CargaCliente, MasterUnificadoVirtuales, MasterUnificadoVirtualHistorial, MasterUnificadoVirtualOperacion, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente, Parte, Bom, BomRevision, BomItem, PesoNeto, PesoNetoHistorial, CrossReference, PrecioVenta, PrecioVentaHistorial
 from app.core.security import hash_password
 
 
@@ -1952,6 +1952,59 @@ async def count_pesos_netos(
     return result.scalar() or 0
 
 
+async def create_peso_neto_historial(
+    db: AsyncSession,
+    estado: str,
+    detalle: str,
+    user_id: Optional[int] = None,
+    accion: str = "ACTUALIZAR",
+    archivo_nombre: Optional[str] = None,
+    filas_archivo: Optional[int] = None,
+    filas_invalidas: Optional[int] = None,
+    duplicados_archivo: Optional[int] = None,
+    candidatos_unicos: Optional[int] = None,
+    upserts: Optional[int] = None,
+    insertados: Optional[int] = None,
+    actualizados: Optional[int] = None,
+) -> PesoNetoHistorial:
+    """Crea una entrada en historial de actualización de pesos netos."""
+    item = PesoNetoHistorial(
+        user_id=user_id,
+        accion=accion,
+        estado=estado,
+        archivo_nombre=archivo_nombre,
+        filas_archivo=filas_archivo,
+        filas_invalidas=filas_invalidas,
+        duplicados_archivo=duplicados_archivo,
+        candidatos_unicos=candidatos_unicos,
+        upserts=upserts,
+        insertados=insertados,
+        actualizados=actualizados,
+        detalle=detalle,
+    )
+    db.add(item)
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+async def list_peso_neto_historial(
+    db: AsyncSession,
+    limit: int = 5,
+    offset: int = 0,
+) -> List[PesoNetoHistorial]:
+    """Lista historial de pesos netos más reciente."""
+    query = (
+        select(PesoNetoHistorial)
+        .options(selectinload(PesoNetoHistorial.user))
+        .order_by(desc(PesoNetoHistorial.created_at))
+        .limit(limit)
+        .offset(offset)
+    )
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
 async def list_cross_reference(
     db: AsyncSession,
     search: Optional[str] = None,
@@ -1999,6 +2052,335 @@ async def count_cross_reference(
 
     result = await db.execute(query)
     return result.scalar() or 0
+
+
+async def list_precios_venta(
+    db: AsyncSession,
+    search: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> List[PrecioVenta]:
+    """Lista registros de precios_venta con filtros opcionales."""
+    query = (
+        select(PrecioVenta)
+        .options(
+            selectinload(PrecioVenta.cliente),
+            selectinload(PrecioVenta.parte),
+        )
+    )
+
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                PrecioVenta.codigo_cliente.cast(String).ilike(search_pattern),
+                PrecioVenta.numero_parte.ilike(search_pattern),
+                PrecioVenta.tipo_cable.ilike(search_pattern),
+                PrecioVenta.comentario.ilike(search_pattern),
+                PrecioVenta.comentario_2.ilike(search_pattern),
+                PrecioVenta.comentario_3.ilike(search_pattern),
+            )
+        )
+
+    query = (
+        query.order_by(
+            PrecioVenta.codigo_cliente.asc(),
+            PrecioVenta.numero_parte.asc(),
+            PrecioVenta.tipo_cable.asc(),
+            desc(PrecioVenta.updated_at),
+        )
+        .limit(limit)
+        .offset(offset)
+    )
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def count_precios_venta(
+    db: AsyncSession,
+    search: Optional[str] = None,
+) -> int:
+    """Cuenta el total de registros de precios_venta con filtros opcionales."""
+    query = select(func.count()).select_from(PrecioVenta)
+
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                PrecioVenta.codigo_cliente.cast(String).ilike(search_pattern),
+                PrecioVenta.numero_parte.ilike(search_pattern),
+                PrecioVenta.tipo_cable.ilike(search_pattern),
+                PrecioVenta.comentario.ilike(search_pattern),
+                PrecioVenta.comentario_2.ilike(search_pattern),
+                PrecioVenta.comentario_3.ilike(search_pattern),
+            )
+        )
+
+    result = await db.execute(query)
+    return result.scalar() or 0
+
+
+async def get_precio_venta_by_id(
+    db: AsyncSession,
+    precio_venta_id: int,
+) -> Optional[PrecioVenta]:
+    """Obtiene un precio de venta por ID."""
+    result = await db.execute(
+        select(PrecioVenta).where(PrecioVenta.id == precio_venta_id)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _ensure_precios_venta_historial_detalle_column(db: AsyncSession) -> None:
+    """Asegura columna detalle en precios_venta_historial para compatibilidad."""
+    await db.execute(
+        text(
+            """
+            ALTER TABLE IF EXISTS precios_venta_historial
+            ADD COLUMN IF NOT EXISTS detalle TEXT
+            """
+        )
+    )
+    await db.commit()
+
+
+async def update_precio_venta(
+    db: AsyncSession,
+    precio_venta_id: int,
+    precio_venta: Optional[Decimal] = None,
+    comentario: Optional[str] = None,
+    comentario_2: Optional[str] = None,
+    comentario_3: Optional[str] = None,
+    user_id: Optional[int] = None,
+) -> Optional[PrecioVenta]:
+    """Actualiza únicamente precio_venta y comentarios de un registro de precios_venta."""
+    await _ensure_precios_venta_historial_detalle_column(db)
+
+    item = await get_precio_venta_by_id(db, precio_venta_id)
+    if not item:
+        return None
+
+    # Guardar estado previo para historial.
+    datos_antes = {
+        "precio_venta": float(item.precio_venta) if item.precio_venta is not None else None,
+        "comentario": item.comentario,
+        "comentario_2": item.comentario_2,
+        "comentario_3": item.comentario_3,
+    }
+
+    campos_modificados = []
+    if item.precio_venta != precio_venta:
+        item.precio_venta = precio_venta
+        campos_modificados.append("precio_venta")
+    if (item.comentario or None) != (comentario or None):
+        item.comentario = comentario
+        campos_modificados.append("comentario")
+    if (item.comentario_2 or None) != (comentario_2 or None):
+        item.comentario_2 = comentario_2
+        campos_modificados.append("comentario_2")
+    if (item.comentario_3 or None) != (comentario_3 or None):
+        item.comentario_3 = comentario_3
+        campos_modificados.append("comentario_3")
+
+    if campos_modificados and user_id is not None:
+        datos_despues = {
+            "precio_venta": float(item.precio_venta) if item.precio_venta is not None else None,
+            "comentario": item.comentario,
+            "comentario_2": item.comentario_2,
+            "comentario_3": item.comentario_3,
+        }
+        historial = PrecioVentaHistorial(
+            precio_venta_id=item.id,
+            codigo_cliente=item.codigo_cliente,
+            numero_parte=item.numero_parte,
+            tipo_cable=item.tipo_cable,
+            operacion="UPDATE",
+            user_id=user_id,
+            datos_antes=datos_antes,
+            datos_despues=datos_despues,
+            campos_modificados=campos_modificados,
+        )
+        db.add(historial)
+
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+async def update_comentarios_precio_venta(
+    db: AsyncSession,
+    precio_venta_id: int,
+    comentario: Optional[str] = None,
+    comentario_2: Optional[str] = None,
+    comentario_3: Optional[str] = None,
+    user_id: Optional[int] = None,
+) -> Optional[PrecioVenta]:
+    """Actualiza únicamente comentarios de un registro de precios_venta."""
+    await _ensure_precios_venta_historial_detalle_column(db)
+
+    item = await get_precio_venta_by_id(db, precio_venta_id)
+    if not item:
+        return None
+
+    datos_antes = {
+        "comentario": item.comentario,
+        "comentario_2": item.comentario_2,
+        "comentario_3": item.comentario_3,
+    }
+
+    campos_modificados = []
+    if (item.comentario or None) != (comentario or None):
+        item.comentario = comentario
+        campos_modificados.append("comentario")
+    if (item.comentario_2 or None) != (comentario_2 or None):
+        item.comentario_2 = comentario_2
+        campos_modificados.append("comentario_2")
+    if (item.comentario_3 or None) != (comentario_3 or None):
+        item.comentario_3 = comentario_3
+        campos_modificados.append("comentario_3")
+
+    if campos_modificados and user_id is not None:
+        datos_despues = {
+            "comentario": item.comentario,
+            "comentario_2": item.comentario_2,
+            "comentario_3": item.comentario_3,
+        }
+        historial = PrecioVentaHistorial(
+            precio_venta_id=item.id,
+            codigo_cliente=item.codigo_cliente,
+            numero_parte=item.numero_parte,
+            tipo_cable=item.tipo_cable,
+            operacion="UPDATE",
+            user_id=user_id,
+            datos_antes=datos_antes,
+            datos_despues=datos_despues,
+            campos_modificados=campos_modificados,
+        )
+        db.add(historial)
+
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+async def sincronizar_precios_venta_desde_ventas(
+    db: AsyncSession,
+    user_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Actualiza precios_venta.precio_venta tomando el último precio_full_metal_km
+    encontrado en ventas por (codigo_cliente, producto_condensado=numero_parte),
+    considerando solo registros con sales_km y precio_full_metal_km con valor.
+    """
+    await _ensure_precios_venta_historial_detalle_column(db)
+
+    # Últimas ventas por clave (cliente, producto_condensado).
+    ventas_query = (
+        select(
+            Venta.id,
+            Venta.codigo_cliente,
+            Venta.producto_condensado,
+            Venta.sales_km,
+            Venta.precio_full_metal_km,
+            Venta.periodo,
+        )
+        .where(
+            Venta.codigo_cliente.isnot(None),
+            Venta.producto_condensado.isnot(None),
+            Venta.sales_km.isnot(None),
+            Venta.precio_full_metal_km.isnot(None),
+        )
+        .order_by(desc(Venta.periodo), desc(Venta.id))
+    )
+    ventas_rows = (await db.execute(ventas_query)).all()
+
+    ultimas_ventas_por_clave: Dict[tuple[int, str], Dict[str, Any]] = {}
+    for row in ventas_rows:
+        key = (int(row.codigo_cliente), str(row.producto_condensado).strip())
+        if key in ultimas_ventas_por_clave:
+            continue
+        ultimas_ventas_por_clave[key] = {
+            "venta_id": row.id,
+            "precio_full_metal_km": row.precio_full_metal_km,
+            "sales_km": row.sales_km,
+            "periodo": row.periodo,
+        }
+
+    precios_rows = (await db.execute(select(PrecioVenta))).scalars().all()
+
+    total_precios_venta = len(precios_rows)
+    con_match = 0
+    actualizados = 0
+    sin_cambios = 0
+    sin_venta = 0
+
+    for item in precios_rows:
+        key = (int(item.codigo_cliente), str(item.numero_parte).strip())
+        venta_ref = ultimas_ventas_por_clave.get(key)
+        if not venta_ref:
+            sin_venta += 1
+            continue
+
+        con_match += 1
+        nuevo_precio = venta_ref["precio_full_metal_km"]
+        if item.precio_venta == nuevo_precio:
+            sin_cambios += 1
+            continue
+
+        precio_anterior = float(item.precio_venta) if item.precio_venta is not None else None
+        precio_nuevo = float(nuevo_precio) if nuevo_precio is not None else None
+        item.precio_venta = nuevo_precio
+        actualizados += 1
+
+        if user_id is not None:
+            periodo_txt = venta_ref["periodo"].isoformat() if venta_ref["periodo"] is not None else "N/A"
+            detalle = (
+                "Actualización automática desde ventas "
+                f"(venta_id={venta_ref['venta_id']}, periodo={periodo_txt}, "
+                f"sales_km={venta_ref['sales_km']}, precio_full_metal_km={precio_nuevo})."
+            )
+            historial = PrecioVentaHistorial(
+                precio_venta_id=item.id,
+                codigo_cliente=item.codigo_cliente,
+                numero_parte=item.numero_parte,
+                tipo_cable=item.tipo_cable,
+                operacion="UPDATE",
+                user_id=user_id,
+                datos_antes={"precio_venta": precio_anterior},
+                datos_despues={"precio_venta": precio_nuevo},
+                campos_modificados=["precio_venta"],
+                detalle=detalle,
+            )
+            db.add(historial)
+
+    await db.commit()
+    return {
+        "total_precios_venta": total_precios_venta,
+        "ventas_consideradas": len(ultimas_ventas_por_clave),
+        "con_match": con_match,
+        "actualizados": actualizados,
+        "sin_cambios": sin_cambios,
+        "sin_venta": sin_venta,
+    }
+
+
+async def list_precio_venta_historial(
+    db: AsyncSession,
+    limit: int = 5,
+    offset: int = 0,
+) -> List[PrecioVentaHistorial]:
+    """Lista historial reciente de cambios en precios_venta."""
+    await _ensure_precios_venta_historial_detalle_column(db)
+
+    query = (
+        select(PrecioVentaHistorial)
+        .options(selectinload(PrecioVentaHistorial.user))
+        .order_by(desc(PrecioVentaHistorial.created_at))
+        .limit(limit)
+        .offset(offset)
+    )
+    result = await db.execute(query)
+    return list(result.scalars().all())
 
 
 async def delete_material(
@@ -2735,8 +3117,13 @@ async def list_precios_materiales(
     offset: int = 0
 ) -> List[PrecioMaterial]:
     """Lista precios de materiales con filtros opcionales."""
-    query = select(PrecioMaterial).options(
-        selectinload(PrecioMaterial.proveedor),
+    query = select(
+        PrecioMaterial,
+        Proveedor.nombre.label("proveedor_nombre")
+    ).outerjoin(
+        Proveedor,
+        cast(Proveedor.codigo_proveedor, String) == cast(PrecioMaterial.codigo_proveedor, String)
+    ).options(
         selectinload(PrecioMaterial.material)
     )
     
@@ -2760,7 +3147,12 @@ async def list_precios_materiales(
     query = query.order_by(desc(PrecioMaterial.updated_at)).limit(limit).offset(offset)
     
     result = await db.execute(query)
-    return list(result.scalars().all())
+    precios = []
+    for precio, proveedor_nombre in result.all():
+        # Atributo temporal para la vista, evita resolver relación incompatible por tipo.
+        precio.proveedor_nombre = proveedor_nombre
+        precios.append(precio)
+    return precios
 
 
 async def count_precios_materiales(
@@ -3711,8 +4103,13 @@ async def list_paises_origen_material(
     offset: int = 0
 ) -> List[PaisOrigenMaterial]:
     """Lista países de origen de materiales con filtros opcionales."""
-    query = select(PaisOrigenMaterial).options(
-        selectinload(PaisOrigenMaterial.proveedor),
+    query = select(
+        PaisOrigenMaterial,
+        Proveedor.nombre.label("proveedor_nombre")
+    ).outerjoin(
+        Proveedor,
+        cast(Proveedor.codigo_proveedor, String) == cast(PaisOrigenMaterial.codigo_proveedor, String)
+    ).options(
         selectinload(PaisOrigenMaterial.material)
     )
     
@@ -3735,7 +4132,12 @@ async def list_paises_origen_material(
     query = query.order_by(desc(PaisOrigenMaterial.updated_at)).limit(limit).offset(offset)
     
     result = await db.execute(query)
-    return list(result.scalars().all())
+    paises = []
+    for pais, proveedor_nombre in result.all():
+        # Atributo temporal para la vista, evita resolver relación incompatible por tipo.
+        pais.proveedor_nombre = proveedor_nombre
+        paises.append(pais)
+    return paises
 
 
 async def count_paises_origen_material(
@@ -4201,10 +4603,14 @@ async def list_ventas(
     periodo_inicio: Optional[datetime] = None,
     periodo_fin: Optional[datetime] = None,
     producto: Optional[str] = None,
-    planta: Optional[str] = None
+    planta: Optional[str] = None,
+    only_with_sales_km: bool = False
 ) -> List[Venta]:
     """Lista ventas con filtros opcionales."""
     query = select(Venta).options(selectinload(Venta.grupo))
+    
+    if only_with_sales_km:
+        query = query.where(Venta.sales_km.isnot(None), Venta.sales_km != 0)
     
     if search:
         search_pattern = f"%{search}%"
@@ -4249,10 +4655,14 @@ async def count_ventas(
     periodo_inicio: Optional[datetime] = None,
     periodo_fin: Optional[datetime] = None,
     producto: Optional[str] = None,
-    planta: Optional[str] = None
+    planta: Optional[str] = None,
+    only_with_sales_km: bool = False
 ) -> int:
     """Cuenta el total de ventas con filtros opcionales."""
     query = select(func.count(Venta.id))
+    
+    if only_with_sales_km:
+        query = query.where(Venta.sales_km.isnot(None), Venta.sales_km != 0)
     
     if search:
         search_pattern = f"%{search}%"
@@ -4324,7 +4734,6 @@ async def get_carga_proveedor_by_id(db: AsyncSession, carga_id: int) -> Optional
     result = await db.execute(
         select(CargaProveedor)
         .where(CargaProveedor.id == carga_id)
-        .options(selectinload(CargaProveedor.proveedor))
     )
     return result.scalar_one_or_none()
 
@@ -4334,7 +4743,6 @@ async def get_carga_proveedor_by_codigo(db: AsyncSession, codigo_proveedor: str)
     result = await db.execute(
         select(CargaProveedor)
         .where(CargaProveedor.codigo_proveedor == int(codigo_proveedor))
-        .options(selectinload(CargaProveedor.proveedor))
         .order_by(desc(CargaProveedor.created_at))
         .limit(1)
     )
@@ -4350,7 +4758,7 @@ async def list_carga_proveedores(
     estatus: Optional[str] = None
 ) -> List[CargaProveedor]:
     """Lista registros de carga de proveedores con filtros opcionales."""
-    query = select(CargaProveedor).options(selectinload(CargaProveedor.proveedor))
+    query = select(CargaProveedor)
     
     if codigo_proveedor:
         query = query.where(CargaProveedor.codigo_proveedor.cast(String).ilike(f"%{codigo_proveedor}%"))

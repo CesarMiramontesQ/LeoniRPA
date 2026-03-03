@@ -151,7 +151,7 @@
             <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Planta</th>
             <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Sales KM</th>
             <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Turnover w/o metal</th>
-            <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Precio Exmetal KM</th>
+            <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Precio Full Metal KM</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-200 bg-white" id="tabla-ventas-body">
@@ -423,7 +423,7 @@
         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">${venta.planta || '-'}</td>
         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">${venta.sales_km ? venta.sales_km.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-'}</td>
         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">${venta.turnover_wo_metal ? venta.turnover_wo_metal.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-'}</td>
-        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">${venta.precio_exmetal_km ? venta.precio_exmetal_km.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-'}</td>
+        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">${venta.precio_full_metal_km ? venta.precio_full_metal_km.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-'}</td>
       </tr>
     `).join('');
   }

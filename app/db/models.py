@@ -1129,6 +1129,33 @@ class PesoNeto(Base):
         return f"<PesoNeto(numero_parte={self.numero_parte}, kgm={self.kgm})>"
 
 
+class PesoNetoHistorial(Base):
+    """Historial de ejecuciones de actualización de pesos netos."""
+    __tablename__ = "peso_neto_historial"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    user = relationship("User", backref="peso_neto_historial")
+
+    accion = Column(String, nullable=False, server_default=text("'ACTUALIZAR'"))
+    estado = Column(String, nullable=False, index=True)  # SUCCESS, FAILED, CANCELLED
+    archivo_nombre = Column(String, nullable=True)
+
+    filas_archivo = Column(Integer, nullable=True)
+    filas_invalidas = Column(Integer, nullable=True)
+    duplicados_archivo = Column(Integer, nullable=True)
+    candidatos_unicos = Column(Integer, nullable=True)
+    upserts = Column(Integer, nullable=True)
+    insertados = Column(Integer, nullable=True)
+    actualizados = Column(Integer, nullable=True)
+
+    detalle = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    def __repr__(self):
+        return f"<PesoNetoHistorial(id={self.id}, estado={self.estado}, created_at={self.created_at})>"
+
+
 class Cliente(Base):
     """Modelo para clientes."""
     __tablename__ = "clientes"
@@ -1151,6 +1178,82 @@ class Cliente(Base):
     
     def __repr__(self):
         return f"<Cliente(codigo_cliente={self.codigo_cliente}, nombre={self.nombre})>"
+
+
+class PrecioVenta(Base):
+    """Modelo para precios de venta por cliente y número de parte."""
+    __tablename__ = "precios_venta"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+
+    # Claves foráneas
+    codigo_cliente = Column(BigInteger, ForeignKey("clientes.codigo_cliente"), nullable=False, index=True)
+    numero_parte = Column(Text, ForeignKey("partes.numero_parte"), nullable=False, index=True)
+
+    # Datos de precio
+    tipo_cable = Column(String, nullable=True)
+    precio_venta = Column(Numeric(18, 6), nullable=True)
+    comentario = Column(Text, nullable=True)
+    comentario_2 = Column(Text, nullable=True)
+    comentario_3 = Column(Text, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relaciones
+    cliente = relationship("Cliente", foreign_keys=[codigo_cliente], backref="precios_venta")
+    parte = relationship("Parte", foreign_keys=[numero_parte], backref="precios_venta")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "codigo_cliente", "numero_parte", "tipo_cable",
+            name="uq_precios_venta_cliente_parte_tipo_cable"
+        ),
+    )
+
+    def __repr__(self):
+        return (
+            f"<PrecioVenta(id={self.id}, codigo_cliente={self.codigo_cliente}, "
+            f"numero_parte={self.numero_parte}, tipo_cable={self.tipo_cable})>"
+        )
+
+
+class PrecioVentaHistorial(Base):
+    """Historial de cambios en precios de venta (solo precio y comentarios)."""
+    __tablename__ = "precios_venta_historial"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    # Referencia al registro de precio de venta
+    precio_venta_id = Column(BigInteger, ForeignKey("precios_venta.id", ondelete="SET NULL"), nullable=True, index=True)
+
+    # Claves de negocio (snapshot)
+    codigo_cliente = Column(BigInteger, nullable=False, index=True)
+    numero_parte = Column(Text, nullable=False, index=True)
+    tipo_cable = Column(String, nullable=True)
+
+    # Tipo de operación (actualmente solo UPDATE)
+    operacion = Column(String, nullable=False, server_default=text("'UPDATE'"), index=True)
+
+    # Usuario que realizó el cambio (si aplica)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    user = relationship("User", backref="precios_venta_historial")
+
+    # Snapshot de cambios
+    datos_antes = Column(JSONB, nullable=True)
+    datos_despues = Column(JSONB, nullable=True)
+    campos_modificados = Column(JSONB, nullable=True)
+    detalle = Column(Text, nullable=True)
+
+    # Timestamp
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    def __repr__(self):
+        return (
+            f"<PrecioVentaHistorial(id={self.id}, precio_venta_id={self.precio_venta_id}, "
+            f"codigo_cliente={self.codigo_cliente}, numero_parte={self.numero_parte}, operacion={self.operacion})>"
+        )
 
 
 class MasterUnificadoVirtuales(Base):

@@ -309,6 +309,120 @@ async def run_migration_cross_reference():
     print("  ✓ Tabla 'cross_reference' creada o ya existía.")
 
 
+async def run_migration_precios_venta():
+    """Crea la tabla precios_venta si no existe."""
+    from app.db.base import engine
+    from sqlalchemy import text
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS precios_venta (
+                id BIGSERIAL PRIMARY KEY,
+                codigo_cliente BIGINT NOT NULL REFERENCES clientes(codigo_cliente),
+                numero_parte TEXT NOT NULL REFERENCES partes(numero_parte),
+                tipo_cable VARCHAR,
+                precio_venta NUMERIC(18, 6),
+                comentario TEXT,
+                comentario_2 TEXT,
+                comentario_3 TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                CONSTRAINT uq_precios_venta_cliente_parte_tipo_cable
+                    UNIQUE (codigo_cliente, numero_parte, tipo_cable)
+            )
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_precios_venta_codigo_cliente
+            ON precios_venta (codigo_cliente)
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_precios_venta_numero_parte
+            ON precios_venta (numero_parte)
+        """))
+    print("  ✓ Tabla 'precios_venta' creada o ya existía.")
+
+
+async def run_migration_precios_venta_historial():
+    """Crea la tabla de historial de cambios para precios_venta."""
+    from app.db.base import engine
+    from sqlalchemy import text
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS precios_venta_historial (
+                id BIGSERIAL PRIMARY KEY,
+                precio_venta_id BIGINT REFERENCES precios_venta(id) ON DELETE SET NULL,
+                codigo_cliente BIGINT NOT NULL,
+                numero_parte TEXT NOT NULL,
+                tipo_cable VARCHAR,
+                operacion VARCHAR NOT NULL DEFAULT 'UPDATE',
+                user_id INTEGER REFERENCES users(id),
+                datos_antes JSONB,
+                datos_despues JSONB,
+                campos_modificados JSONB,
+                detalle TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """))
+        await conn.execute(text("""
+            ALTER TABLE precios_venta_historial
+            ADD COLUMN IF NOT EXISTS detalle TEXT
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_precios_venta_historial_precio_venta_id
+            ON precios_venta_historial (precio_venta_id)
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_precios_venta_historial_codigo_cliente
+            ON precios_venta_historial (codigo_cliente)
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_precios_venta_historial_numero_parte
+            ON precios_venta_historial (numero_parte)
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_precios_venta_historial_created_at
+            ON precios_venta_historial (created_at DESC)
+        """))
+    print("  ✓ Tabla 'precios_venta_historial' creada o ya existía.")
+
+
+async def run_migration_peso_neto_historial():
+    """Crea la tabla de historial de actualizaciones de peso_neto."""
+    from app.db.base import engine
+    from sqlalchemy import text
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS peso_neto_historial (
+                id BIGSERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id),
+                accion VARCHAR NOT NULL DEFAULT 'ACTUALIZAR',
+                estado VARCHAR NOT NULL,
+                archivo_nombre VARCHAR,
+                filas_archivo INTEGER,
+                filas_invalidas INTEGER,
+                duplicados_archivo INTEGER,
+                candidatos_unicos INTEGER,
+                upserts INTEGER,
+                insertados INTEGER,
+                actualizados INTEGER,
+                detalle TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_peso_neto_historial_created_at
+            ON peso_neto_historial (created_at DESC)
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_peso_neto_historial_user_id
+            ON peso_neto_historial (user_id)
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_peso_neto_historial_estado
+            ON peso_neto_historial (estado)
+        """))
+    print("  ✓ Tabla 'peso_neto_historial' creada o ya existía.")
+
+
 async def main():
     from app.db.base import engine
 
@@ -318,64 +432,76 @@ async def main():
 
     try:
         # 1. Crear todas las tablas
-        print("\n[1/15] Creando tablas desde modelos...")
+        print("\n[1/18] Creando tablas desde modelos...")
         await run_init_db()
 
         # 2. Migración: enum EJECUCION
-        print("\n[2/15] Migración: enum carga_cliente_operacion_enum...")
+        print("\n[2/18] Migración: enum carga_cliente_operacion_enum...")
         await run_migration_add_ejecucion()
 
         # 3. Migración: columna escenario
-        print("\n[3/15] Migración: columna escenario en master_unificado_virtuales...")
+        print("\n[3/18] Migración: columna escenario en master_unificado_virtuales...")
         await run_migration_escenario()
 
         # 4. Migración: columna materialidad
-        print("\n[4/15] Migración: columna materialidad en master_unificado_virtuales...")
+        print("\n[4/18] Migración: columna materialidad en master_unificado_virtuales...")
         await run_migration_materialidad()
 
         # 5. Migración: tabla partes
-        print("\n[5/15] Migración: tabla partes...")
+        print("\n[5/18] Migración: tabla partes...")
         await run_migration_partes()
 
         # 6. Migración: columnas aduanales en partes
-        print("\n[6/15] Migración: columnas aduanales en partes...")
+        print("\n[6/18] Migración: columnas aduanales en partes...")
         await run_migration_partes_campos_aduanales()
 
         # 7. Migración: tabla bom
-        print("\n[7/15] Migración: tabla bom...")
+        print("\n[7/18] Migración: tabla bom...")
         await run_migration_bom()
 
         # 8. Migración: tabla bom_revision
-        print("\n[8/15] Migración: tabla bom_revision...")
+        print("\n[8/18] Migración: tabla bom_revision...")
         await run_migration_bom_revision()
 
         # 9. Migración: tabla bom_item
-        print("\n[9/15] Migración: tabla bom_item...")
+        print("\n[9/18] Migración: tabla bom_item...")
         await run_migration_bom_item()
 
         # 10. Migración: columna valido en partes
-        print("\n[10/15] Migración: columna valido en partes...")
+        print("\n[10/18] Migración: columna valido en partes...")
         await run_migration_partes_valido()
 
         # 11. Migración: columna qty_total en partes
-        print("\n[11/15] Migración: columna qty_total en partes...")
+        print("\n[11/18] Migración: columna qty_total en partes...")
         await run_migration_partes_qty_total()
 
         # 12. Migración: columna comm_code en bom_item
-        print("\n[12/15] Migración: columna comm_code en bom_item...")
+        print("\n[12/18] Migración: columna comm_code en bom_item...")
         await run_migration_bom_item_comm_code()
 
         # 13. Migración: tabla peso_neto
-        print("\n[13/15] Migración: tabla peso_neto...")
+        print("\n[13/18] Migración: tabla peso_neto...")
         await run_migration_peso_neto()
 
         # 14. Migración: columna diferencia en partes
-        print("\n[14/15] Migración: columna diferencia en partes...")
+        print("\n[14/18] Migración: columna diferencia en partes...")
         await run_migration_partes_diferencia()
 
         # 15. Migración: tabla cross_reference
-        print("\n[15/15] Migración: tabla cross_reference...")
+        print("\n[15/18] Migración: tabla cross_reference...")
         await run_migration_cross_reference()
+
+        # 16. Migración: tabla precios de venta
+        print("\n[16/18] Migración: tabla precios_venta...")
+        await run_migration_precios_venta()
+
+        # 17. Migración: tabla historial de precios de venta
+        print("\n[17/18] Migración: tabla precios_venta_historial...")
+        await run_migration_precios_venta_historial()
+
+        # 18. Migración: tabla historial de peso neto
+        print("\n[18/18] Migración: tabla peso_neto_historial...")
+        await run_migration_peso_neto_historial()
 
         print("\n" + "=" * 60)
         print("Todas las migraciones se completaron correctamente.")

@@ -509,7 +509,7 @@
        data-pais-origen="{{ pais.pais_origen or '' }}"
        data-updated-at="{{ pais.updated_at | to_iso }}"
        data-created-at="{{ pais.created_at | to_iso }}"
-       data-proveedor-nombre="{% if pais.proveedor %}{{ pais.proveedor.nombre }}{% else %}{% endif %}"
+       data-proveedor-nombre="{{ pais.proveedor_nombre or '' }}"
        data-material-descripcion="{% if pais.material %}{{ pais.material.descripcion_material or '' }}{% else %}{% endif %}">
   </div>
   {% endfor %}

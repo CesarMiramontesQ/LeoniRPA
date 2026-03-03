@@ -7,11 +7,12 @@ from fastapi.responses import RedirectResponse, JSONResponse, FileResponse, Stre
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from typing import Optional
+from decimal import Decimal, InvalidOperation
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.router import router as auth_router, get_current_user, AuthenticationError
 from app.db.init_db import init_db
 from app.db.base import get_db
-from app.db.models import User, ExecutionStatus, MasterUnificadoVirtualOperacion
+from app.db.models import User, ExecutionStatus, MasterUnificadoVirtualOperacion, ClienteGrupo
 from app.db import crud
 from app.bom.service import load_bom
 from app.bom.schemas import LoadBomInput, LoadBomResponse
@@ -139,7 +140,7 @@ async def ventas(request: Request, current_user: User = Depends(get_current_user
 @app.get("/ventas-registros")
 async def ventas_registros(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Página de registros de ventas - requiere autenticación."""
-    total_ventas = await crud.count_ventas(db)
+    total_ventas = await crud.count_ventas(db, only_with_sales_km=True)
     
     return templates.TemplateResponse(
         "ventas_registros.html",
@@ -150,6 +151,263 @@ async def ventas_registros(request: Request, current_user: User = Depends(get_cu
             "total_ventas": total_ventas
         }
     )
+
+
+@app.get("/precios-venta")
+async def precios_venta(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Página de precios de venta - requiere autenticación."""
+    total_precios_venta = await crud.count_precios_venta(db)
+    return templates.TemplateResponse(
+        "precios_venta.html",
+        {
+            "request": request,
+            "active_page": "precios_venta",
+            "current_user": current_user,
+            "total_precios_venta": total_precios_venta,
+        },
+    )
+
+
+@app.get("/api/precios-venta")
+async def api_precios_venta(
+    request: Request,
+    q: Optional[str] = None,
+    limit: int = 25,
+    offset: int = 0,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """API para listar precios_venta con búsqueda y paginación."""
+    from sqlalchemy import select
+
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    q = (q or "").strip()
+
+    rows_db = await crud.list_precios_venta(db, search=q or None, limit=limit, offset=offset)
+    total = await crud.count_precios_venta(db, search=q or None)
+
+    # Resolver grupo por código de cliente (si existe en cliente_grupo).
+    codigos_cliente = sorted({row.codigo_cliente for row in rows_db if row.codigo_cliente is not None})
+    grupos_por_cliente = {}
+    if codigos_cliente:
+        grupos_result = await db.execute(
+            select(
+                ClienteGrupo.codigo_cliente,
+                ClienteGrupo.grupo,
+            )
+            .where(ClienteGrupo.codigo_cliente.in_(codigos_cliente))
+            .order_by(
+                ClienteGrupo.codigo_cliente.asc(),
+                ClienteGrupo.updated_at.desc(),
+                ClienteGrupo.id.desc(),
+            )
+        )
+        for codigo_cliente, grupo in grupos_result.all():
+            if codigo_cliente not in grupos_por_cliente:
+                grupos_por_cliente[codigo_cliente] = grupo
+
+    rows = [
+        {
+            "id": row.id,
+            "codigo_cliente": row.codigo_cliente,
+            "nombre_cliente": row.cliente.nombre if row.cliente else None,
+            "grupo_cliente": grupos_por_cliente.get(row.codigo_cliente),
+            "numero_parte": row.numero_parte,
+            "descripcion_parte": row.parte.descripcion if row.parte else None,
+            "tipo_cable": row.tipo_cable,
+            "precio_venta": float(row.precio_venta) if row.precio_venta is not None else None,
+            "comentario": row.comentario,
+            "comentario_2": row.comentario_2,
+            "comentario_3": row.comentario_3,
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        }
+        for row in rows_db
+    ]
+
+    return {
+        "ok": True,
+        "q": q or None,
+        "limit": limit,
+        "offset": offset,
+        "total": int(total),
+        "rows": rows,
+    }
+
+
+@app.post("/api/precios-venta/{precio_venta_id}/actualizar")
+async def api_actualizar_precio_venta(
+    precio_venta_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Actualiza solo precio_venta y comentarios de un registro de precios_venta.
+    """
+    payload = await request.json()
+
+    precio_venta_raw = payload.get("precio_venta")
+    comentario = payload.get("comentario")
+    comentario_2 = payload.get("comentario_2")
+    comentario_3 = payload.get("comentario_3")
+
+    precio_venta_value = None
+    if precio_venta_raw is not None and str(precio_venta_raw).strip() != "":
+        try:
+            precio_venta_value = Decimal(str(precio_venta_raw).strip())
+        except (InvalidOperation, ValueError):
+            return JSONResponse(
+                status_code=400,
+                content={"ok": False, "mensaje": "El campo precio_venta no es válido."},
+            )
+
+    item = await crud.update_precio_venta(
+        db=db,
+        precio_venta_id=precio_venta_id,
+        precio_venta=precio_venta_value,
+        comentario=(comentario or None),
+        comentario_2=(comentario_2 or None),
+        comentario_3=(comentario_3 or None),
+        user_id=current_user.id,
+    )
+
+    if not item:
+        return JSONResponse(
+            status_code=404,
+            content={"ok": False, "mensaje": "Registro de precio de venta no encontrado."},
+        )
+
+    return {
+        "ok": True,
+        "mensaje": "Precio de venta actualizado correctamente.",
+        "row": {
+            "id": item.id,
+            "codigo_cliente": item.codigo_cliente,
+            "numero_parte": item.numero_parte,
+            "tipo_cable": item.tipo_cable,
+            "precio_venta": float(item.precio_venta) if item.precio_venta is not None else None,
+            "comentario": item.comentario,
+            "comentario_2": item.comentario_2,
+            "comentario_3": item.comentario_3,
+            "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+        },
+    }
+
+
+@app.post("/api/precios-venta/{precio_venta_id}/actualizar-comentarios")
+async def api_actualizar_comentarios_precio_venta(
+    precio_venta_id: int,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Actualiza únicamente comentarios de un registro de precios_venta.
+    """
+    payload = await request.json()
+    comentario = payload.get("comentario")
+    comentario_2 = payload.get("comentario_2")
+    comentario_3 = payload.get("comentario_3")
+
+    item = await crud.update_comentarios_precio_venta(
+        db=db,
+        precio_venta_id=precio_venta_id,
+        comentario=(comentario or None),
+        comentario_2=(comentario_2 or None),
+        comentario_3=(comentario_3 or None),
+        user_id=current_user.id,
+    )
+
+    if not item:
+        return JSONResponse(
+            status_code=404,
+            content={"ok": False, "mensaje": "Registro de precio de venta no encontrado."},
+        )
+
+    return {
+        "ok": True,
+        "mensaje": "Comentarios actualizados correctamente.",
+        "row": {
+            "id": item.id,
+            "comentario": item.comentario,
+            "comentario_2": item.comentario_2,
+            "comentario_3": item.comentario_3,
+            "updated_at": item.updated_at.isoformat() if item.updated_at else None,
+        },
+    }
+
+
+@app.post("/api/precios-venta/actualizar-desde-ventas")
+async def api_actualizar_precios_venta_desde_ventas(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Sincroniza precio_venta desde ventas usando:
+    - match por (codigo_cliente, numero_parte == producto_condensado)
+    - solo ventas con sales_km y precio_full_metal_km
+    - toma la última venta por combinación
+    """
+    try:
+        resultado = await crud.sincronizar_precios_venta_desde_ventas(
+            db=db,
+            user_id=current_user.id,
+        )
+        mensaje = (
+            f"✓ Actualización completada. "
+            f"Se actualizaron {resultado['actualizados']} registro(s), "
+            f"{resultado['sin_cambios']} sin cambios, "
+            f"{resultado['sin_venta']} sin venta aplicable."
+        )
+        return {
+            "ok": True,
+            "mensaje": mensaje,
+            **resultado,
+        }
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "ok": False,
+                "mensaje": f"Error al actualizar precios desde ventas: {str(e)}",
+            },
+        )
+
+
+@app.get("/api/precios-venta/historial")
+async def api_precios_venta_historial(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Devuelve los últimos movimientos del historial de precios de venta."""
+    historial = await crud.list_precio_venta_historial(db, limit=5, offset=0)
+    items = []
+    for h in historial:
+        items.append(
+            {
+                "id": h.id,
+                "precio_venta_id": h.precio_venta_id,
+                "codigo_cliente": h.codigo_cliente,
+                "numero_parte": h.numero_parte,
+                "tipo_cable": h.tipo_cable,
+                "operacion": h.operacion,
+                "user_email": h.user.email if h.user else None,
+                "user_nombre": h.user.nombre if h.user else None,
+                "datos_antes": h.datos_antes,
+                "datos_despues": h.datos_despues,
+                "campos_modificados": h.campos_modificados,
+                "detalle": h.detalle,
+                "created_at": h.created_at.isoformat() if h.created_at else None,
+            }
+        )
+    return {"ok": True, "movimientos": items}
 
 
 @app.get("/api/ventas")
@@ -194,7 +452,8 @@ async def api_ventas(
         periodo_inicio=periodo_inicio_dt,
         periodo_fin=periodo_fin_dt,
         producto=producto,
-        planta=planta
+        planta=planta,
+        only_with_sales_km=True
     )
     
     total = await crud.count_ventas(
@@ -205,7 +464,8 @@ async def api_ventas(
         periodo_inicio=periodo_inicio_dt,
         periodo_fin=periodo_fin_dt,
         producto=producto,
-        planta=planta
+        planta=planta,
+        only_with_sales_km=True
     )
     
     # Convertir a diccionarios para JSON
@@ -1585,28 +1845,32 @@ async def proveedores(request: Request, current_user: User = Depends(get_current
     proveedores_data = await crud.list_proveedores(db, limit=1000)
     
     # Obtener la fecha de la última compra para cada proveedor (optimizado con una sola consulta)
-    from sqlalchemy import select, func
+    from sqlalchemy import select, func, String, cast
     from app.db.models import Compra
     
     # Obtener todas las fechas de última compra agrupadas por proveedor en una sola consulta
     codigos_proveedores = [p.codigo_proveedor for p in proveedores_data]
     if codigos_proveedores:
+        # En algunas BD legacy `compras.codigo_proveedor` puede estar como VARCHAR;
+        # comparamos como texto para evitar error varchar = integer.
+        codigos_proveedores_str = [str(c).strip() for c in codigos_proveedores if c is not None]
+        codigo_proveedor_compra_txt = cast(Compra.codigo_proveedor, String)
         query_ultimas_compras = select(
-            Compra.codigo_proveedor,
+            codigo_proveedor_compra_txt.label("codigo_proveedor"),
             func.max(Compra.posting_date).label('fecha_ultima_compra')
         ).where(
-            Compra.codigo_proveedor.in_(codigos_proveedores),
+            codigo_proveedor_compra_txt.in_(codigos_proveedores_str),
             Compra.posting_date.isnot(None)
-        ).group_by(Compra.codigo_proveedor)
+        ).group_by(codigo_proveedor_compra_txt)
         
         result = await db.execute(query_ultimas_compras)
-        fechas_por_proveedor = {row.codigo_proveedor: row.fecha_ultima_compra for row in result.all()}
+        fechas_por_proveedor = {str(row.codigo_proveedor).strip(): row.fecha_ultima_compra for row in result.all()}
     else:
         fechas_por_proveedor = {}
     
     # Agregar la fecha de la última compra a cada proveedor
     for proveedor in proveedores_data:
-        proveedor.fecha_ultima_compra = fechas_por_proveedor.get(proveedor.codigo_proveedor)
+        proveedor.fecha_ultima_compra = fechas_por_proveedor.get(str(proveedor.codigo_proveedor).strip())
     
     # Calcular estadísticas
     total_proveedores = await crud.count_proveedores(db)
@@ -1708,6 +1972,38 @@ async def api_pesos_netos(
         "total": int(total),
         "rows": rows,
     }
+
+
+@app.get("/api/pesos-netos/movimientos")
+async def api_pesos_netos_movimientos(
+    limit: int = 5,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """API para listar movimientos recientes de actualización de pesos netos."""
+    _ = current_user
+    limit = max(1, min(limit, 20))
+    rows_db = await crud.list_peso_neto_historial(db, limit=limit, offset=0)
+    rows = [
+        {
+            "id": row.id,
+            "fecha": row.created_at.isoformat() if row.created_at else None,
+            "usuario": (row.user.nombre or row.user.email) if row.user else "Sistema",
+            "accion": row.accion,
+            "estado": row.estado,
+            "archivo_nombre": row.archivo_nombre,
+            "filas_archivo": row.filas_archivo,
+            "filas_invalidas": row.filas_invalidas,
+            "duplicados_archivo": row.duplicados_archivo,
+            "candidatos_unicos": row.candidatos_unicos,
+            "upserts": row.upserts,
+            "insertados": row.insertados,
+            "actualizados": row.actualizados,
+            "detalle": row.detalle,
+        }
+        for row in rows_db
+    ]
+    return {"ok": True, "rows": rows}
 
 
 def _peso_neto_normalize_col(name) -> str:
@@ -1920,7 +2216,7 @@ async def api_actualizar_pesos_netos_desde_sap(
     from sqlalchemy import select, text
     from app.db.models import PesoNeto
 
-    _ = current_user
+    started_at = datetime.now()
     vbs_path = Path(
         settings.PESO_NETO_VBS_PATH or str(Path(__file__).resolve().parent / "peso_neto.vbs")
     ).resolve()
@@ -1935,14 +2231,47 @@ async def api_actualizar_pesos_netos_desde_sap(
         export_file,
     )
 
+    async def registrar_movimiento(
+        estado: str,
+        detalle: str,
+        resumen: Optional[dict] = None,
+    ) -> None:
+        resumen = resumen or {}
+        try:
+            await crud.create_peso_neto_historial(
+                db=db,
+                user_id=getattr(current_user, "id", None),
+                estado=estado,
+                detalle=detalle,
+                archivo_nombre=export_file.name,
+                filas_archivo=resumen.get("filas_archivo"),
+                filas_invalidas=resumen.get("filas_invalidas"),
+                duplicados_archivo=resumen.get("duplicados_archivo"),
+                candidatos_unicos=resumen.get("candidatos_unicos"),
+                upserts=resumen.get("upserts"),
+                insertados=resumen.get("insertados"),
+                actualizados=resumen.get("actualizados"),
+            )
+        except Exception:
+            await db.rollback()
+            logger.exception("[peso_neto] No se pudo registrar historial de movimiento")
+
     if platform.system() != "Windows":
         logger.warning("[peso_neto] Cancelado: plataforma no Windows (%s)", platform.system())
+        await registrar_movimiento(
+            estado="CANCELLED",
+            detalle=f"Cancelado: plataforma no Windows ({platform.system()}).",
+        )
         return JSONResponse(
             status_code=501,
             content={"ok": False, "mensaje": "La ejecución de peso_neto.vbs solo está soportada en Windows."},
         )
     if not vbs_path.is_file():
         logger.warning("[peso_neto] Cancelado: no existe VBS (%s)", vbs_path)
+        await registrar_movimiento(
+            estado="FAILED",
+            detalle=f"No se encontró el script VBS: {vbs_path}",
+        )
         return JSONResponse(
             status_code=400,
             content={"ok": False, "mensaje": f"No se encontró el script VBS: {vbs_path}"},
@@ -1951,6 +2280,10 @@ async def api_actualizar_pesos_netos_desde_sap(
         export_dir.mkdir(parents=True, exist_ok=True)
     except Exception as mk_err:
         logger.exception("[peso_neto] Error creando carpeta de exportación")
+        await registrar_movimiento(
+            estado="FAILED",
+            detalle=f"No se pudo preparar la carpeta de exportación: {mk_err}",
+        )
         return JSONResponse(
             status_code=400,
             content={"ok": False, "mensaje": f"No se pudo preparar la carpeta de exportación: {mk_err}"},
@@ -1968,12 +2301,20 @@ async def api_actualizar_pesos_netos_desde_sap(
         )
     except subprocess.TimeoutExpired:
         logger.warning("[peso_neto] Timeout ejecutando VBS (%ss)", timeout_sec)
+        await registrar_movimiento(
+            estado="FAILED",
+            detalle=f"Timeout ejecutando MM17 ({timeout_sec}s).",
+        )
         return JSONResponse(
             status_code=504,
             content={"ok": False, "mensaje": f"Timeout ejecutando MM17 ({timeout_sec}s)."},
         )
     except Exception as e:
         logger.exception("[peso_neto] Error ejecutando VBS")
+        await registrar_movimiento(
+            estado="FAILED",
+            detalle=f"Error al ejecutar peso_neto.vbs: {str(e)}",
+        )
         return JSONResponse(
             status_code=500,
             content={"ok": False, "mensaje": f"Error al ejecutar peso_neto.vbs: {str(e)}"},
@@ -1982,6 +2323,10 @@ async def api_actualizar_pesos_netos_desde_sap(
     if result.returncode != 0:
         err = (result.stderr or "").strip() or (result.stdout or "").strip()
         logger.warning("[peso_neto] VBS returncode=%s detalle=%s", result.returncode, err[:300])
+        await registrar_movimiento(
+            estado="FAILED",
+            detalle=f"VBS falló (code {result.returncode}): {err[:400]}",
+        )
         return JSONResponse(
             status_code=500,
             content={"ok": False, "mensaje": f"VBS falló: {err[:400]}"},
@@ -1997,6 +2342,10 @@ async def api_actualizar_pesos_netos_desde_sap(
             break
     else:
         logger.warning("[peso_neto] No se detectó archivo actualizado: %s", export_file)
+        await registrar_movimiento(
+            estado="FAILED",
+            detalle=f"No se detectó archivo de salida actualizado: {export_file.name}",
+        )
         return JSONResponse(
             status_code=500,
             content={
@@ -2017,12 +2366,21 @@ async def api_actualizar_pesos_netos_desde_sap(
         )
     except Exception as parse_err:
         logger.exception("[peso_neto] Error parseando archivo")
+        await registrar_movimiento(
+            estado="FAILED",
+            detalle=f"Error procesando archivo de pesos netos: {parse_err}",
+        )
         return JSONResponse(
             status_code=500,
             content={"ok": False, "mensaje": f"Error procesando archivo de pesos netos: {parse_err}"},
         )
 
     if not candidatos:
+        await registrar_movimiento(
+            estado="FAILED",
+            detalle="El archivo no contiene registros válidos para importar.",
+            resumen=resumen_parseo,
+        )
         return JSONResponse(
             status_code=400,
             content={"ok": False, "mensaje": "El archivo no contiene registros válidos para importar."},
@@ -2073,10 +2431,39 @@ async def api_actualizar_pesos_netos_desde_sap(
     except Exception as db_err:
         await db.rollback()
         logger.exception("[peso_neto] Error guardando en BD")
+        await registrar_movimiento(
+            estado="FAILED",
+            detalle=f"Error guardando pesos netos en BD: {db_err}",
+            resumen=resumen_parseo,
+        )
         return JSONResponse(
             status_code=500,
             content={"ok": False, "mensaje": f"Error guardando pesos netos en BD: {db_err}"},
         )
+
+    resumen_final = {
+        **resumen_parseo,
+        "upserts": upserts,
+        "insertados": insertados,
+        "actualizados": actualizados,
+    }
+    duracion_segundos = max(0, int((datetime.now() - started_at).total_seconds()))
+    detalle_historial = (
+        f"Proceso completado. Archivo: {export_file.name}. "
+        f"Filas archivo: {resumen_final.get('filas_archivo', 'N/A')}. "
+        f"Filas inválidas: {resumen_final.get('filas_invalidas', 'N/A')}. "
+        f"Duplicados en archivo: {resumen_final.get('duplicados_archivo', 'N/A')}. "
+        f"Candidatos únicos: {resumen_final.get('candidatos_unicos', 'N/A')}. "
+        f"Upserts: {resumen_final.get('upserts', 'N/A')}. "
+        f"Insertados: {resumen_final.get('insertados', 'N/A')}. "
+        f"Actualizados: {resumen_final.get('actualizados', 'N/A')}. "
+        f"Duración: {duracion_segundos}s."
+    )
+    await registrar_movimiento(
+        estado="SUCCESS",
+        detalle=detalle_historial,
+        resumen=resumen_final,
+    )
 
     return {
         "ok": True,
@@ -2086,10 +2473,7 @@ async def api_actualizar_pesos_netos_desde_sap(
             f"Insertados: {insertados}. Actualizados: {actualizados}."
         ),
         "resumen": {
-            **resumen_parseo,
-            "upserts": upserts,
-            "insertados": insertados,
-            "actualizados": actualizados,
+            **resumen_final,
             "archivo": str(export_file),
         },
     }
@@ -3151,6 +3535,99 @@ async def descargar_virtuales_excel(
     df.to_excel(buffer, index=False, engine="openpyxl")
     buffer.seek(0)
     nombre_archivo = f"virtuales_{mes}_{anio}.xlsx"
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nombre_archivo}"'},
+    )
+
+
+@app.get("/virtuales/descargar-plantilla-externa")
+async def descargar_plantilla_externa_virtuales(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Descarga plantilla externa de virtuales con columnas base y campos vacíos para captura."""
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    registros = await crud.list_master_unificado_virtuales(db, limit=50000, offset=0)
+
+    headers = [
+        "Numero Cliente/Proveedor",
+        "Proveedor_cliente",
+        "Impo_Expo",
+        "Mes",
+        "Pedimento",
+        "Aduana",
+        "Patente",
+        "Firma",
+    ]
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Plantilla Externa"
+
+    azul_header = PatternFill(fill_type="solid", start_color="FF003D89", end_color="FF003D89")
+    fuente_header = Font(bold=True, color="FFFFFFFF")
+    alineacion_header = Alignment(horizontal="center", vertical="center")
+
+    for col_idx, header in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.fill = azul_header
+        cell.font = fuente_header
+        cell.alignment = alineacion_header
+
+    # Dedupe por numero + impo_expo:
+    # para cada numero puede existir como maximo un IMPO y un EXPO.
+    deduplicados = {}
+    registros_ordenados = sorted(
+        registros,
+        key=lambda x: (
+            x.numero if x.numero is not None else 0,
+            (x.impo_expo or "").strip().upper(),
+            x.created_at or datetime.min,
+        ),
+    )
+    for r in registros_ordenados:
+        if r.numero is None:
+            continue
+        numero = int(r.numero)
+        impo_expo = (r.impo_expo or "").strip().upper()
+        clave = (numero, impo_expo)
+        deduplicados[clave] = r
+
+    filas_plantilla = sorted(
+        deduplicados.values(),
+        key=lambda x: (
+            x.numero if x.numero is not None else 0,
+            (x.impo_expo or "").strip().upper(),
+        ),
+    )
+
+    for r in filas_plantilla:
+        ws.append([
+            r.numero if r.numero is not None else "",
+            r.proveedor_cliente or "",
+            r.impo_expo or "",
+            "",
+            "",
+            "",
+            "",
+            "",
+        ])
+
+    ws.freeze_panes = "A2"
+    anchos = [28, 34, 14, 14, 26, 22, 22, 20]
+    for i, width in enumerate(anchos, start=1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = width
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    nombre_archivo = f"plantilla_externa_virtuales_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     return StreamingResponse(
         buffer,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
