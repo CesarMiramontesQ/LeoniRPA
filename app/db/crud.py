@@ -5711,6 +5711,72 @@ async def count_carga_clientes(
     return result.scalar() or 0
 
 
+async def actualizar_domicilio_pais_carga_clientes_desde_clientes(db: AsyncSession) -> Dict[str, int]:
+    """
+    Completa domicilio y pais en carga_clientes usando la tabla clientes.
+
+    Solo actualiza registros de carga_clientes que tengan domicilio o pais vacios/nulos
+    y cuando en clientes exista al menos uno de esos datos con valor.
+    """
+    pendientes_result = await db.execute(
+        select(func.count(CargaCliente.id)).where(
+            or_(
+                CargaCliente.domicilio.is_(None),
+                func.btrim(CargaCliente.domicilio) == "",
+                CargaCliente.pais.is_(None),
+                func.btrim(CargaCliente.pais) == "",
+            )
+        )
+    )
+    total_pendientes = int(pendientes_result.scalar() or 0)
+
+    update_stmt = text(
+        """
+        UPDATE carga_clientes cc
+        SET
+            domicilio = CASE
+                WHEN (cc.domicilio IS NULL OR btrim(cc.domicilio) = '')
+                     AND c.domicilio IS NOT NULL
+                     AND btrim(c.domicilio) <> ''
+                THEN c.domicilio
+                ELSE cc.domicilio
+            END,
+            pais = CASE
+                WHEN (cc.pais IS NULL OR btrim(cc.pais) = '')
+                     AND c.pais IS NOT NULL
+                     AND btrim(c.pais) <> ''
+                THEN c.pais
+                ELSE cc.pais
+            END,
+            updated_at = NOW()
+        FROM clientes c
+        WHERE cc.codigo_cliente = c.codigo_cliente
+          AND (
+                (
+                    (cc.domicilio IS NULL OR btrim(cc.domicilio) = '')
+                    AND c.domicilio IS NOT NULL
+                    AND btrim(c.domicilio) <> ''
+                )
+                OR
+                (
+                    (cc.pais IS NULL OR btrim(cc.pais) = '')
+                    AND c.pais IS NOT NULL
+                    AND btrim(c.pais) <> ''
+                )
+              )
+        """
+    )
+    update_result = await db.execute(update_stmt)
+    actualizados = int(update_result.rowcount or 0)
+    await db.commit()
+
+    return {
+        "total_pendientes": total_pendientes,
+        "actualizados": actualizados,
+        "sin_actualizar": max(total_pendientes - actualizados, 0),
+    }
+
+
 async def update_carga_cliente(
     db: AsyncSession,
     carga_id: int,

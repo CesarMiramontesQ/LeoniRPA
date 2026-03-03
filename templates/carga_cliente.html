@@ -26,6 +26,20 @@
         </svg>
         <span id="btn-text">Actualizar</span>
       </button>
+      <button
+        id="btn-actualizar-domicilio"
+        onclick="actualizarDomicilioClientes()"
+        class="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        <svg id="icon-actualizar-domicilio" class="mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6.75v3m0 0v3m0-3h3m-3 0h-3M3.75 13.5V7.875c0-.621.504-1.125 1.125-1.125h8.25m0 0L9.75 3.375M13.125 6.75 9.75 10.125m10.5 3.375v5.625c0 .621-.504 1.125-1.125 1.125h-8.25m0 0 3.375-3.375m-3.375 3.375 3.375 3.375" />
+        </svg>
+        <svg id="icon-loading-domicilio" class="mr-2 h-4 w-4 animate-spin hidden" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <span id="btn-text-domicilio">Actualizar domicilio</span>
+      </button>
     </div>
   </div>
 
@@ -564,6 +578,18 @@
   </div>
 </div>
 
+<!-- Toast para éxito -->
+<div id="toast-success" class="fixed top-4 right-4 z-50 hidden">
+  <div class="rounded-lg px-4 py-3 shadow-lg bg-green-100 text-green-800">
+    <div class="flex items-center">
+      <svg class="mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="m4.5 12.75 6 6 9-13.5" />
+      </svg>
+      <span id="toast-success-message" class="text-sm font-medium"></span>
+    </div>
+  </div>
+</div>
+
 <script>
 function mostrarModal(data) {
   const modal = document.getElementById('modal-resultados');
@@ -592,7 +618,7 @@ function mostrarModal(data) {
       </svg>
     `;
     modalTitle.textContent = 'Actualización Completada';
-    modalMessage.textContent = 'Se han procesado los clientes según las reglas establecidas.';
+    modalMessage.textContent = data.message || 'Se han procesado los clientes según las reglas establecidas.';
   } else {
     // Error
     modalIcon.className = 'flex h-10 w-10 items-center justify-center rounded-full bg-red-100';
@@ -652,6 +678,16 @@ function mostrarToastError(message) {
   }, 5000);
 }
 
+function mostrarToastSuccess(message) {
+  const toast = document.getElementById('toast-success');
+  document.getElementById('toast-success-message').textContent = message;
+  toast.classList.remove('hidden');
+  
+  setTimeout(() => {
+    toast.classList.add('hidden');
+  }, 5000);
+}
+
 async function actualizarClientes() {
   const btn = document.getElementById('btn-actualizar');
   const iconActualizar = document.getElementById('icon-actualizar');
@@ -678,6 +714,46 @@ async function actualizarClientes() {
       mostrarModalYaActualizado(data.message || 'Ese mes ya se actualizaron los registros.');
     } else {
       mostrarModal(data);
+    }
+  } catch (error) {
+    mostrarToastError('Error de conexión: ' + error.message);
+  } finally {
+    btn.disabled = false;
+    if (iconActualizar) iconActualizar.classList.remove('hidden');
+    if (iconLoading) iconLoading.classList.add('hidden');
+    if (btnText) btnText.textContent = originalText;
+  }
+}
+
+async function actualizarDomicilioClientes() {
+  const btn = document.getElementById('btn-actualizar-domicilio');
+  const iconActualizar = document.getElementById('icon-actualizar-domicilio');
+  const iconLoading = document.getElementById('icon-loading-domicilio');
+  const btnText = document.getElementById('btn-text-domicilio');
+  const originalText = btnText ? btnText.textContent : 'Actualizar domicilio';
+
+  btn.disabled = true;
+  if (iconActualizar) iconActualizar.classList.add('hidden');
+  if (iconLoading) iconLoading.classList.remove('hidden');
+  if (btnText) btnText.textContent = 'Actualizando...';
+
+  try {
+    const response = await fetch('/carga-cliente/actualizar-domicilio', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      mostrarToastSuccess(data.message || 'Actualización de domicilio completada.');
+      setTimeout(() => {
+        window.location.reload();
+      }, 1200);
+    } else {
+      mostrarToastError(data.message || 'Ocurrió un error al actualizar domicilio.');
     }
   } catch (error) {
     mostrarToastError('Error de conexión: ' + error.message);

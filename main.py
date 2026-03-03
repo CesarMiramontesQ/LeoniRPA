@@ -3284,6 +3284,35 @@ async def actualizar_carga_clientes(
         }
 
 
+@app.post("/carga-cliente/actualizar-domicilio")
+async def actualizar_domicilio_carga_clientes(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Completa domicilio y país en carga_clientes usando la tabla clientes.
+    """
+    try:
+        resultado = await crud.actualizar_domicilio_pais_carga_clientes_desde_clientes(db)
+        return {
+            "success": True,
+            "message": (
+                f"Actualización de domicilio/pais completada. "
+                f"Pendientes: {resultado['total_pendientes']}, "
+                f"actualizados: {resultado['actualizados']}, "
+                f"sin actualizar: {resultado['sin_actualizar']}."
+            ),
+            "resultado": resultado,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "message": f"Error al actualizar domicilio/pais: {str(e)}",
+            "resultado": None,
+        }
+
+
 @app.get("/carga-proveedor-cliente/descargar-excel")
 async def descargar_carga_proveedor_cliente_excel(
     request: Request,
