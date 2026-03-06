@@ -309,6 +309,41 @@ async def run_migration_cross_reference():
     print("  ✓ Tabla 'cross_reference' creada o ya existía.")
 
 
+async def run_migration_cross_reference_historial():
+    """Crea la tabla de historial de actualizaciones de cross_reference."""
+    from app.db.base import engine
+    from sqlalchemy import text
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS cross_reference_historial (
+                id BIGSERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id),
+                accion VARCHAR NOT NULL DEFAULT 'ACTUALIZAR',
+                estado VARCHAR NOT NULL,
+                clientes_total INTEGER,
+                clientes_ok INTEGER,
+                upserts INTEGER,
+                errores INTEGER,
+                detalle TEXT,
+                detalle_errores JSONB,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_cross_reference_historial_created_at
+            ON cross_reference_historial (created_at DESC)
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_cross_reference_historial_user_id
+            ON cross_reference_historial (user_id)
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_cross_reference_historial_estado
+            ON cross_reference_historial (estado)
+        """))
+    print("  ✓ Tabla 'cross_reference_historial' creada o ya existía.")
+
+
 async def run_migration_precios_venta():
     """Crea la tabla precios_venta si no existe."""
     from app.db.base import engine
@@ -423,6 +458,42 @@ async def run_migration_peso_neto_historial():
     print("  ✓ Tabla 'peso_neto_historial' creada o ya existía.")
 
 
+async def run_migration_bom_historial():
+    """Crea la tabla de historial de actualizaciones de BOMs."""
+    from app.db.base import engine
+    from sqlalchemy import text
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS bom_historial (
+                id BIGSERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES users(id),
+                accion VARCHAR NOT NULL DEFAULT 'ACTUALIZAR',
+                estado VARCHAR NOT NULL,
+                total INTEGER,
+                procesados INTEGER,
+                con_cambios INTEGER,
+                sin_cambios INTEGER,
+                errores INTEGER,
+                detalle TEXT,
+                detalle_json JSONB,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_bom_historial_created_at
+            ON bom_historial (created_at DESC)
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_bom_historial_user_id
+            ON bom_historial (user_id)
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_bom_historial_estado
+            ON bom_historial (estado)
+        """))
+    print("  ✓ Tabla 'bom_historial' creada o ya existía.")
+
+
 async def main():
     from app.db.base import engine
 
@@ -488,20 +559,28 @@ async def main():
         await run_migration_partes_diferencia()
 
         # 15. Migración: tabla cross_reference
-        print("\n[15/18] Migración: tabla cross_reference...")
+        print("\n[15/19] Migración: tabla cross_reference...")
         await run_migration_cross_reference()
 
-        # 16. Migración: tabla precios de venta
-        print("\n[16/18] Migración: tabla precios_venta...")
+        # 16. Migración: tabla cross_reference_historial
+        print("\n[16/19] Migración: tabla cross_reference_historial...")
+        await run_migration_cross_reference_historial()
+
+        # 17. Migración: tabla precios de venta
+        print("\n[17/19] Migración: tabla precios_venta...")
         await run_migration_precios_venta()
 
-        # 17. Migración: tabla historial de precios de venta
-        print("\n[17/18] Migración: tabla precios_venta_historial...")
+        # 18. Migración: tabla historial de precios de venta
+        print("\n[18/20] Migración: tabla precios_venta_historial...")
         await run_migration_precios_venta_historial()
 
-        # 18. Migración: tabla historial de peso neto
-        print("\n[18/18] Migración: tabla peso_neto_historial...")
+        # 19. Migración: tabla historial de peso neto
+        print("\n[19/20] Migración: tabla peso_neto_historial...")
         await run_migration_peso_neto_historial()
+
+        # 20. Migración: tabla historial de BOMs
+        print("\n[20/20] Migración: tabla bom_historial...")
+        await run_migration_bom_historial()
 
         print("\n" + "=" * 60)
         print("Todas las migraciones se completaron correctamente.")

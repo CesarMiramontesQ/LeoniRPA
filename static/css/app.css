@@ -1046,9 +1046,6 @@
   .bg-red-500 {
     background-color: var(--color-red-500);
   }
-  .bg-red-700 {
-    background-color: var(--color-red-700);
-  }
   .bg-white {
     background-color: var(--color-white);
   }
@@ -1531,13 +1528,6 @@
       }
     }
   }
-  .hover\:bg-\[\#f1f5ff\] {
-    &:hover {
-      @media (hover: hover) {
-        background-color: #f1f5ff;
-      }
-    }
-  }
   .hover\:bg-amber-600 {
     &:hover {
       @media (hover: hover) {
@@ -1605,13 +1595,6 @@
     &:hover {
       @media (hover: hover) {
         background-color: var(--color-red-50);
-      }
-    }
-  }
-  .hover\:bg-red-800 {
-    &:hover {
-      @media (hover: hover) {
-        background-color: var(--color-red-800);
       }
     }
   }
@@ -1831,11 +1814,6 @@
   .focus-visible\:outline-red-600 {
     &:focus-visible {
       outline-color: var(--color-red-600);
-    }
-  }
-  .focus-visible\:outline-red-700 {
-    &:focus-visible {
-      outline-color: var(--color-red-700);
     }
   }
   .disabled\:cursor-not-allowed {

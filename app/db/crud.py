@@ -8,7 +8,7 @@ from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta, timezone, date
 from decimal import Decimal
-from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaProveedoresNacional, CargaProveedoresNacionalHistorial, CargaCliente, MasterUnificadoVirtuales, MasterUnificadoVirtualHistorial, MasterUnificadoVirtualOperacion, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente, Parte, Bom, BomRevision, BomItem, PesoNeto, PesoNetoHistorial, CrossReference, PrecioVenta, PrecioVentaHistorial
+from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaProveedoresNacional, CargaProveedoresNacionalHistorial, CargaCliente, MasterUnificadoVirtuales, MasterUnificadoVirtualHistorial, MasterUnificadoVirtualOperacion, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente, Parte, Bom, BomRevision, BomItem, BomHistorial, PesoNeto, PesoNetoHistorial, CrossReference, CrossReferenceHistorial, PrecioVenta, PrecioVentaHistorial
 from app.core.security import hash_password
 
 
@@ -2052,6 +2052,102 @@ async def count_cross_reference(
 
     result = await db.execute(query)
     return result.scalar() or 0
+
+
+async def create_cross_reference_historial(
+    db: AsyncSession,
+    estado: str,
+    detalle: Optional[str] = None,
+    user_id: Optional[int] = None,
+    accion: str = "ACTUALIZAR",
+    clientes_total: Optional[int] = None,
+    clientes_ok: Optional[int] = None,
+    upserts: Optional[int] = None,
+    errores: Optional[int] = None,
+    detalle_errores: Optional[list] = None,
+) -> CrossReferenceHistorial:
+    """Crea una entrada en el historial de actualización de Cross Reference."""
+    item = CrossReferenceHistorial(
+        user_id=user_id,
+        accion=accion,
+        estado=estado,
+        clientes_total=clientes_total,
+        clientes_ok=clientes_ok,
+        upserts=upserts,
+        errores=errores,
+        detalle=detalle,
+        detalle_errores=detalle_errores,
+    )
+    db.add(item)
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+async def list_cross_reference_historial(
+    db: AsyncSession,
+    limit: int = 20,
+    offset: int = 0,
+) -> List[CrossReferenceHistorial]:
+    """Lista el historial de movimientos de Cross Reference más reciente."""
+    query = (
+        select(CrossReferenceHistorial)
+        .options(selectinload(CrossReferenceHistorial.user))
+        .order_by(desc(CrossReferenceHistorial.created_at))
+        .limit(limit)
+        .offset(offset)
+    )
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def create_bom_historial(
+    db: AsyncSession,
+    estado: str,
+    detalle: Optional[str] = None,
+    user_id: Optional[int] = None,
+    accion: str = "ACTUALIZAR",
+    total: Optional[int] = None,
+    procesados: Optional[int] = None,
+    con_cambios: Optional[int] = None,
+    sin_cambios: Optional[int] = None,
+    errores: Optional[int] = None,
+    detalle_json: Optional[list] = None,
+) -> BomHistorial:
+    """Crea una entrada en el historial de actualización de BOMs."""
+    item = BomHistorial(
+        user_id=user_id,
+        accion=accion,
+        estado=estado,
+        total=total,
+        procesados=procesados,
+        con_cambios=con_cambios,
+        sin_cambios=sin_cambios,
+        errores=errores,
+        detalle=detalle,
+        detalle_json=detalle_json,
+    )
+    db.add(item)
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+async def list_bom_historial(
+    db: AsyncSession,
+    limit: int = 20,
+    offset: int = 0,
+) -> List[BomHistorial]:
+    """Lista el historial de movimientos de actualización de BOMs más reciente."""
+    query = (
+        select(BomHistorial)
+        .options(selectinload(BomHistorial.user))
+        .order_by(desc(BomHistorial.created_at))
+        .limit(limit)
+        .offset(offset)
+    )
+    result = await db.execute(query)
+    return list(result.scalars().all())
 
 
 async def list_precios_venta(

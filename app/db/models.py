@@ -129,6 +129,31 @@ class BomItem(Base):
         return f"<BomItem(id={self.id}, bom_revision_id={self.bom_revision_id}, componente_id={self.componente_id})>"
 
 
+class BomHistorial(Base):
+    """Historial de ejecuciones de actualización de BOMs desde SAP."""
+    __tablename__ = "bom_historial"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    user = relationship("User", backref="bom_historial")
+
+    accion = Column(String, nullable=False, server_default=text("'ACTUALIZAR'"))
+    estado = Column(String, nullable=False, index=True)  # SUCCESS, FAILED, CANCELLED
+
+    total = Column(Integer, nullable=True)
+    procesados = Column(Integer, nullable=True)
+    con_cambios = Column(Integer, nullable=True)
+    sin_cambios = Column(Integer, nullable=True)
+    errores = Column(Integer, nullable=True)
+    detalle = Column(Text, nullable=True)
+    detalle_json = Column(JSONB, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    def __repr__(self):
+        return f"<BomHistorial(id={self.id}, estado={self.estado}, created_at={self.created_at})>"
+
+
 class User(Base):
     """Modelo de usuario."""
     __tablename__ = "users"
@@ -1394,4 +1419,28 @@ class CrossReference(Base):
 
     def __repr__(self):
         return f"<CrossReference(customer={self.customer}, material={self.material}, customer_material={self.customer_material})>"
+
+
+class CrossReferenceHistorial(Base):
+    """Historial de ejecuciones de actualización de Cross Reference desde SAP."""
+    __tablename__ = "cross_reference_historial"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    user = relationship("User", backref="cross_reference_historial")
+
+    accion = Column(String, nullable=False, server_default=text("'ACTUALIZAR'"))
+    estado = Column(String, nullable=False, index=True)  # SUCCESS, FAILED, CANCELLED
+
+    clientes_total = Column(Integer, nullable=True)
+    clientes_ok = Column(Integer, nullable=True)
+    upserts = Column(Integer, nullable=True)
+    errores = Column(Integer, nullable=True)
+    detalle = Column(Text, nullable=True)
+    detalle_errores = Column(JSONB, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    def __repr__(self):
+        return f"<CrossReferenceHistorial(id={self.id}, estado={self.estado}, created_at={self.created_at})>"
 

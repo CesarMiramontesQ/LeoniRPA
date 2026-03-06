@@ -1219,6 +1219,23 @@ async def api_ejecutar_actualizacion_boms(
             estado = "error"
             mensaje = str(e)
             detalle.append({"parte_no": numero_parte, "estado": estado, "mensaje": mensaje})
+    try:
+        await crud.create_bom_historial(
+            db=db,
+            user_id=getattr(current_user, "id", None),
+            estado="SUCCESS",
+            detalle=f"Procesados {procesados}/{total}; con cambios: {con_cambios}, sin cambios: {sin_cambios}, errores: {errores}",
+            total=total,
+            procesados=procesados,
+            con_cambios=con_cambios,
+            sin_cambios=sin_cambios,
+            errores=errores,
+            detalle_json=detalle[:200] if detalle else None,
+        )
+    except Exception:
+        await db.rollback()
+        logger.exception("[actualizar-boms] No se pudo registrar historial de movimiento")
+
     payload = {
         "ok": True,
         "mensaje": f"Procesados {procesados}/{total}; con cambios: {con_cambios}, sin cambios: {sin_cambios}, errores: {errores}",
@@ -1388,6 +1405,22 @@ async def api_ejecutar_actualizacion_boms_stream(
             "BOM stream finalizado. total=%s procesados=%s con_cambios=%s sin_cambios=%s errores=%s",
             total, procesados, con_cambios, sin_cambios, errores
         )
+        try:
+            await crud.create_bom_historial(
+                db=db,
+                user_id=getattr(current_user, "id", None),
+                estado="SUCCESS",
+                detalle=f"Procesados {procesados}/{total}; con cambios: {con_cambios}, sin cambios: {sin_cambios}, errores: {errores}",
+                total=total,
+                procesados=procesados,
+                con_cambios=con_cambios,
+                sin_cambios=sin_cambios,
+                errores=errores,
+                detalle_json=detalle[:200] if detalle else None,
+            )
+        except Exception:
+            await db.rollback()
+            logger.exception("[actualizar-boms stream] No se pudo registrar historial de movimiento")
         yield json.dumps({
             "tipo": "fin",
             "total": total,
@@ -1407,6 +1440,35 @@ async def api_ejecutar_actualizacion_boms_stream(
             "Connection": "keep-alive",
         },
     )
+
+
+@app.get("/api/actualizar-boms/movimientos")
+async def api_actualizar_boms_movimientos(
+    limit: int = 5,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """API para listar movimientos recientes de actualización de BOMs."""
+    _ = current_user
+    limit = max(1, min(limit, 20))
+    rows_db = await crud.list_bom_historial(db, limit=limit, offset=0)
+    rows = [
+        {
+            "id": row.id,
+            "fecha": row.created_at.isoformat() if row.created_at else None,
+            "usuario": (row.user.nombre or row.user.email) if row.user else "Sistema",
+            "accion": row.accion,
+            "estado": row.estado,
+            "total": row.total,
+            "procesados": row.procesados,
+            "con_cambios": row.con_cambios,
+            "sin_cambios": row.sin_cambios,
+            "errores": row.errores,
+            "detalle": row.detalle,
+        }
+        for row in rows_db
+    ]
+    return {"ok": True, "rows": rows}
 
 
 @app.get("/api/actualizar-boms/tablas")
@@ -2594,6 +2656,19 @@ async def api_actualizar_cross_reference_desde_sap(
     clientes_result = await db.execute(select(Cliente.codigo_cliente).order_by(Cliente.codigo_cliente))
     clientes = [str(c) for c in clientes_result.scalars().all() if c is not None]
     if not clientes:
+        try:
+            await crud.create_cross_reference_historial(
+                db=db,
+                user_id=getattr(current_user, "id", None),
+                estado="SUCCESS",
+                detalle="No hay clientes para procesar.",
+                clientes_total=0,
+                clientes_ok=0,
+                upserts=0,
+                errores=0,
+            )
+        except Exception:
+            await db.rollback()
         return {"ok": True, "mensaje": "No hay clientes para procesar.", "resumen": {"clientes": 0, "upserts": 0, "errores": 0}}
 
     upsert_sql = text(
@@ -2672,6 +2747,22 @@ async def api_actualizar_cross_reference_desde_sap(
             errores.append({"cliente": codigo_cliente, "mensaje": str(e)[:240]})
             logger.exception("[cross_reference] Cliente %s: ERROR excepción", codigo_cliente)
 
+    try:
+        await crud.create_cross_reference_historial(
+            db=db,
+            user_id=getattr(current_user, "id", None),
+            estado="SUCCESS",
+            detalle=f"Clientes OK: {procesados_ok}/{len(clientes)}. Upserts: {total_upserts}. Errores: {len(errores)}.",
+            clientes_total=len(clientes),
+            clientes_ok=procesados_ok,
+            upserts=total_upserts,
+            errores=len(errores),
+            detalle_errores=errores[:50] if errores else None,
+        )
+    except Exception:
+        await db.rollback()
+        logger.exception("[cross_reference] No se pudo registrar historial de movimiento")
+
     return {
         "ok": True,
         "mensaje": f"Cross Reference actualizado. Clientes OK: {procesados_ok}/{len(clientes)}. Upserts: {total_upserts}. Errores: {len(errores)}.",
@@ -2720,6 +2811,34 @@ async def api_cross_reference(
         "total": int(total),
         "rows": rows,
     }
+
+
+@app.get("/api/cross-reference/movimientos")
+async def api_cross_reference_movimientos(
+    limit: int = 5,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """API para listar movimientos recientes de actualización de Cross Reference."""
+    _ = current_user
+    limit = max(1, min(limit, 20))
+    rows_db = await crud.list_cross_reference_historial(db, limit=limit, offset=0)
+    rows = [
+        {
+            "id": row.id,
+            "fecha": row.created_at.isoformat() if row.created_at else None,
+            "usuario": (row.user.nombre or row.user.email) if row.user else "Sistema",
+            "accion": row.accion,
+            "estado": row.estado,
+            "clientes_total": row.clientes_total,
+            "clientes_ok": row.clientes_ok,
+            "upserts": row.upserts,
+            "errores": row.errores,
+            "detalle": row.detalle,
+        }
+        for row in rows_db
+    ]
+    return {"ok": True, "rows": rows}
 
 
 @app.get("/precios-compra")
