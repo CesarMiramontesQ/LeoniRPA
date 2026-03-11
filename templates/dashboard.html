@@ -65,38 +65,69 @@
   </div>
   {% endif %}
 
-  <!-- Virtuales - Botones de actualización -->
+  <!-- Pendientes -->
+  {% if materiales_pendientes is defined and materiales_pendientes > 0 %}
   <div class="rounded-lg bg-white p-6 shadow-sm">
-    <h2 class="mb-4 text-lg font-medium text-gray-900">Virtuales</h2>
-    <p class="mb-4 text-sm text-gray-500">Actualiza el master de virtuales, carga de proveedores y carga de clientes.</p>
-    <div class="flex flex-wrap items-center gap-x-0 gap-y-3">
-      <button
-        type="button"
-        data-endpoint="/api/virtuales/actualizar"
-        data-label="Actualizar Master Virtuales"
-        class="btn-actualizar-dashboard inline-flex items-center rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white hover:bg-[#002d66] disabled:opacity-50"
+    <h2 class="mb-4 text-lg font-medium text-gray-900">Pendientes</h2>
+    <div class="flex flex-wrap items-center gap-4">
+      <a
+        href="/paises-origen"
+        class="inline-flex items-center rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800 hover:bg-amber-100"
       >
-        <span class="btn-text">Actualizar Master Virtuales</span>
-        <svg class="btn-spinner ml-2 hidden h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-      </button>
-      <div class="hidden sm:block w-px h-8 bg-gray-200 mx-1" aria-hidden="true"></div>
-      <button type="button" data-endpoint="/carga-proveedor/actualizar" data-label="Carga Proveedor" class="btn-actualizar-dashboard inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
-        <span class="btn-text">Carga Proveedor</span>
-        <svg class="btn-spinner ml-2 hidden h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-      </button>
-      <div class="hidden sm:block w-px h-8 bg-gray-200 mx-1" aria-hidden="true"></div>
-      <button type="button" data-endpoint="/carga-proveedores-nacional/actualizar" data-label="Carga Proveedores Nacional" class="btn-actualizar-dashboard inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
-        <span class="btn-text">Carga Proveedores Nacional</span>
-        <svg class="btn-spinner ml-2 hidden h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-      </button>
-      <div class="hidden sm:block w-px h-8 bg-gray-200 mx-1" aria-hidden="true"></div>
-      <button type="button" data-endpoint="/carga-cliente/actualizar" data-label="Carga Cliente" class="btn-actualizar-dashboard inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
-        <span class="btn-text">Carga Cliente</span>
-        <svg class="btn-spinner ml-2 hidden h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
-      </button>
+        <span class="mr-2">{{ materiales_pendientes }}</span>
+        material(es) con país de origen pendiente
+        <svg class="ml-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+        </svg>
+      </a>
     </div>
-    <a href="/virtuales" class="mt-4 inline-block text-sm text-[#003D89] hover:underline">Ver página de Virtuales</a>
-    <div id="toast-dashboard" class="fixed bottom-4 right-4 z-50 hidden rounded-lg px-4 py-3 shadow-lg" role="alert"></div>
+  </div>
+  {% endif %}
+
+  <!-- Actividad reciente -->
+  <div class="rounded-lg bg-white p-6 shadow-sm">
+    <h2 class="mb-4 text-lg font-medium text-gray-900">Actividad reciente</h2>
+    <div class="grid gap-6 sm:grid-cols-2">
+      <div>
+        <h3 class="mb-2 text-sm font-medium text-gray-700">Últimas descargas de compras</h3>
+        {% if ejecuciones_compras %}
+        <ul class="space-y-2 text-sm">
+          {% for e in ejecuciones_compras %}
+          <li class="rounded border border-gray-100 bg-gray-50 px-3 py-2">
+            <div class="flex items-center justify-between">
+              <span class="text-gray-600">{{ e.created_at.strftime('%d/%m/%Y %H:%M') if e.created_at else '—' }}</span>
+              <span class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium {% if e.estado and e.estado.value == 'SUCCESS' %}bg-green-100 text-green-800{% elif e.estado and e.estado.value == 'FAILED' %}bg-red-100 text-red-800{% else %}bg-gray-100 text-gray-800{% endif %}">{{ e.estado.value if e.estado else '—' }}</span>
+            </div>
+            {% if e.detalles %}
+            <p class="mt-1 text-xs text-gray-500 truncate" title="{{ e.detalles }}">{{ (e.detalles)[:70] }}{% if (e.detalles)|length > 70 %}...{% endif %}</p>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+        <a href="/compras" class="mt-2 inline-block text-xs text-[#003D89] hover:underline">Ver compras</a>
+        {% else %}
+        <p class="text-sm text-gray-500">No hay ejecuciones recientes.</p>
+        <a href="/compras" class="mt-2 inline-block text-xs text-[#003D89] hover:underline">Ir a Compras</a>
+        {% endif %}
+      </div>
+      <div>
+        <h3 class="mb-2 text-sm font-medium text-gray-700">Últimas descargas de ventas</h3>
+        {% if ejecuciones_ventas %}
+        <ul class="space-y-2 text-sm">
+          {% for e in ejecuciones_ventas %}
+          <li class="flex items-center justify-between rounded border border-gray-100 bg-gray-50 px-3 py-2">
+            <span class="text-gray-600">{{ e.created_at.strftime('%d/%m/%Y %H:%M') if e.created_at else '—' }}</span>
+            <span class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium {% if e.estado and e.estado.value == 'SUCCESS' %}bg-green-100 text-green-800{% elif e.estado and e.estado.value == 'FAILED' %}bg-red-100 text-red-800{% else %}bg-gray-100 text-gray-800{% endif %}">{{ e.estado.value if e.estado else '—' }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+        <a href="/ventas" class="mt-2 inline-block text-xs text-[#003D89] hover:underline">Ver ventas</a>
+        {% else %}
+        <p class="text-sm text-gray-500">No hay ejecuciones recientes.</p>
+        <a href="/ventas" class="mt-2 inline-block text-xs text-[#003D89] hover:underline">Ir a Ventas</a>
+        {% endif %}
+      </div>
+    </div>
   </div>
 
   <!-- Descargas Excel -->
@@ -185,37 +216,7 @@
         </div>
       </div>
     </div>
-  </div>
-</div>
-
-<!-- Modal: mes ya actualizado -->
-<div id="modal-ya-actualizado-dashboard" class="hidden fixed inset-0 z-[60] overflow-y-auto" aria-labelledby="modal-ya-actualizado-dashboard-title" role="dialog" aria-modal="true">
-  <div class="flex min-h-screen items-end justify-center px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-    <div id="modal-ya-actualizado-dashboard-backdrop" class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"></div>
-    <span class="hidden sm:inline-block sm:h-screen sm:align-middle" aria-hidden="true">&#8203;</span>
-    <div class="relative inline-block transform overflow-hidden rounded-lg bg-white text-left align-bottom shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-md sm:align-middle">
-      <div class="bg-amber-500 px-6 py-4">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-3">
-            <svg class="h-6 w-6 text-white flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-            </svg>
-            <h3 class="text-lg font-semibold text-white" id="modal-ya-actualizado-dashboard-title">Mes ya actualizado</h3>
-          </div>
-          <button id="btn-cerrar-modal-ya-actualizado-dashboard-x" type="button" class="text-white hover:text-gray-200 focus:outline-none">
-            <svg class="h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-      </div>
-      <div class="px-6 py-4">
-        <p id="modal-ya-actualizado-dashboard-mensaje" class="text-sm text-gray-700">Ese mes ya se actualizaron los registros.</p>
-      </div>
-      <div class="bg-gray-50 px-6 py-3 flex justify-end">
-        <button id="btn-cerrar-modal-ya-actualizado-dashboard" type="button" class="rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-white hover:bg-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2">Entendido</button>
-      </div>
-    </div>
+    <a href="/virtuales" class="mt-4 inline-block text-sm text-[#003D89] hover:underline">Ver página de Virtuales</a>
   </div>
 </div>
 
@@ -230,32 +231,6 @@ document.addEventListener('DOMContentLoaded', function() {
     setTimeout(() => toast.classList.add('hidden'), 6000);
   }
 
-  function mostrarModalYaActualizado(mensaje) {
-    const modal = document.getElementById('modal-ya-actualizado-dashboard');
-    const texto = document.getElementById('modal-ya-actualizado-dashboard-mensaje');
-    if (modal && texto) {
-      texto.textContent = mensaje || 'Ese mes ya se actualizaron los registros.';
-      modal.classList.remove('hidden');
-      document.body.style.overflow = 'hidden';
-    }
-  }
-  function cerrarModalYaActualizado() {
-    const modal = document.getElementById('modal-ya-actualizado-dashboard');
-    if (modal) {
-      modal.classList.add('hidden');
-      document.body.style.overflow = '';
-    }
-  }
-  document.getElementById('btn-cerrar-modal-ya-actualizado-dashboard')?.addEventListener('click', cerrarModalYaActualizado);
-  document.getElementById('btn-cerrar-modal-ya-actualizado-dashboard-x')?.addEventListener('click', cerrarModalYaActualizado);
-  document.getElementById('modal-ya-actualizado-dashboard-backdrop')?.addEventListener('click', cerrarModalYaActualizado);
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
-      const m = document.getElementById('modal-ya-actualizado-dashboard');
-      if (m && !m.classList.contains('hidden')) cerrarModalYaActualizado();
-    }
-  });
-
   const btnDescargarExcelVirtuales = document.getElementById('btn-descargar-excel-virtuales-dashboard');
   if (btnDescargarExcelVirtuales) {
     btnDescargarExcelVirtuales.addEventListener('click', function() {
@@ -269,56 +244,8 @@ document.addEventListener('DOMContentLoaded', function() {
       window.location.href = url;
     });
   }
-
-  document.querySelectorAll('.btn-actualizar-dashboard').forEach(function(btn) {
-    const btnText = btn.querySelector('.btn-text');
-    const originalText = btnText ? btnText.textContent : 'Actualizar';
-
-    btn.addEventListener('click', async function() {
-      const endpoint = this.dataset.endpoint;
-      const btnSpinner = this.querySelector('.btn-spinner');
-
-      if (!endpoint) return;
-      this.disabled = true;
-      if (btnText) btnText.textContent = 'Actualizando...';
-      if (btnSpinner) btnSpinner.classList.remove('hidden');
-
-      try {
-        const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-        const data = await response.json().catch(() => ({}));
-
-        let msg = '';
-        if (response.ok) {
-          if (data.ya_actualizado) {
-            mostrarModalYaActualizado(data.message || 'Ese mes ya se actualizaron los registros.');
-          } else {
-            msg = data.message || data.mensaje || data.error || 'Actualización completada.';
-            if (data.resumen && typeof data.resumen === 'object') {
-              const r = data.resumen;
-              const partes = [];
-              if (r.altas != null) partes.push(r.altas + ' altas');
-              if (r.bajas != null) partes.push(r.bajas + ' bajas');
-              if (r.nuevos != null) partes.push(r.nuevos + ' nuevos');
-              if (r.actualizados != null) partes.push(r.actualizados + ' actualizados');
-              if (partes.length) msg += ' (' + partes.join(', ') + ')';
-            }
-            showToast(msg, false);
-            if (endpoint === '/api/virtuales/actualizar') window.location.reload();
-          }
-        } else {
-          msg = data.error || data.message || data.mensaje || 'Error en la actualización';
-          showToast(msg, true);
-        }
-      } catch (err) {
-        showToast('Error de conexión: ' + (err.message || 'Desconocido'), true);
-      } finally {
-        this.disabled = false;
-        if (btnText) btnText.textContent = originalText;
-        if (btnSpinner) btnSpinner.classList.add('hidden');
-      }
-    });
-  });
 });
 </script>
+<div id="toast-dashboard" class="fixed bottom-4 right-4 z-50 hidden rounded-lg px-4 py-3 shadow-lg" role="alert"></div>
 {% endblock %}
 

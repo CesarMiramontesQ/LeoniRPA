@@ -683,6 +683,9 @@ class PaisOrigenMaterial(Base):
     # País de origen
     pais_origen = Column(String, nullable=False)
     
+    # Porcentaje de compra (opcional)
+    porcentaje_compra = Column(Numeric(18, 6), nullable=True)
+    
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

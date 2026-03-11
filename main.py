@@ -1,18 +1,18 @@
-from fastapi import FastAPI, Request, Depends, Form, UploadFile, File
+from fastapi import FastAPI, Request, Depends, Form, UploadFile, File, Query
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse, JSONResponse, FileResponse, StreamingResponse
+from fastapi.responses import RedirectResponse, JSONResponse, FileResponse, StreamingResponse, Response
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Optional, List
 from decimal import Decimal, InvalidOperation
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.auth.router import router as auth_router, get_current_user, AuthenticationError
+from app.auth.router import router as auth_router, get_current_user, AuthenticationError, require_roles
 from app.db.init_db import init_db
 from app.db.base import get_db
-from app.db.models import User, ExecutionStatus, MasterUnificadoVirtualOperacion, ClienteGrupo
+from app.db.models import User, ExecutionStatus, MasterUnificadoVirtualOperacion, ClienteGrupo, Cliente, Venta
 from app.db import crud
 from app.bom.service import load_bom
 from app.bom.schemas import LoadBomInput, LoadBomResponse
@@ -28,6 +28,137 @@ import socket
 import platform
 import os
 import logging
+
+try:
+    from io import BytesIO
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle, Spacer
+    from reportlab.lib import colors
+    _REPORTLAB_AVAILABLE = True
+except ImportError:
+    _REPORTLAB_AVAILABLE = False
+
+# Certificado C.O.: plantilla Excel + Office/LibreOffice para PDF
+_CERT_PLANTILLA_XLSX = Path(__file__).resolve().parent / "Plantilla calificados.xlsx"
+_CERT_FIRMA_IMG = Path(__file__).resolve().parent / "firma.png"
+
+
+def _find_libreoffice() -> Optional[str]:
+    """Devuelve la ruta del ejecutable de LibreOffice (soffice) o None si no se encuentra."""
+    exe = os.environ.get("LIBREOFFICE_PATH") or os.environ.get("SOFFICE_PATH")
+    if exe and Path(exe).exists():
+        return exe
+    if platform.system() == "Darwin":
+        for p in (
+            "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+            "/Applications/OpenOffice.app/Contents/MacOS/soffice",
+        ):
+            if Path(p).exists():
+                return p
+    if platform.system() == "Windows":
+        for p in (
+            r"C:\Program Files\LibreOffice\program\soffice.exe",
+            r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+        ):
+            if Path(p).exists():
+                return p
+    import shutil
+    return shutil.which("soffice") or shutil.which("libreoffice")
+
+
+def _convert_xlsx_to_pdf_with_excel(xlsx_path: Path, pdf_path: Path, sheet_name: str = "C.O.") -> bool:
+    """Convierte la hoja indicada del xlsx a PDF usando Microsoft Excel (solo Windows). Devuelve True si tuvo éxito."""
+    if platform.system() != "Windows":
+        return False
+    try:
+        import win32com.client
+        xl = win32com.client.DispatchEx("Excel.Application")
+        xl.Visible = False
+        xl.DisplayAlerts = False
+        wb = xl.Workbooks.Open(str(xlsx_path.resolve()))
+        try:
+            sheet = wb.Worksheets(sheet_name)
+            sheet.ExportAsFixedFormat(0, str(pdf_path.resolve()))
+        finally:
+            wb.Close(SaveChanges=False)
+        xl.Quit()
+        return pdf_path.exists()
+    except Exception:
+        return False
+
+
+def _convert_xlsx_to_pdf_with_excel_mac(xlsx_path: Path, pdf_path: Path) -> tuple[bool, str]:
+    """Convierte el workbook xlsx a PDF usando Microsoft Excel en macOS (AppleScript).
+    Devuelve (True, '') si tuvo éxito, (False, mensaje_error) si falló."""
+    if platform.system() != "Darwin":
+        return False, ""
+    xlsx_posix = str(xlsx_path.resolve())
+    pdf_posix = str(pdf_path.resolve())
+    # Escribir script en archivo temporal para evitar problemas de escape con rutas
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".scpt", delete=False, encoding="utf-8") as f:
+        script_path = Path(f.name)
+    try:
+        # Script: abrir xlsx, guardar active workbook como PDF (ruta HFS para Excel)
+        xlsx_esc = xlsx_posix.replace("\\", "\\\\").replace('"', '\\"')
+        pdf_esc = pdf_posix.replace("\\", "\\\\").replace('"', '\\"')
+        script_content = f'''set xlsxPath to "{xlsx_esc}"
+set pdfPath to "{pdf_esc}"
+set xlsxFile to POSIX file xlsxPath
+set pdfFile to POSIX file pdfPath
+tell application "Microsoft Excel"
+    open xlsxFile
+    delay 1
+    tell active workbook
+        save workbook as filename (pdfFile as text) file format PDF file format with overwrite
+        close saving no
+    end tell
+end tell
+'''
+        scripts_to_try = [
+            script_content,
+            script_content.replace(
+                "save workbook as filename (pdfFile as text) file format PDF file format with overwrite",
+                "save workbook as filename pdfPath file format PDF file format with overwrite",
+            ),
+            script_content.replace(
+                "save workbook as filename (pdfFile as text) file format PDF file format with overwrite",
+                "save workbook as filename (pdfFile as text) file format PDF file format",
+            ),
+        ]
+        last_err = "No se pudo generar el PDF con Excel."
+        for app_name in ("Microsoft Excel", "Excel"):
+            for script_variant in scripts_to_try:
+                try:
+                    script_text = script_variant.replace(
+                        'tell application "Microsoft Excel"', f'tell application "{app_name}"'
+                    )
+                    script_path.write_text(script_text, encoding="utf-8")
+                    result = subprocess.run(
+                        ["osascript", str(script_path)],
+                        capture_output=True,
+                        timeout=90,
+                        text=True,
+                    )
+                    if result.returncode == 0 and pdf_path.exists():
+                        return True, ""
+                    if result.returncode != 0:
+                        last_err = (result.stderr or result.stdout or "").strip() or f"Exit code {result.returncode}"
+                        logger.warning("Excel Mac (%s): %s", app_name, last_err[:300])
+                except subprocess.TimeoutExpired:
+                    last_err = "Timeout al ejecutar Excel (90 s). Cierre otros workbooks en Excel."
+                    logger.warning("Excel Mac (%s): timeout", app_name)
+                except Exception as e:
+                    last_err = str(e)
+                    logger.warning("Excel Mac (%s): %s", app_name, e)
+        return False, last_err
+    finally:
+        try:
+            script_path.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 # Para manejo de zonas horarias
 try:
@@ -94,7 +225,10 @@ async def dashboard(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Dashboard principal - requiere autenticación. Incluye estadísticas y acciones de actualización centralizadas."""
+    """Dashboard principal - requiere autenticación. Incluye estadísticas, actividad reciente y pendientes."""
+    from sqlalchemy import select, func, distinct
+    from app.db.models import PaisOrigenMaterial
+
     mes_actual = MESES_VIRTUALES_ES[datetime.now().month - 1]
     stats = {
         "total_ventas": await crud.count_ventas(db),
@@ -105,6 +239,17 @@ async def dashboard(
         "total_materiales": await crud.count_materiales(db),
         "total_precios_compra": await crud.count_precios_materiales(db),
     }
+    # Materiales con país de origen pendiente
+    r_pend = await db.execute(
+        select(func.count(distinct(PaisOrigenMaterial.numero_material))).where(
+            PaisOrigenMaterial.pais_origen == "Pendiente"
+        )
+    )
+    materiales_pendientes = r_pend.scalar() or 0
+    # Últimas ejecuciones de compras y ventas
+    ejecuciones_compras = await crud.list_executions(db, limit=5)
+    ejecuciones_ventas = await crud.list_sales_executions(db, limit=5)
+
     año_actual = datetime.now().year
     años_disponibles = list(range(año_actual, año_actual - 6, -1))
     return templates.TemplateResponse(
@@ -114,6 +259,9 @@ async def dashboard(
             "current_user": current_user,
             "active_page": "dashboard",
             "stats": stats,
+            "materiales_pendientes": materiales_pendientes,
+            "ejecuciones_compras": ejecuciones_compras,
+            "ejecuciones_ventas": ejecuciones_ventas,
             "años_disponibles": años_disponibles,
             "mes_actual_nombre": mes_actual,
         },
@@ -151,6 +299,585 @@ async def ventas_registros(request: Request, current_user: User = Depends(get_cu
             "total_ventas": total_ventas
         }
     )
+
+
+@app.get("/analisis-icr")
+async def analisis_icr(request: Request, current_user: User = Depends(get_current_user)):
+    """Vista Análisis ICR: búsqueda por número de cliente y números de parte adquiridos (ventas con precios ICR)."""
+    return templates.TemplateResponse(
+        "analisis_icr.html",
+        {
+            "request": request,
+            "active_page": "analisis_icr",
+            "current_user": current_user,
+        }
+    )
+
+
+@app.get("/api/analisis-icr/partes")
+async def api_analisis_icr_partes(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    codigo_cliente: Optional[int] = None,
+):
+    """
+    Devuelve el detalle Análisis ICR para un cliente: nombre, lista de partes con
+    part_number, description, tariff_schedule, origin. Solo ventas con precios ICR válidos.
+    """
+    if codigo_cliente is None:
+        return JSONResponse(
+            {"error": "Falta el parámetro codigo_cliente"},
+            status_code=400,
+        )
+    detalle = await crud.get_analisis_icr_detalle(db, codigo_cliente=codigo_cliente)
+    # Original Components = números de parte con ICR > 60%; Non-Original = el resto
+    partes_over_60 = detalle.get("partes_icr_over_60", 0)
+    total_partes = detalle.get("total", 0)
+    detalle["original_components"] = partes_over_60
+    detalle["non_original_components"] = total_partes - partes_over_60
+    detalle["conforming_part_numbers"] = detalle["total"]
+    return JSONResponse(detalle)
+
+
+# Datos fijos para el certificado C.O. (LEONI)
+_CERT_CO_LEONI = {
+    "certifier_company": "LEONI Cable S.A. de C.V.",
+    "certifier_address_1": "Av. Río Conchos 9700",
+    "certifier_address_2": "Parque Industrial Cuauhtemoc",
+    "certifier_address_3": "Cd. Cuauhtemoc, Chih. Mexico CP 31543",
+    "certifier_tax_id": "LCA981211QN0",
+    "certifier_phone": "625 59 0 20 00",
+    "certifier_email": "adalberto.blasco1@leonicables.com",
+    "exporter_company": "LEONI Cable S.A. de C.V.",
+    "exporter_address_1": "Av. Río Conchos 9700",
+    "exporter_address_2": "Parque Industrial Cuauhtemoc",
+    "exporter_address_3": "Cd. Cuauhtemoc, Chih. Mexico CP 31543",
+    "exporter_tax_id": "LCA981211QN0",
+    "exporter_phone": "625 59 0 20 00",
+    "exporter_email": "obed.erives@leonicables.com",
+    "producer_company": "LEONI Cable S.A. de C.V.",
+    "producer_address_1": "Av. Río Conchos 9700",
+    "producer_address_2": "Parque Industrial Cuauhtemoc",
+    "producer_address_3": "Cd. Cuauhtemoc, Chih. Mexico CP 31543",
+    "producer_tax_id": "LCA981211QN0",
+    "producer_phone": "625 59 0 20 00",
+    "producer_email": "obed.erives@leonicables.com",
+    "certifier_name": "Adalberto Blasco",
+    "certifier_title": "CUSTOMS MANAGER",
+    "certifier_type": "EXPORTER",
+}
+
+
+def _render_certificado_co_pdf_reportlab(context: dict) -> bytes:
+    """Genera el certificado C.O. en PDF con ReportLab cuando LibreOffice/Excel no están disponibles."""
+    if not _REPORTLAB_AVAILABLE:
+        raise RuntimeError("reportlab no está instalado; ejecute: pip install reportlab")
+    out = BytesIO()
+    doc = SimpleDocTemplate(out, pagesize=letter, leftMargin=0.7 * inch, rightMargin=0.7 * inch, topMargin=0.6 * inch, bottomMargin=0.6 * inch)
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(name="CertTitle", parent=styles["Heading1"], fontSize=14, alignment=1, spaceAfter=2)
+    sub_style = ParagraphStyle(name="CertSub", parent=styles["Normal"], fontSize=12, alignment=1, spaceAfter=1)
+    body_style = ParagraphStyle(name="CertBody", parent=styles["Normal"], fontSize=9, spaceAfter=1)
+    bold_style = ParagraphStyle(name="CertBold", parent=styles["Normal"], fontSize=10, fontName="Helvetica-Bold", alignment=1, spaceAfter=8)
+    story = []
+    story.append(Paragraph("United States Mexico Canada Agreement – USMCA", title_style))
+    story.append(Paragraph("CERTIFICATION OF ORIGEN", sub_style))
+    story.append(Paragraph("T-MEC", bold_style))
+    story.append(Spacer(1, 6))
+    certifier_block = "<b>1.- CERTIFIER, NAME, AND ADDRESS</b><br/>" + f"{context.get('certifier_company', '')}<br/>{context.get('certifier_address_1', '')}<br/>{context.get('certifier_address_2', '')}<br/>{context.get('certifier_address_3', '')}<br/>TAX IDENTIFICATION NUMBER: {context.get('certifier_tax_id', '')}<br/>TELEPHONE EMAIL<br/>" + f"{context.get('certifier_phone', '')} {context.get('certifier_email', '')}"
+    exporter_block = "<b>2.- EXPORTER NAME, AND ADDRESS</b><br/>" + f"{context.get('exporter_company', '')}<br/>{context.get('exporter_address_1', '')}<br/>{context.get('exporter_address_2', '')}<br/>{context.get('exporter_address_3', '')}<br/>TAX IDENTIFICATION NUMBER: {context.get('exporter_tax_id', '')}<br/>TELEPHONE EMAIL<br/>" + f"{context.get('exporter_phone', '')} {context.get('exporter_email', '')}"
+    t1 = Table([[Paragraph(certifier_block, body_style), Paragraph(exporter_block, body_style)]], colWidths=[3.25 * inch, 3.25 * inch])
+    t1.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (1, 0), (1, 0), 20)]))
+    story.append(t1)
+    story.append(Spacer(1, 6))
+    producer_block = "<b>3.- PRODUCER NAME, ADDRESS AND EMAIL</b><br/>" + f"{context.get('producer_company', '')}<br/>{context.get('producer_address_1', '')}<br/>{context.get('producer_address_2', '')}<br/>{context.get('producer_address_3', '')}<br/>TAX IDENTIFICATION NUMBER: {context.get('producer_tax_id', '')}<br/>TELEPHONE EMAIL<br/>" + f"{context.get('producer_phone', '')} {context.get('producer_email', '')}"
+    importer_block = "<b>4.- IMPORTER NAME, ADDRESS AND EMAIL.</b><br/>" + f"<b>{context.get('cliente_nombre') or '—'}</b><br/>Customer # {context.get('codigo_cliente') or '—'}<br/>" + f"{context.get('importer_address') or 'VARIOUS (optional customer address)'}<br/>TAX IDENTIFICATION NUMBER:<br/>EMAIL<br/>"
+    t2 = Table([[Paragraph(producer_block, body_style), Paragraph(importer_block, body_style)]], colWidths=[3.25 * inch, 3.25 * inch])
+    t2.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (1, 0), (1, 0), 20)]))
+    story.append(t2)
+    story.append(Spacer(1, 6))
+    partes = context.get("partes") or []
+    data = [["5.", "DESCRIPTION OF GOOD (S)", "6. HS TARIFF CLASSIFICATION NUMBER", "7. CRITERION OF ORIGIN", "8. ORIGIN COUNTRY"]]
+    for p in partes:
+        desc = (p.get("part_number") or "—")
+        if p.get("description"):
+            d = (p.get("description") or "")[:80]
+            desc += " — " + (d + "..." if len((p.get("description") or "")) > 80 else d)
+        data.append(["", desc, p.get("tariff_schedule") or "SEE ATTACHED", "B", p.get("origin") or "MX"])
+    if not partes:
+        data.append(["", "—", "SEE ATTACHED", "—", "—"])
+    t3 = Table(data, colWidths=[0.3 * inch, 2.3 * inch, 1.3 * inch, 1.0 * inch, 1.0 * inch])
+    t3.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f0f0f0")), ("GRID", (0, 0), (-1, -1), 0.5, colors.black), ("FONTSIZE", (0, 0), (-1, -1), 9), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4)]))
+    story.append(t3)
+    story.append(Spacer(1, 6))
+    story.append(Paragraph(f"<b>9. BLANKET PERIOD (MM/DD/YY)</b><br/>FROM: {context.get('blanket_period_from', '')}  TO: {context.get('blanket_period_to', '')}", body_style))
+    story.append(Spacer(1, 6))
+    story.append(Paragraph("I certify that the goods described in this document qualify as originating and the information contained in this document is true and accurate.", body_style))
+    story.append(Paragraph("I assume responsibility for proving such representations and agree to maintain and present upon request or to make available during a verification visit, documentation necessary to support this certification.", body_style))
+    story.append(Paragraph(f"This certification consists of {context.get('num_pages', 1)} page(s), including all attachments.", body_style))
+    story.append(Spacer(1, 12))
+    left_sig = "<b>CERTIFIER'S SIGNATURE</b><br/><br/><b>CERTIFIER'S NAME (PRINT OR TYPE)</b><br/>" + (context.get("certifier_name") or "") + "<br/><br/><b>DATE (MM/DD/YY)</b><br/>" + (context.get("certification_date") or "")
+    right_sig = "<b>COMPANY NAME</b><br/>" + (context.get("certifier_company") or "") + "<br/><br/><b>CERTIFIER'S TITLE</b><br/>" + (context.get("certifier_title") or "") + "<br/><br/><b>CERTIFIER TYPE (IMPORTER, EXPORTER, PRODUCER)</b><br/>" + (context.get("certifier_type") or "")
+    t4 = Table([[Paragraph(left_sig, body_style), Paragraph(right_sig, body_style)]], colWidths=[3.25 * inch, 3.25 * inch])
+    t4.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (1, 0), (1, 0), 20)]))
+    story.append(t4)
+    doc.build(story)
+    return out.getvalue()
+
+
+def _render_certificado_co_xlsx(context: dict) -> bytes:
+    """
+    Genera el certificado C.O. en Excel: rellena la plantilla (hoja C.O.) y devuelve el archivo .xlsx en bytes.
+    Solo crea el Excel; no convierte a PDF.
+    """
+    import shutil
+    from io import BytesIO
+    from openpyxl import load_workbook
+
+    if not _CERT_PLANTILLA_XLSX.exists():
+        raise FileNotFoundError(
+            f"No se encontró la plantilla: {_CERT_PLANTILLA_XLSX}. Coloque 'Plantilla calificados.xlsx' en la raíz del proyecto."
+        )
+
+    ahora = context.get("_ahora") or datetime.now()
+    date_from = ahora.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+    date_to = ahora.replace(month=12, day=31, hour=0, minute=0, second=0, microsecond=0)
+
+    with BytesIO() as buf:
+        with open(_CERT_PLANTILLA_XLSX, "rb") as f:
+            buf.write(f.read())
+        buf.seek(0)
+        wb = load_workbook(buf, read_only=False, data_only=False)
+
+    if "C.O." not in wb.sheetnames:
+        wb.close()
+        raise ValueError("La plantilla no contiene la hoja 'C.O.'")
+    ws = wb["C.O."]
+
+    try:
+        from openpyxl.cell.cell import MergedCell
+    except ImportError:
+        MergedCell = type(None)
+
+    def _cell_to_write(ws, row: int, col: int):
+        cell = ws.cell(row=row, column=col)
+        if not isinstance(cell, MergedCell):
+            return (row, col)
+        for rng in ws.merged_cells.ranges:
+            if rng.min_row <= row <= rng.max_row and rng.min_col <= col <= rng.max_col:
+                return (rng.min_row, rng.min_col)
+        return (row, col)
+
+    def _set_cell(ws, row: int, col: int, value):
+        r, c = _cell_to_write(ws, row, col)
+        ws.cell(row=r, column=c).value = value
+
+    cliente_nombre = (context.get("cliente_nombre") or "").strip() or "VARIOUS (optional customer address)"
+    _set_cell(ws, 16, 5, cliente_nombre)
+
+    fila_ejemplo_plantilla = 24
+    fila_inicio_materiales = 25
+    fila_fin_tabla_plantilla = 39
+    num_filas_tabla_plantilla = 15
+    columnas_tabla = (2, 3, 4, 5, 6, 7, 8, 9, 10)
+    _merges_por_fila = [(2, 3), (4, 6), (7, 8)]
+
+    partes = context.get("partes") or []
+    num_partes = len(partes)
+    filas_extra = max(0, num_partes - num_filas_tabla_plantilla)
+    if filas_extra > 0:
+        fila_insertar = fila_fin_tabla_plantilla + 1
+        ws.insert_rows(fila_insertar, filas_extra)
+        # Desplazar merges para que firma, fechas y bloque de contenido bajen con la tabla.
+        for rng in list(ws.merged_cells.ranges):
+            if rng.min_row >= fila_insertar:
+                rng.shift(row_shift=filas_extra, col_shift=0)
+        # Desplazar alturas de fila (row_dimensions): openpyxl no lo hace al insertar.
+        # Así la firma y el resto del pie conservan su alto en la nueva posición.
+        rd = ws.row_dimensions
+        altura_nuevas_filas = 15.0
+        if fila_insertar in rd and getattr(rd[fila_insertar], "height", None) is not None:
+            altura_nuevas_filas = rd[fila_insertar].height
+        for row_idx in sorted(rd.keys(), reverse=True):
+            if row_idx >= fila_insertar:
+                new_row = row_idx + filas_extra
+                ref = rd[row_idx]
+                if getattr(ref, "height", None) is not None:
+                    rd[new_row].height = ref.height
+                if getattr(ref, "hidden", None) is not None:
+                    rd[new_row].hidden = ref.hidden
+                del rd[row_idx]
+        for r in range(fila_insertar, fila_insertar + filas_extra):
+            rd[r].height = altura_nuevas_filas
+        from copy import copy
+        fila_referencia = fila_fin_tabla_plantilla
+        for r in range(fila_fin_tabla_plantilla + 1, fila_fin_tabla_plantilla + 1 + filas_extra):
+            for (c1, c2) in _merges_por_fila:
+                ws.merge_cells(start_row=r, start_column=c1, end_row=r, end_column=c2)
+            for col in columnas_tabla:
+                src = ws.cell(row=fila_referencia, column=col)
+                tgt = ws.cell(row=r, column=col)
+                if hasattr(src, "_style") and getattr(src, "_style", None) is not None:
+                    tgt._style = copy(src._style)
+    desplazamiento = filas_extra
+
+    for col in columnas_tabla:
+        _set_cell(ws, fila_ejemplo_plantilla, col, "")
+    num_filas_a_limpiar = max(num_partes if num_partes else 12, 12)
+    for row in range(fila_inicio_materiales, fila_inicio_materiales + num_filas_a_limpiar):
+        for col in columnas_tabla:
+            _set_cell(ws, row, col, "")
+
+    for i, p in enumerate(partes):
+        row = fila_inicio_materiales + i
+        numero = (p.get("part_number") or "").strip()
+        descripcion = (p.get("description") or "").strip()
+        if descripcion:
+            descripcion = descripcion[:120].strip()
+        _set_cell(ws, row, 2, numero)
+        _set_cell(ws, row, 4, descripcion or "")
+        _set_cell(ws, row, 7, (p.get("tariff_schedule") or "").strip() or "")
+        _set_cell(ws, row, 9, "B")
+        _set_cell(ws, row, 10, (p.get("origin") or "").strip() or "MX")
+    if not partes:
+        _set_cell(ws, fila_inicio_materiales, 2, "SEE ATTACHED")
+        _set_cell(ws, fila_inicio_materiales, 4, "SEE ATTACHED")
+        _set_cell(ws, fila_inicio_materiales, 7, "SEE ATTACHED")
+
+    _set_cell(ws, 41 + desplazamiento, 5, date_from)
+    _set_cell(ws, 42 + desplazamiento, 5, date_to)
+    _set_cell(ws, 61 + desplazamiento, 2, ahora)
+
+    # Firma en plantilla: columna BC, filas 53-54. Se mueve con desplazamiento (insertar filas).
+    fila_firma_ini = 53 + desplazamiento
+    fila_firma_fin = 54 + desplazamiento
+    try:
+        from openpyxl.styles import Alignment
+        alinear_centro = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        for row in range(fila_firma_ini, fila_firma_fin + 1):
+            for col in (2, 3):  # B y C
+                c = ws.cell(row=row, column=col)
+                c.alignment = alinear_centro
+    except Exception as e:
+        logger.warning("No se pudo aplicar alineación a la zona de firma: %s", e)
+
+    if _CERT_FIRMA_IMG.exists():
+        try:
+            from openpyxl.drawing.image import Image as XLImage
+            img = XLImage(str(_CERT_FIRMA_IMG))
+            if img.width > 180 or img.height > 55:
+                r = min(180 / img.width, 55 / img.height)
+                img.width = int(img.width * r)
+                img.height = int(img.height * r)
+            img.anchor = f"B{fila_firma_ini}"  # BC 53,54 → B(53+despl)
+            ws.add_image(img)
+        except Exception as e:
+            logger.warning("No se pudo insertar la imagen de firma en el certificado: %s", e)
+
+    out = BytesIO()
+    wb.save(out)
+    wb.close()
+    return out.getvalue()
+
+
+def _render_certificado_co_pdf(context: dict) -> bytes:
+    """
+    Genera el PDF del certificado C.O.: primero genera el Excel con _render_certificado_co_xlsx
+    y luego lo convierte a PDF con LibreOffice o Microsoft Excel.
+    """
+    import tempfile
+    xlsx_bytes = _render_certificado_co_xlsx(context)
+    libreoffice = _find_libreoffice()
+    use_excel_win = platform.system() == "Windows"
+    use_excel_mac = platform.system() == "Darwin"
+    if not libreoffice and not use_excel_win and not use_excel_mac:
+        raise RuntimeError(
+            "Para generar el PDF instale LibreOffice o use Windows/Mac con Microsoft Excel."
+        )
+
+    with tempfile.TemporaryDirectory(prefix="cert_co_") as tmpdir:
+        tmpdir_path = Path(tmpdir)
+        tmp_xlsx = tmpdir_path / "certificado_co.xlsx"
+        tmp_xlsx.write_bytes(xlsx_bytes)
+        pdf_path = tmpdir_path / "certificado_co.pdf"
+
+        if libreoffice:
+            subprocess.run(
+                [libreoffice, "--headless", "--convert-to", "pdf", "--outdir", str(tmpdir_path), str(tmp_xlsx)],
+                capture_output=True,
+                timeout=60,
+                cwd=str(tmpdir_path),
+            )
+            if not pdf_path.exists():
+                raise RuntimeError(
+                    "LibreOffice no generó el PDF. Compruebe que LibreOffice esté instalado correctamente."
+                )
+            from pypdf import PdfReader, PdfWriter
+            reader = PdfReader(pdf_path)
+            writer = PdfWriter()
+            writer.add_page(reader.pages[0])
+            out = BytesIO()
+            writer.write(out)
+            return out.getvalue()
+        if use_excel_win and _convert_xlsx_to_pdf_with_excel(tmp_xlsx, pdf_path, "C.O."):
+            return pdf_path.read_bytes()
+        if use_excel_mac:
+            ok, err_msg = _convert_xlsx_to_pdf_with_excel_mac(tmp_xlsx, pdf_path)
+            if ok:
+                from pypdf import PdfReader, PdfWriter
+                reader = PdfReader(pdf_path)
+                writer = PdfWriter()
+                writer.add_page(reader.pages[0])
+                out = BytesIO()
+                writer.write(out)
+                return out.getvalue()
+            raise RuntimeError(
+                "No se pudo generar el PDF con Microsoft Excel. "
+                + (err_msg if err_msg else "")
+                + " Compruebe que Excel esté instalado. Alternativa: instale LibreOffice."
+            )
+        if use_excel_win:
+            raise RuntimeError(
+                "No se pudo generar el PDF con Microsoft Excel. Alternativa: instale LibreOffice."
+            )
+        raise RuntimeError("No se pudo convertir la plantilla Excel a PDF.")
+
+
+@app.get("/api/analisis-icr/certificado-pdf")
+async def api_analisis_icr_certificado_pdf(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    codigo_cliente: Optional[int] = None,
+    numero_parte: List[str] = Query(default=[], description="Números de parte seleccionados (columna Select)"),
+):
+    """
+    Genera el certificado de origen (C.O.) en PDF para los números de parte seleccionados.
+    Requiere al menos un número de parte seleccionado en la columna Select.
+    """
+    if codigo_cliente is None:
+        return JSONResponse({"error": "Falta el parámetro codigo_cliente"}, status_code=400)
+    selected = [str(n).strip() for n in numero_parte if n is not None and str(n).strip()]
+    if not selected:
+        return JSONResponse(
+            {"error": "No hay números de parte seleccionados. Seleccione al menos uno en la columna Select."},
+            status_code=400,
+        )
+    detalle = await crud.get_analisis_icr_detalle(db, codigo_cliente=codigo_cliente)
+    todas_partes = detalle.get("partes") or []
+    # Filtrar solo las partes seleccionadas, manteniendo el orden de selección
+    partes_para_certificado = []
+    for np in selected:
+        for p in todas_partes:
+            if (p.get("part_number") or "").strip() == np:
+                partes_para_certificado.append(p)
+                break
+    if not partes_para_certificado:
+        return JSONResponse(
+            {"error": "Ninguno de los números de parte seleccionados pertenece a este cliente."},
+            status_code=400,
+        )
+    ahora = datetime.now()
+    def _fmt_date(d):
+        return f"{d.month}/{d.day}/{d.strftime('%y')}"
+    certification_date = _fmt_date(ahora)
+    blanket_from = _fmt_date(ahora.replace(month=1, day=1))
+    blanket_to = _fmt_date(ahora.replace(month=12, day=31))
+    context = {
+        **_CERT_CO_LEONI,
+        "codigo_cliente": codigo_cliente,
+        "cliente_nombre": detalle.get("cliente_nombre") or str(codigo_cliente),
+        "importer_address": None,
+        "partes": partes_para_certificado,
+        "blanket_period_from": blanket_from,
+        "blanket_period_to": blanket_to,
+        "certification_date": certification_date,
+        "num_pages": 1,
+        "_ahora": ahora,
+    }
+    try:
+        pdf_bytes = await asyncio.to_thread(_render_certificado_co_pdf, context)
+    except Exception as e:
+        logger.exception("Error generando PDF certificado C.O.")
+        return JSONResponse(
+            {"error": f"Error al generar el PDF: {e!s}"},
+            status_code=500,
+        )
+    filename = f"certificado_co_{codigo_cliente}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/analisis-icr/certificado-excel")
+async def api_analisis_icr_certificado_excel(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    codigo_cliente: Optional[int] = None,
+    numero_parte: List[str] = Query(default=[], description="Números de parte seleccionados (columna Select)"),
+):
+    """
+    Genera el certificado de origen (C.O.) en Excel (.xlsx) para revisión.
+    Mismos parámetros que el certificado PDF; solo devuelve el archivo Excel rellenado.
+    """
+    if codigo_cliente is None:
+        return JSONResponse({"error": "Falta el parámetro codigo_cliente"}, status_code=400)
+    selected = [str(n).strip() for n in numero_parte if n is not None and str(n).strip()]
+    if not selected:
+        return JSONResponse(
+            {"error": "No hay números de parte seleccionados. Seleccione al menos uno en la columna Select."},
+            status_code=400,
+        )
+    detalle = await crud.get_analisis_icr_detalle(db, codigo_cliente=codigo_cliente)
+    todas_partes = detalle.get("partes") or []
+    partes_para_certificado = []
+    for np in selected:
+        for p in todas_partes:
+            if (p.get("part_number") or "").strip() == np:
+                partes_para_certificado.append(p)
+                break
+    if not partes_para_certificado:
+        return JSONResponse(
+            {"error": "Ninguno de los números de parte seleccionados pertenece a este cliente."},
+            status_code=400,
+        )
+    ahora = datetime.now()
+
+    def _fmt_date(d):
+        return f"{d.month}/{d.day}/{d.strftime('%y')}"
+    blanket_from = _fmt_date(ahora.replace(month=1, day=1))
+    blanket_to = _fmt_date(ahora.replace(month=12, day=31))
+    context = {
+        **_CERT_CO_LEONI,
+        "codigo_cliente": codigo_cliente,
+        "cliente_nombre": detalle.get("cliente_nombre") or str(codigo_cliente),
+        "importer_address": None,
+        "partes": partes_para_certificado,
+        "blanket_period_from": blanket_from,
+        "blanket_period_to": blanket_to,
+        "certification_date": _fmt_date(ahora),
+        "num_pages": 1,
+        "_ahora": ahora,
+    }
+    try:
+        xlsx_bytes = await asyncio.to_thread(_render_certificado_co_xlsx, context)
+    except Exception as e:
+        logger.exception("Error generando Excel certificado C.O.")
+        return JSONResponse(
+            {"error": f"Error al generar el Excel: {e!s}"},
+            status_code=500,
+        )
+    filename = f"certificado_co_{codigo_cliente}.xlsx"
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/analisis-icr/material")
+async def analisis_icr_material(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    codigo_cliente: Optional[int] = None,
+    numero_parte: Optional[str] = None,
+):
+    """Página de detalle de un material/número de parte dentro del contexto del cliente, con ítems del BOM."""
+    if not codigo_cliente or not (numero_parte or "").strip():
+        return RedirectResponse(url="/analisis-icr", status_code=302)
+
+    numero_parte = (numero_parte or "").strip()
+    # Nombre del cliente
+    cliente_nombre = None
+    from sqlalchemy import select
+    cliente_row = await db.execute(
+        select(Cliente.nombre).where(Cliente.codigo_cliente == codigo_cliente)
+    )
+    cliente_nombre = cliente_row.scalar_one_or_none()
+    if cliente_nombre is None:
+        v = await db.execute(
+            select(Venta.cliente).where(
+                Venta.codigo_cliente == codigo_cliente,
+                Venta.cliente.isnot(None),
+            ).limit(1)
+        )
+        cliente_nombre = (v.scalar_one_or_none() or "").strip() or str(codigo_cliente)
+
+    bom_data = await crud.get_bom_items_for_parte(db, numero_parte)
+    parte_info = bom_data.get("parte")
+    if not parte_info:
+        parte_info = {"numero_parte": numero_parte, "descripcion": None, "fraccion": None}
+
+    items_orig = bom_data.get("items_originating") or []
+    items_non_orig = bom_data.get("items_non_originating") or []
+    # Lista unificada de ítems del BOM para la tabla resumen (cada uno con clave "tipo")
+    items_bom = [dict(item, tipo="Originating") for item in items_orig] + [dict(item, tipo="Non-Originating") for item in items_non_orig]
+
+    # Totales Value por breakdown (suma de columna Value de cada tabla)
+    def _sum_value(items):
+        total = 0.0
+        for item in items:
+            for p in (item.get("proveedores") or []):
+                qty = item.get("qty")
+                pct = p.get("porcentaje_compra")
+                precio = p.get("precio_compra")
+                if qty is not None and pct is not None and precio is not None:
+                    total += float(qty) * float(pct) / 100 * float(precio)
+        return round(total, 3)
+
+    total_originating_value = _sum_value(items_orig)
+    total_non_originating_value = _sum_value(items_non_orig)
+
+    # F.O.B USD value = último precio de venta de ese número de parte a ese cliente
+    fob_total_value = await crud.get_ultimo_precio_venta_cliente_parte(db, codigo_cliente, numero_parte)
+    if fob_total_value is not None:
+        fob_total_value = round(fob_total_value, 3)
+
+    # Markup = F.O.B USD value - Total Originating Supplies - Total Non-Originating Supplies
+    markup_value = None
+    if fob_total_value is not None:
+        markup_value = round(
+            fob_total_value - total_originating_value - total_non_originating_value,
+            3,
+        )
+
+    # Regional index = ((Total Originating Supplies + Markup) / F.O.B USD value) * 100
+    regional_index = None
+    if fob_total_value is not None and fob_total_value != 0 and markup_value is not None:
+        regional_index = round(
+            (total_originating_value + markup_value) / fob_total_value * 100,
+            2,
+        )
+
+    response = templates.TemplateResponse(
+        "analisis_icr_material.html",
+        {
+            "request": request,
+            "active_page": "analisis_icr",
+            "current_user": current_user,
+            "codigo_cliente": codigo_cliente,
+            "cliente_nombre": cliente_nombre,
+            "numero_parte": numero_parte,
+            "parte_info": parte_info,
+            "items_bom": items_bom,
+            "items_originating": items_orig,
+            "items_non_originating": items_non_orig,
+            "fob_total_value": fob_total_value,
+            "total_originating_value": total_originating_value,
+            "total_non_originating_value": total_non_originating_value,
+            "markup_value": markup_value,
+            "regional_index": regional_index,
+        }
+    )
+    # Evitar caché del navegador para que cambios en porcentaje_compra (pais_origen_material) se vean al recargar
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    return response
 
 
 @app.get("/precios-venta")
@@ -345,7 +1072,7 @@ async def api_actualizar_comentarios_precio_venta(
 @app.post("/api/precios-venta/actualizar-desde-ventas")
 async def api_actualizar_precios_venta_desde_ventas(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(["admin"])),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -359,12 +1086,16 @@ async def api_actualizar_precios_venta_desde_ventas(
             db=db,
             user_id=current_user.id,
         )
-        mensaje = (
-            f"✓ Actualización completada. "
-            f"Se actualizaron {resultado['actualizados']} registro(s), "
-            f"{resultado['sin_cambios']} sin cambios, "
-            f"{resultado['sin_venta']} sin venta aplicable."
-        )
+        partes_msg = []
+        if resultado.get("creados", 0):
+            partes_msg.append(f"{resultado['creados']} creado(s)")
+        if resultado.get("actualizados", 0):
+            partes_msg.append(f"{resultado['actualizados']} actualizado(s)")
+        partes_msg.append(f"{resultado.get('sin_cambios', 0)} sin cambios")
+        partes_msg.append(f"{resultado.get('sin_venta', 0)} sin venta aplicable")
+        if resultado.get("creados_omitidos", 0):
+            partes_msg.append(f"{resultado['creados_omitidos']} omitido(s) (cliente o parte no existe)")
+        mensaje = "✓ Actualización completada. " + ", ".join(partes_msg) + "."
         return {
             "ok": True,
             "mensaje": mensaje,
@@ -2869,7 +3600,7 @@ async def precios_compra(request: Request, current_user: User = Depends(get_curr
 @app.post("/api/precios-compra/actualizar")
 async def actualizar_precios_compra_desde_compras(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(["admin"])),
     db: AsyncSession = Depends(get_db)
 ):
     """Sincroniza precios de materiales desde la tabla compras.
@@ -3003,7 +3734,7 @@ async def api_precios_compra_historial(
 @app.post("/api/precios-compra/actualizar-pais-origen")
 async def actualizar_pais_origen_precios(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(["admin"])),
     db: AsyncSession = Depends(get_db)
 ):
     """Actualiza el país de origen en precios_materiales usando datos de pais_origen_material.
@@ -4575,6 +5306,14 @@ async def actualizar_pais_origen(
     try:
         data = await request.json()
         pais_origen = data.get("pais_origen")
+        porcentaje_compra = data.get("porcentaje_compra")
+        if porcentaje_compra is not None and porcentaje_compra != "":
+            try:
+                porcentaje_compra = float(porcentaje_compra)
+            except (TypeError, ValueError):
+                porcentaje_compra = None
+        else:
+            porcentaje_compra = None
         
         if not pais_origen:
             return JSONResponse(
@@ -4586,6 +5325,7 @@ async def actualizar_pais_origen(
             db=db,
             pais_id=pais_id,
             pais_origen=pais_origen,
+            porcentaje_compra=porcentaje_compra,
             user_id=current_user.id
         )
         
@@ -4602,7 +5342,8 @@ async def actualizar_pais_origen(
                 "id": pais_actualizado.id,
                 "codigo_proveedor": pais_actualizado.codigo_proveedor,
                 "numero_material": pais_actualizado.numero_material,
-                "pais_origen": pais_actualizado.pais_origen
+                "pais_origen": pais_actualizado.pais_origen,
+                "porcentaje_compra": float(pais_actualizado.porcentaje_compra) if pais_actualizado.porcentaje_compra is not None else None
             }
         })
     except Exception as e:
@@ -4698,10 +5439,57 @@ async def api_proveedores(
     })
 
 
+@app.post("/api/materiales/normalizar-cientificos")
+async def normalizar_materiales_cientificos(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Reemplaza todos los numero_material en notación científica por el número entero
+    (ej. 3.4241E+11 -> 342410000000) en materiales, compras, precios y países de origen.
+    No elimina datos; solo normaliza el formato."""
+    try:
+        resultado = await crud.normalizar_numero_material_cientifico_en_bd(db=db)
+        total = (
+            resultado["materiales_actualizados"]
+            + resultado["materiales_eliminados_duplicados"]
+            + resultado["compras_actualizadas"]
+            + resultado["precios_materiales_actualizados"]
+            + resultado["pais_origen_material_actualizados"]
+            + resultado["historiales_actualizados"]
+        )
+        mensaje = (
+            f"✓ Normalización completada: {resultado['materiales_actualizados']} material(es) actualizado(s), "
+            f"{resultado['materiales_eliminados_duplicados']} duplicado(s) eliminado(s), "
+            f"{resultado['compras_actualizadas']} compra(s), "
+            f"{resultado['precios_materiales_actualizados']} precio(s), "
+            f"{resultado['pais_origen_material_actualizados']} país(es) de origen, "
+            f"{resultado['historiales_actualizados']} historial(es)."
+        )
+        if resultado["errores"]:
+            mensaje += f" Errores: {len(resultado['errores'])}."
+        return JSONResponse({
+            "success": len(resultado["errores"]) == 0,
+            "mensaje": mensaje,
+            **resultado,
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "mensaje": f"Error al normalizar notación científica: {str(e)}",
+            }
+        )
+
+
 @app.post("/api/materiales/actualizar")
 async def actualizar_materiales_desde_compras(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(["admin"])),
     db: AsyncSession = Depends(get_db)
 ):
     """Sincroniza materiales desde la tabla compras.
@@ -4752,7 +5540,7 @@ async def actualizar_materiales_desde_compras(
 @app.post("/api/proveedores/actualizar")
 async def actualizar_proveedores_desde_compras(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(["admin"])),
     db: AsyncSession = Depends(get_db)
 ):
     """Sincroniza proveedores desde la tabla compras.
@@ -4803,7 +5591,7 @@ async def actualizar_proveedores_desde_compras(
 @app.post("/api/proveedores/actualizar-estatus")
 async def actualizar_estatus_proveedores(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(["admin"])),
     db: AsyncSession = Depends(get_db)
 ):
     """Actualiza el estatus_compras de proveedores basándose en compras y fecha de creación.
@@ -4865,7 +5653,7 @@ async def actualizar_estatus_proveedores(
 @app.post("/api/paises-origen/actualizar")
 async def actualizar_paises_origen_desde_compras(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(["admin"])),
     db: AsyncSession = Depends(get_db)
 ):
     """Sincroniza países de origen desde la tabla compras.
@@ -5172,6 +5960,27 @@ async def iniciar_descarga(
                             break
                         except Exception:
                             await asyncio.sleep(2)
+                # Sincronizar proveedores, materiales, precios de compra y países de origen antes de marcar como terminado
+                try:
+                    r_prov = await crud.sincronizar_proveedores_desde_compras(db, user_id=current_user.id)
+                    detalles_str += f" Proveedores: {r_prov.get('nuevos_creados', 0)} nuevo(s)."
+                except Exception as e_prov:
+                    detalles_str += f" Proveedores (error): {str(e_prov)[:80]}."
+                try:
+                    r_mat = await crud.sincronizar_materiales_desde_compras(db, user_id=current_user.id)
+                    detalles_str += f" Materiales: {r_mat.get('nuevos_creados', 0)} nuevo(s)."
+                except Exception as e_mat:
+                    detalles_str += f" Materiales (error): {str(e_mat)[:80]}."
+                try:
+                    r_precios = await crud.sincronizar_precios_materiales_desde_compras(db, user_id=current_user.id)
+                    detalles_str += f" Precios compra: {r_precios.get('nuevos_creados', 0)} nuevo(s), {r_precios.get('actualizados', 0)} actualizado(s)."
+                except Exception as e_pre:
+                    detalles_str += f" Precios compra (error): {str(e_pre)[:80]}."
+                try:
+                    r_paises = await crud.sincronizar_paises_origen_desde_compras(db, user_id=current_user.id)
+                    detalles_str += f" Países origen: {r_paises.get('nuevos_creados', 0)} nuevo(s)."
+                except Exception as e_pai:
+                    detalles_str += f" Países origen (error): {str(e_pai)[:80]}."
             else:
                 detalles_str = f"Procesamiento automático falló: {resultado_proc.get('error', 'Error desconocido')}"
 
@@ -5913,6 +6722,10 @@ async def iniciar_descarga_ventas(
                 content_response["registros_insertados"] = resultado_proceso.get("registros_insertados", 0)
                 content_response["registros_duplicados"] = resultado_proceso.get("registros_duplicados", 0)
                 content_response["message_procesamiento"] = resultado_proceso.get("message", "")
+                content_response["precios_venta_actualizados"] = resultado_proceso.get("precios_venta_actualizados")
+                content_response["precios_venta_sin_cambios"] = resultado_proceso.get("precios_venta_sin_cambios")
+                content_response["precios_venta_sin_venta"] = resultado_proceso.get("precios_venta_sin_venta")
+                content_response["precios_venta_error"] = resultado_proceso.get("precios_venta_error")
                 if resultado_proceso.get("success"):
                     try:
                         path_ventas_xlsx.unlink()
@@ -6152,6 +6965,10 @@ async def _procesar_compras_historial_desde_rutas(db: AsyncSession, path_compras
             'codigo_proveedor': safe_str(row[col_cod_prov]) if col_cod_prov and pd.notna(row[col_cod_prov]) else None,
             'price': safe_decimal(row[col_price]) if col_price else None,
         }
+        # Evitar notación científica en numero_material (ej. Excel 3.42E+11 -> 342000000000)
+        if compra_dict.get('numero_material'):
+            n_norm = crud._normalizar_numero_material(compra_dict['numero_material'])
+            compra_dict['numero_material'] = n_norm if n_norm else None
         if compra_dict.get('purchasing_document') or compra_dict.get('numero_material'):
             compras_data.append(compra_dict)
 
@@ -6211,11 +7028,36 @@ async def procesar_compras_historial(
             resultado = await _procesar_compras_historial_desde_rutas(db, path_compras, path_hist)
 
         if resultado["success"]:
+            # Sincronizar proveedores, materiales, precios de compra y países de origen (como en descarga)
+            msg_extra = []
+            try:
+                r_prov = await crud.sincronizar_proveedores_desde_compras(db, user_id=current_user.id)
+                msg_extra.append(f"Proveedores: {r_prov.get('nuevos_creados', 0)} nuevo(s)")
+            except Exception as e_prov:
+                msg_extra.append(f"Proveedores (error): {str(e_prov)[:60]}")
+            try:
+                r_mat = await crud.sincronizar_materiales_desde_compras(db, user_id=current_user.id)
+                msg_extra.append(f"Materiales: {r_mat.get('nuevos_creados', 0)} nuevo(s)")
+            except Exception as e_mat:
+                msg_extra.append(f"Materiales (error): {str(e_mat)[:60]}")
+            try:
+                r_precios = await crud.sincronizar_precios_materiales_desde_compras(db, user_id=current_user.id)
+                msg_extra.append(f"Precios compra: {r_precios.get('nuevos_creados', 0)} nuevo(s), {r_precios.get('actualizados', 0)} actualizado(s)")
+            except Exception as e_pre:
+                msg_extra.append(f"Precios compra (error): {str(e_pre)[:60]}")
+            try:
+                r_paises = await crud.sincronizar_paises_origen_desde_compras(db, user_id=current_user.id)
+                msg_extra.append(f"Países origen: {r_paises.get('nuevos_creados', 0)} nuevo(s)")
+            except Exception as e_pai:
+                msg_extra.append(f"Países origen (error): {str(e_pai)[:60]}")
+            message = resultado["message"]
+            if msg_extra:
+                message += " " + "; ".join(msg_extra) + "."
             return JSONResponse(
                 status_code=200,
                 content={
                     "success": True,
-                    "message": resultado["message"],
+                    "message": message,
                     "insertados": resultado["insertados"],
                     "duplicados": resultado["duplicados"],
                     "errores": resultado.get("errores", []),
@@ -7387,6 +8229,21 @@ async def _procesar_archivo_ventas_desde_ruta(
     try:
         ahora_utc = datetime.now(tz.utc)
         resultado_dict = await _procesar_ventas_core(db, df)
+        # Actualizar precios de venta desde ventas (misma lógica que el botón Actualizar en Precios de Venta)
+        try:
+            resultado_pv = await crud.sincronizar_precios_venta_desde_ventas(db=db, user_id=user_id)
+            resultado_dict["precios_venta_actualizados"] = resultado_pv.get("actualizados", 0)
+            resultado_dict["precios_venta_sin_cambios"] = resultado_pv.get("sin_cambios", 0)
+            resultado_dict["precios_venta_sin_venta"] = resultado_pv.get("sin_venta", 0)
+            msg_pv = (
+                f" Precios de venta: {resultado_pv.get('actualizados', 0)} actualizados, "
+                f"{resultado_pv.get('sin_cambios', 0)} sin cambios, "
+                f"{resultado_pv.get('sin_venta', 0)} sin venta aplicable."
+            )
+            resultado_dict["message"] = (resultado_dict.get("message") or "") + msg_pv
+        except Exception as e_pv:
+            resultado_dict["precios_venta_error"] = str(e_pv)
+            resultado_dict["message"] = (resultado_dict.get("message") or "") + f" Actualización precios de venta falló: {e_pv}."
         fin_utc = datetime.now(tz.utc)
         duracion = int((fin_utc - ahora_utc).total_seconds())
         await crud.update_sales_execution_status(

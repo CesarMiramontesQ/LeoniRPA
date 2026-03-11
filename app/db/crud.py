@@ -1,6 +1,6 @@
 """Operaciones CRUD para usuarios, ejecuciones y BOM."""
 import json
-from sqlalchemy import select, desc, func, or_, String, text, delete, update, cast
+from sqlalchemy import select, desc, func, or_, and_, String, text, delete, update, cast
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -996,6 +996,242 @@ async def get_bom_vigente_by_parte(
     )
     items = list(result.scalars().all())
     return bom, rev, items
+
+
+# Países que se consideran "originating" (Canadá, USA, México); el resto es non-originating
+_BOM_ORIGINATING_PAISES = (
+    "mexico", "méxico", "mex", "mx",
+    "usa", "us", "united states", "estados unidos", "u.s.a.", "u.s.",
+    "canada", "canadá", "ca",
+)
+
+
+def _is_originating_pais(pais: Optional[str]) -> bool:
+    """True si pais es Canadá, USA o México (o variantes)."""
+    if not pais:
+        return False
+    p = pais.strip().lower()
+    if not p:
+        return False
+    return p in _BOM_ORIGINATING_PAISES or any(v in p for v in _BOM_ORIGINATING_PAISES)
+
+
+async def get_bom_items_for_parte(
+    db: AsyncSession,
+    numero_parte: str,
+) -> Dict[str, Any]:
+    """
+    Obtiene los ítems del BOM de un número de parte (primer BOM vigente encontrado).
+    Retorna dict con: parte (info), items_originating, items_non_originating.
+    El país de origen se busca en pais_origen_material por numero_material (= numero_parte del componente).
+    Originating = Canadá, USA o México; el resto non-originating.
+    """
+    parte = await get_parte_by_numero(db, numero_parte)
+    if not parte:
+        return {"parte": None, "items_originating": [], "items_non_originating": []}
+
+    # Cualquier BOM de esta parte (primer registro)
+    result_bom = await db.execute(
+        select(Bom).where(Bom.parte_id == parte.id).limit(1)
+    )
+    bom = result_bom.scalar_one_or_none()
+    if not bom:
+        return {
+            "parte": {"numero_parte": parte.numero_parte, "descripcion": parte.descripcion, "fraccion": parte.fraccion},
+            "items_originating": [],
+            "items_non_originating": [],
+        }
+
+    rev = await get_current_bom_revision(db, bom.id)
+    if not rev:
+        return {
+            "parte": {"numero_parte": parte.numero_parte, "descripcion": parte.descripcion, "fraccion": parte.fraccion},
+            "items_originating": [],
+            "items_non_originating": [],
+        }
+
+    result_items = await db.execute(
+        select(BomItem, Parte)
+        .join(Parte, BomItem.componente_id == Parte.id)
+        .where(BomItem.bom_revision_id == rev.id)
+        .order_by(BomItem.item_no, BomItem.id)
+    )
+    rows = result_items.all()
+
+    # Proveedores y porcentaje de compra desde precios_materiales; pais_origen desde pais_origen_material
+    numeros_parte = list({str((comp.numero_parte or "").strip()) for _, comp in rows if (comp.numero_parte or "").strip()})
+    proveedores_by_material: Dict[str, List[Dict[str, Any]]] = {}
+    if numeros_parte:
+        result_precios = await db.execute(
+            select(
+                PrecioMaterial.numero_material,
+                PrecioMaterial.codigo_proveedor,
+                PrecioMaterial.precio,
+                PrecioMaterial.currency_uom,
+                PrecioMaterial.Porcentaje_Compra,
+                PrecioMaterial.Comentario,
+                Proveedor.nombre.label("proveedor_nombre"),
+            )
+            .join(Proveedor, Proveedor.codigo_proveedor == PrecioMaterial.codigo_proveedor)
+            .where(
+                PrecioMaterial.numero_material.in_(numeros_parte),
+                PrecioMaterial.Porcentaje_Compra.isnot(None),
+                PrecioMaterial.Porcentaje_Compra > 0,
+            )
+            .order_by(PrecioMaterial.numero_material, PrecioMaterial.id)
+        )
+        precios_rows = result_precios.all()
+        keys_pais = [(str((r[0] or "").strip()), int(r[1])) for r in precios_rows if r[0] and r[1] is not None]
+        pais_by_key: Dict[tuple, str] = {}
+        if keys_pais:
+            result_pais = await db.execute(
+                select(
+                    PaisOrigenMaterial.numero_material,
+                    PaisOrigenMaterial.codigo_proveedor,
+                    PaisOrigenMaterial.pais_origen,
+                ).where(
+                    and_(
+                        PaisOrigenMaterial.numero_material.in_({k[0] for k in keys_pais}),
+                        PaisOrigenMaterial.codigo_proveedor.in_({k[1] for k in keys_pais}),
+                    )
+                )
+            )
+            for r in result_pais.all():
+                k = (str((r[0] or "").strip()), int(r[1]))
+                if r[2] is not None:
+                    pais_by_key[k] = str((r[2] or "").strip())
+        for row in precios_rows:
+            num = str((row[0] or "").strip())
+            if not num:
+                continue
+            pct = float(row[4]) if row[4] is not None else None
+            if pct is None or pct == 0:
+                continue
+            cod_prov = int(row[1]) if row[1] is not None else None
+            key_pais = (num, cod_prov) if cod_prov is not None else None
+            prov_entry = {
+                "nombre_proveedor": (row[6] or "").strip() or str(cod_prov),
+                "codigo_proveedor": cod_prov,
+                "pais_origen": pais_by_key.get(key_pais, "") if key_pais else "",
+                "porcentaje_compra": pct,
+                "precio_compra": float(row[2]) if row[2] is not None else None,
+                "currency_uom": (row[3] or "").strip() or None,
+                "comentario": (row[5] or "").strip() if row[5] else None,
+            }
+            if num not in proveedores_by_material:
+                proveedores_by_material[num] = []
+            proveedores_by_material[num].append(prov_entry)
+
+    if numeros_parte and proveedores_by_material:
+
+        # Para el número de parte "310004003", PU/Kg = precio del material + último precio de compra de "310004000" del mismo proveedor
+        if "310004003" in proveedores_by_material:
+            proveedores_310004003 = list({int(p["codigo_proveedor"]) for p in proveedores_by_material["310004003"] if p.get("codigo_proveedor") is not None})
+            precio_310004000_by_proveedor: Dict[int, float] = {}
+            if proveedores_310004003:
+                result_310004000 = await db.execute(
+                    select(PrecioMaterial.codigo_proveedor, PrecioMaterial.precio).where(
+                        PrecioMaterial.numero_material == "310004000",
+                        PrecioMaterial.codigo_proveedor.in_(proveedores_310004003),
+                    )
+                )
+                for row in result_310004000.all():
+                    if row[0] is not None and row[1] is not None:
+                        precio_310004000_by_proveedor[int(row[0])] = float(row[1])
+            for p in proveedores_by_material["310004003"]:
+                cod = int(p["codigo_proveedor"]) if p.get("codigo_proveedor") is not None else None
+                extra = precio_310004000_by_proveedor.get(cod, 0) if cod is not None else 0
+                base = p.get("precio_compra")
+                p["precio_compra"] = (float(base) if base is not None else 0) + extra
+
+        # Materiales con comentario "MAS COBRE": si no tienen precio para ese proveedor, usar el último PU de 310004000 del proveedor 521348
+        precio_mas_cobre_fallback: Optional[float] = None
+        if any(
+            (p.get("comentario") or "").strip().upper() == "MAS COBRE"
+            for prov_list in proveedores_by_material.values()
+            for p in prov_list
+        ):
+            res_mas_cobre = await db.execute(
+                select(PrecioMaterial.precio).where(
+                    PrecioMaterial.numero_material == "310004000",
+                    PrecioMaterial.codigo_proveedor == 521348,
+                ).order_by(desc(PrecioMaterial.updated_at)).limit(1)
+            )
+            p_row = res_mas_cobre.scalar_one_or_none()
+            if p_row is not None:
+                precio_mas_cobre_fallback = float(p_row)
+        if precio_mas_cobre_fallback is not None:
+            for prov_list in proveedores_by_material.values():
+                for p in prov_list:
+                    if (p.get("comentario") or "").strip().upper() == "MAS COBRE" and (
+                        p.get("precio_compra") is None or (isinstance(p.get("precio_compra"), (int, float)) and p.get("precio_compra") == 0)
+                    ):
+                        p["precio_compra"] = precio_mas_cobre_fallback
+
+        # Para el material "310905000" siempre usar la última compra con precio > 10
+        if "310905000" in proveedores_by_material:
+            ultima_compra_310905000 = await db.execute(
+                select(Compra.price).where(
+                    Compra.numero_material == "310905000",
+                    Compra.price.isnot(None),
+                    Compra.price > 10,
+                ).order_by(desc(Compra.posting_date), desc(Compra.id)).limit(1)
+            )
+            row_precio = ultima_compra_310905000.scalar_one_or_none()
+            precio_310905000 = float(row_precio) if row_precio is not None else None
+            if precio_310905000 is not None:
+                for p in proveedores_by_material["310905000"]:
+                    p["precio_compra"] = precio_310905000
+
+    originating = []
+    non_originating = []
+    for bi, comp in rows:
+        numero_comp = str((comp.numero_parte or "").strip())
+        proveedores = proveedores_by_material.get(numero_comp) if numero_comp else []
+        # Origen principal: el del proveedor con mayor % compra, o el primero; si no hay datos, BomItem.origin
+        if proveedores:
+            sorted_prov = sorted(
+                proveedores,
+                key=lambda p: (p["porcentaje_compra"] or 0),
+                reverse=True,
+            )
+            pais_origen = sorted_prov[0].get("pais_origen") or ""
+            origin_display = pais_origen or "—"
+            is_originating = _is_originating_pais(pais_origen) if pais_origen else _is_originating_pais(bi.origin)
+        else:
+            pais_origen = None
+            origin_display = (bi.origin or "").strip() or "—"
+            is_originating = _is_originating_pais(bi.origin)
+        name = (comp.numero_parte or "") + (" " + (comp.descripcion or "") if comp.descripcion else "")
+        name = name.strip() or "—"
+        qty_val = float(bi.qty) if bi.qty is not None else None
+        # Si la medida es M (metros), la cantidad se divide entre 1000
+        if qty_val is not None and (str(bi.measure or "").strip().upper() == "M"):
+            qty_val = qty_val / 1000
+        item_dict = {
+            "name": name,
+            "numero_parte": comp.numero_parte,
+            "descripcion": comp.descripcion,
+            "qty": qty_val,
+            "measure": bi.measure,
+            "comm_code": bi.comm_code,
+            "origin": origin_display,
+            "proveedores": proveedores,
+        }
+        if is_originating:
+            originating.append(item_dict)
+        else:
+            non_originating.append(item_dict)
+
+    return {
+        "parte": {
+            "numero_parte": parte.numero_parte,
+            "descripcion": parte.descripcion,
+            "fraccion": parte.fraccion,
+        },
+        "items_originating": originating,
+        "items_non_originating": non_originating,
+    }
 
 
 async def list_bom_revisiones(db: AsyncSession, bom_id: int, limit: int = 100) -> List[BomRevision]:
@@ -2227,6 +2463,30 @@ async def get_precio_venta_by_id(
     return result.scalar_one_or_none()
 
 
+async def get_ultimo_precio_venta_cliente_parte(
+    db: AsyncSession,
+    codigo_cliente: int,
+    numero_parte: str,
+) -> Optional[float]:
+    """
+    Obtiene el último precio de venta (precio_venta) para un cliente y número de parte.
+    Si hay varios registros (p. ej. por tipo_cable), devuelve el más reciente por updated_at.
+    """
+    result = await db.execute(
+        select(PrecioVenta.precio_venta)
+        .where(
+            PrecioVenta.codigo_cliente == int(codigo_cliente),
+            PrecioVenta.numero_parte == str(numero_parte).strip(),
+        )
+        .order_by(desc(PrecioVenta.updated_at))
+        .limit(1)
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        return None
+    return float(row)
+
+
 async def _ensure_precios_venta_historial_detalle_column(db: AsyncSession) -> None:
     """Asegura columna detalle en precios_venta_historial para compatibilidad."""
     await db.execute(
@@ -2364,13 +2624,13 @@ async def sincronizar_precios_venta_desde_ventas(
     user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
-    Actualiza precios_venta.precio_venta tomando el último precio_full_metal_km
-    encontrado en ventas por (codigo_cliente, producto_condensado=numero_parte),
-    considerando solo registros con sales_km y precio_full_metal_km con valor.
+    Revisa todas las ventas y actualiza/crea precios_venta con el último precio_full_metal_km
+    por (codigo_cliente, producto_condensado=numero_parte). Crea registros nuevos cuando
+    hay ventas que aún no están en precios_venta (cliente + número de parte existentes).
     """
     await _ensure_precios_venta_historial_detalle_column(db)
 
-    # Últimas ventas por clave (cliente, producto_condensado).
+    # Últimas ventas por clave (cliente, producto_condensado = numero de parte).
     ventas_query = (
         select(
             Venta.id,
@@ -2403,13 +2663,17 @@ async def sincronizar_precios_venta_desde_ventas(
         }
 
     precios_rows = (await db.execute(select(PrecioVenta))).scalars().all()
+    existing_keys = {(int(item.codigo_cliente), str(item.numero_parte).strip()) for item in precios_rows}
 
     total_precios_venta = len(precios_rows)
     con_match = 0
     actualizados = 0
     sin_cambios = 0
     sin_venta = 0
+    creados = 0
+    creados_omitidos = 0
 
+    # Actualizar registros existentes
     for item in precios_rows:
         key = (int(item.codigo_cliente), str(item.numero_parte).strip())
         venta_ref = ultimas_ventas_por_clave.get(key)
@@ -2449,6 +2713,54 @@ async def sincronizar_precios_venta_desde_ventas(
             )
             db.add(historial)
 
+    # Crear registros faltantes: ventas con (cliente, numero_parte) que no están en precios_venta
+    keys_solo_en_ventas = [k for k in ultimas_ventas_por_clave if k not in existing_keys]
+    if keys_solo_en_ventas:
+        codigos_cliente = list({k[0] for k in keys_solo_en_ventas})
+        numeros_parte = list({k[1] for k in keys_solo_en_ventas})
+        clientes_result = await db.execute(select(Cliente.codigo_cliente).where(Cliente.codigo_cliente.in_(codigos_cliente)))
+        clientes_set = {int(r[0]) for r in clientes_result.all()}
+        partes_result = await db.execute(select(Parte.numero_parte).where(Parte.numero_parte.in_(numeros_parte)))
+        partes_set = {str(r[0]).strip() for r in partes_result.all()}
+
+        for key in keys_solo_en_ventas:
+            codigo_cliente, numero_parte = key[0], key[1]
+            if codigo_cliente not in clientes_set or numero_parte not in partes_set:
+                creados_omitidos += 1
+                continue
+            venta_ref = ultimas_ventas_por_clave[key]
+            nuevo_precio = venta_ref["precio_full_metal_km"]
+            precio_nuevo = float(nuevo_precio) if nuevo_precio is not None else None
+            nuevo = PrecioVenta(
+                codigo_cliente=codigo_cliente,
+                numero_parte=numero_parte,
+                tipo_cable=None,
+                precio_venta=Decimal(str(precio_nuevo)) if precio_nuevo is not None else None,
+            )
+            db.add(nuevo)
+            await db.flush()
+            creados += 1
+            if user_id is not None:
+                periodo_txt = venta_ref["periodo"].isoformat() if venta_ref["periodo"] is not None else "N/A"
+                detalle = (
+                    "Creado desde ventas "
+                    f"(venta_id={venta_ref['venta_id']}, periodo={periodo_txt}, "
+                    f"precio_full_metal_km={precio_nuevo})."
+                )
+                historial = PrecioVentaHistorial(
+                    precio_venta_id=nuevo.id,
+                    codigo_cliente=nuevo.codigo_cliente,
+                    numero_parte=nuevo.numero_parte,
+                    tipo_cable=nuevo.tipo_cable,
+                    operacion="CREATE",
+                    user_id=user_id,
+                    datos_antes=None,
+                    datos_despues={"precio_venta": precio_nuevo},
+                    campos_modificados=None,
+                    detalle=detalle,
+                )
+                db.add(historial)
+
     await db.commit()
     return {
         "total_precios_venta": total_precios_venta,
@@ -2457,6 +2769,8 @@ async def sincronizar_precios_venta_desde_ventas(
         "actualizados": actualizados,
         "sin_cambios": sin_cambios,
         "sin_venta": sin_venta,
+        "creados": creados,
+        "creados_omitidos": creados_omitidos,
     }
 
 
@@ -2612,6 +2926,7 @@ async def sincronizar_materiales_desde_compras(
     Sincroniza materiales desde la tabla compras.
     Busca todos los numero_material únicos en compras que no estén registrados
     en materiales y los crea usando la descripcion_material de compras.
+    Siempre guarda numero_material sin notación científica (ej. 342410000000 en vez de 3.4241E+11).
     
     Returns:
         Dict con estadísticas de la sincronización:
@@ -2638,17 +2953,25 @@ async def sincronizar_materiales_desde_compras(
         
         total_encontrados = len(materiales_en_compras)
         
-        # 2. Obtener todos los números de materiales existentes para comparación rápida
+        # 2. Números de materiales existentes por número normalizado (evita duplicados con notación científica)
         query_existentes = select(Material.numero_material)
         result_existentes = await db.execute(query_existentes)
-        numeros_existentes = {row[0] for row in result_existentes.all() if row[0]}
+        numeros_existentes = set()
+        for row in result_existentes.all():
+            if row[0]:
+                n = _normalizar_numero_material(row[0])
+                if n:
+                    numeros_existentes.add(n)
         
-        # 3. Para cada numero_material, verificar si existe en materiales
-        for numero_material, descripcion_material in materiales_en_compras:
-            if not numero_material or numero_material.strip() == '':
+        # 3. Para cada numero_material de compras, normalizar y crear si no existe
+        for numero_material_raw, descripcion_material in materiales_en_compras:
+            if not numero_material_raw or str(numero_material_raw).strip() == '':
+                continue
+            numero_material = _normalizar_numero_material(numero_material_raw)
+            if not numero_material:
                 continue
             
-            # Verificar si el material ya existe (usando el set para mejor rendimiento)
+            # Verificar si el material ya existe (por número normalizado)
             if numero_material not in numeros_existentes:
                 # Verificar nuevamente en la BD antes de crear (por si acaso)
                 material_existente = await get_material_by_numero(db, numero_material)
@@ -2656,9 +2979,8 @@ async def sincronizar_materiales_desde_compras(
                     numeros_existentes.add(numero_material)
                     continue
                 
-                # Crear el material con la descripción de compras
+                # Crear el material con número sin notación científica y descripción de compras
                 try:
-                    # Intentar crear el material
                     material = Material(
                         numero_material=numero_material,
                         descripcion_material=descripcion_material
@@ -2770,6 +3092,161 @@ async def sincronizar_materiales_desde_compras(
         }
 
 
+def _es_notacion_cientifica(val: Any) -> bool:
+    """True si el valor está en notación científica (ej. 3.4241E+11)."""
+    if val is None:
+        return False
+    s = str(val).strip()
+    if not s:
+        return False
+    s_lower = s.lower()
+    if "e" not in s_lower:
+        return False
+    try:
+        float(s)
+        return True
+    except ValueError:
+        return False
+
+
+def _normalizar_numero_material(val: Any) -> str:
+    """
+    Convierte numero_material a string sin notación científica.
+    Ej: 3.4241E+11 o '3.4241E+11' -> '342410000000'.
+    Así se evita violar FK con materiales donde el número está guardado completo.
+    """
+    if val is None:
+        return ""
+    s = str(val).strip()
+    if not s:
+        return ""
+    try:
+        f = float(s)
+        if f == int(f):
+            return str(int(f))
+        return s
+    except ValueError:
+        return s
+
+
+async def normalizar_numero_material_cientifico_en_bd(db: AsyncSession) -> Dict[str, Any]:
+    """
+    Reemplaza todos los numero_material en notación científica por el número entero
+    (ej. 3.4241E+11 -> 342410000000) en materiales, compras, precios_materiales,
+    pais_origen_material y sus tablas de historial. No elimina datos; solo normaliza.
+    """
+    resultado: Dict[str, Any] = {
+        "materiales_actualizados": 0,
+        "materiales_eliminados_duplicados": 0,
+        "compras_actualizadas": 0,
+        "precios_materiales_actualizados": 0,
+        "pais_origen_material_actualizados": 0,
+        "historiales_actualizados": 0,
+        "errores": [],
+    }
+    try:
+        # 1. Materiales con numero_material en notación científica
+        query_mat = select(Material).where(Material.numero_material.isnot(None))
+        res_mat = await db.execute(query_mat)
+        materiales = res_mat.scalars().all()
+        cientificos = [(m, _normalizar_numero_material(m.numero_material)) for m in materiales if _es_notacion_cientifica(m.numero_material)]
+        if not cientificos:
+            return resultado
+
+        for material, numero_norm in cientificos:
+            if not numero_norm:
+                continue
+            try:
+                existente = await get_material_by_numero(db, numero_norm)
+                if existente and existente.id != material.id:
+                    # Ya existe un material con el número normalizado: referencias al científico -> normalizado, luego borrar material científico
+                    await db.execute(
+                        update(PrecioMaterial).where(PrecioMaterial.numero_material == material.numero_material).values(numero_material=numero_norm)
+                    )
+                    await db.execute(
+                        update(PaisOrigenMaterial).where(PaisOrigenMaterial.numero_material == material.numero_material).values(numero_material=numero_norm)
+                    )
+                    await db.execute(
+                        update(Compra).where(Compra.numero_material == material.numero_material).values(numero_material=numero_norm)
+                    )
+                    await db.execute(
+                        update(MaterialHistorial).where(MaterialHistorial.numero_material == material.numero_material).values(numero_material=numero_norm)
+                    )
+                    await db.execute(
+                        update(PaisOrigenMaterialHistorial).where(PaisOrigenMaterialHistorial.numero_material == material.numero_material).values(numero_material=numero_norm)
+                    )
+                    await db.execute(
+                        update(PrecioMaterialHistorial).where(PrecioMaterialHistorial.numero_material == material.numero_material).values(numero_material=numero_norm)
+                    )
+                    await db.delete(material)
+                    resultado["materiales_eliminados_duplicados"] += 1
+                else:
+                    # No hay duplicado: actualizar el material y todas las referencias
+                    await db.execute(
+                        update(Material).where(Material.id == material.id).values(numero_material=numero_norm)
+                    )
+                    await db.execute(
+                        update(PrecioMaterial).where(PrecioMaterial.numero_material == material.numero_material).values(numero_material=numero_norm)
+                    )
+                    await db.execute(
+                        update(PaisOrigenMaterial).where(PaisOrigenMaterial.numero_material == material.numero_material).values(numero_material=numero_norm)
+                    )
+                    await db.execute(
+                        update(Compra).where(Compra.numero_material == material.numero_material).values(numero_material=numero_norm)
+                    )
+                    await db.execute(
+                        update(MaterialHistorial).where(MaterialHistorial.numero_material == material.numero_material).values(numero_material=numero_norm)
+                    )
+                    await db.execute(
+                        update(PaisOrigenMaterialHistorial).where(PaisOrigenMaterialHistorial.numero_material == material.numero_material).values(numero_material=numero_norm)
+                    )
+                    await db.execute(
+                        update(PrecioMaterialHistorial).where(PrecioMaterialHistorial.numero_material == material.numero_material).values(numero_material=numero_norm)
+                    )
+                    resultado["materiales_actualizados"] += 1
+            except Exception as e:
+                resultado["errores"].append(f"Material {material.numero_material}: {e}")
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+                continue
+
+        await db.commit()
+
+        # Valores en notación científica huérfanos (compras/historial sin material correspondiente)
+        for model in [Compra, PrecioMaterial, PaisOrigenMaterial, MaterialHistorial, PaisOrigenMaterialHistorial, PrecioMaterialHistorial]:
+            try:
+                q = select(model.numero_material).where(model.numero_material.isnot(None)).distinct()
+                r = await db.execute(q)
+                for (val,) in r.all():
+                    if val and _es_notacion_cientifica(val):
+                        norm = _normalizar_numero_material(val)
+                        if norm:
+                            stmt = update(model).where(model.numero_material == val).values(numero_material=norm)
+                            await db.execute(stmt)
+                            if model == Compra:
+                                resultado["compras_actualizadas"] += 1
+                            elif model == PrecioMaterial:
+                                resultado["precios_materiales_actualizados"] += 1
+                            elif model == PaisOrigenMaterial:
+                                resultado["pais_origen_material_actualizados"] += 1
+                            else:
+                                resultado["historiales_actualizados"] += 1
+            except Exception as e:
+                resultado["errores"].append(f"Tabla {model.__tablename__}: {e}")
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+
+        await db.commit()
+    except Exception as e:
+        await db.rollback()
+        resultado["errores"].append(str(e))
+    return resultado
+
+
 async def sincronizar_paises_origen_desde_compras(
     db: AsyncSession,
     user_id: Optional[int] = None
@@ -2778,6 +3255,7 @@ async def sincronizar_paises_origen_desde_compras(
     Sincroniza países de origen desde la tabla compras.
     Busca combinaciones únicas de codigo_proveedor y numero_material en compras
     que no estén registradas en pais_origen_material y las crea con pais_origen = "Pendiente".
+    Solo crea registros cuando el material existe en la tabla materiales (por la FK).
     
     Returns:
         Dict con estadísticas de la sincronización:
@@ -2822,25 +3300,33 @@ async def sincronizar_paises_origen_desde_compras(
         
         total_encontrados = len(pares_en_compras)
         
-        # 2. Obtener todas las combinaciones existentes para comparación rápida
+        # 2. Obtener todas las combinaciones existentes para comparación rápida (numero_material normalizado)
         query_existentes = select(
             PaisOrigenMaterial.codigo_proveedor,
             PaisOrigenMaterial.numero_material
         )
         result_existentes = await db.execute(query_existentes)
         existentes = {
-            (str(row[0]).strip(), str(row[1]).strip())
+            (str(row[0]).strip(), _normalizar_numero_material(row[1]))
             for row in result_existentes.all()
             if row[0] and row[1]
         }
         
+        # 2b. Índice de materiales por número normalizado (para encontrar aunque estén guardados en notación científica)
+        query_materiales = select(Material)
+        result_materiales = await db.execute(query_materiales)
+        material_by_normalized: Dict[str, Material] = {}
+        for m in result_materiales.scalars().all():
+            if m.numero_material:
+                material_by_normalized[_normalizar_numero_material(m.numero_material)] = m
+        
         # 3. Para cada par, verificar si existe y crear si no
-        for codigo_proveedor, numero_material in pares_en_compras:
-            if not codigo_proveedor or not numero_material:
+        for codigo_proveedor, numero_material_raw in pares_en_compras:
+            if not codigo_proveedor or not numero_material_raw:
                 continue
             
             codigo_proveedor = str(codigo_proveedor).strip()
-            numero_material = str(numero_material).strip()
+            numero_material = _normalizar_numero_material(numero_material_raw)
             
             if not codigo_proveedor or not numero_material:
                 continue
@@ -2848,11 +3334,61 @@ async def sincronizar_paises_origen_desde_compras(
             if (codigo_proveedor, numero_material) in existentes:
                 continue
             
+            # La FK exige que el material exista: buscar por número normalizado o crearlo desde compras
+            material_existente = material_by_normalized.get(numero_material)
+            if not material_existente:
+                material_existente = await get_material_by_numero(db, numero_material)
+                if material_existente:
+                    material_by_normalized[numero_material] = material_existente
+            if not material_existente:
+                # Obtener descripción desde compras (puede estar como raw o normalizado)
+                descripcion = None
+                try:
+                    codigo_int = int(codigo_proveedor)
+                except (TypeError, ValueError):
+                    codigo_int = None
+                if codigo_int is not None:
+                    q_desc = select(Compra.descripcion_material).where(
+                        Compra.codigo_proveedor == codigo_int,
+                        or_(
+                            Compra.numero_material == numero_material_raw,
+                            Compra.numero_material == numero_material,
+                        ),
+                        Compra.descripcion_material.isnot(None),
+                    ).limit(1)
+                    r_desc = await db.execute(q_desc)
+                    row_desc = r_desc.scalar_one_or_none()
+                    if row_desc:
+                        descripcion = row_desc
+                try:
+                    material_nuevo = await create_material(
+                        db, numero_material, descripcion_material=descripcion, user_id=user_id
+                    )
+                    material_by_normalized[numero_material] = material_nuevo
+                except Exception as e_crear:
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                    # Por si ya existía (race condition)
+                    material_existente = await get_material_by_numero(db, numero_material)
+                    if material_existente:
+                        material_by_normalized[numero_material] = material_existente
+                    else:
+                        errores.append(
+                            f"Material {numero_material} (proveedor {codigo_proveedor}) no pudo crearse: {e_crear}"
+                        )
+                        continue
+            
+            # Usar el numero_material tal como está en la tabla materiales (FK exige coincidencia exacta)
+            mat = material_by_normalized.get(numero_material)
+            numero_material_fk = mat.numero_material if mat else numero_material
+            
             # Verificar nuevamente en la BD antes de crear (por si acaso)
             existente = await get_pais_origen_material_by_proveedor_material(
                 db,
                 codigo_proveedor,
-                numero_material
+                numero_material_fk
             )
             if existente:
                 existentes.add((codigo_proveedor, numero_material))
@@ -2862,7 +3398,7 @@ async def sincronizar_paises_origen_desde_compras(
                 codigo_int = int(codigo_proveedor)
                 pais_origen_material = PaisOrigenMaterial(
                     codigo_proveedor=codigo_int,
-                    numero_material=numero_material,
+                    numero_material=numero_material_fk,
                     pais_origen="Pendiente"
                 )
                 db.add(pais_origen_material)
@@ -2874,7 +3410,7 @@ async def sincronizar_paises_origen_desde_compras(
                     historial = PaisOrigenMaterialHistorial(
                         pais_origen_id=pais_origen_material.id,
                         codigo_proveedor=codigo_int,
-                        numero_material=numero_material,
+                        numero_material=numero_material_fk,
                         operacion=PaisOrigenMaterialOperacion.CREATE,
                         user_id=user_id,
                         datos_antes=None,
@@ -2913,7 +3449,7 @@ async def sincronizar_paises_origen_desde_compras(
                             codigo_int = int(codigo_proveedor)
                             pais_origen_material = PaisOrigenMaterial(
                                 codigo_proveedor=codigo_int,
-                                numero_material=numero_material,
+                                numero_material=numero_material_fk,
                                 pais_origen="Pendiente"
                             )
                             db.add(pais_origen_material)
@@ -2923,7 +3459,7 @@ async def sincronizar_paises_origen_desde_compras(
                                 historial = PaisOrigenMaterialHistorial(
                                     pais_origen_id=pais_origen_material.id,
                                     codigo_proveedor=codigo_int,
-                                    numero_material=numero_material,
+                                    numero_material=numero_material_fk,
                                     operacion=PaisOrigenMaterialOperacion.CREATE,
                                     user_id=user_id,
                                     datos_antes=None,
@@ -2961,7 +3497,7 @@ async def sincronizar_paises_origen_desde_compras(
                             codigo_int = int(codigo_proveedor)
                             pais_origen_material = PaisOrigenMaterial(
                                 codigo_proveedor=codigo_int,
-                                numero_material=numero_material,
+                                numero_material=numero_material_fk,
                                 pais_origen="Pendiente"
                             )
                             db.add(pais_origen_material)
@@ -2973,7 +3509,7 @@ async def sincronizar_paises_origen_desde_compras(
                                 historial = PaisOrigenMaterialHistorial(
                                     pais_origen_id=pais_origen_material.id,
                                     codigo_proveedor=codigo_int,
-                                    numero_material=numero_material,
+                                    numero_material=numero_material_fk,
                                     operacion=PaisOrigenMaterialOperacion.CREATE,
                                     user_id=user_id,
                                     datos_antes=None,
@@ -2995,7 +3531,7 @@ async def sincronizar_paises_origen_desde_compras(
                 existente = await get_pais_origen_material_by_proveedor_material(
                     db,
                     codigo_proveedor,
-                    numero_material
+                    numero_material_fk
                 )
                 if existente:
                     existentes.add((codigo_proveedor, numero_material))
@@ -3341,7 +3877,9 @@ async def sincronizar_precios_materiales_desde_compras(
                 continue
             
             codigo_proveedor = str(codigo_proveedor).strip()
-            numero_material = str(numero_material).strip()
+            numero_material = _normalizar_numero_material(numero_material)
+            if numero_material:
+                numero_material = numero_material.strip()
             
             if not codigo_proveedor or not numero_material:
                 continue
@@ -3743,7 +4281,12 @@ async def create_compra(
     codigo_proveedor: Optional[str] = None,
     price: Optional[Decimal] = None,
 ) -> Compra:
-    """Crea un nuevo registro de compra."""
+    """Crea un nuevo registro de compra. numero_material se guarda sin notación científica."""
+    # Si viene número (o notación científica), se guarda normalizado; None solo cuando la entrada era vacía/None
+    if numero_material:
+        numero_material_final = _normalizar_numero_material(numero_material) or None
+    else:
+        numero_material_final = None
     db_compra = Compra(
         purchasing_document=purchasing_document,
         item=item,
@@ -3762,7 +4305,7 @@ async def create_compra(
         currency=currency,
         gr_ir_clearing_value_lc=gr_ir_clearing_value_lc,
         invoice_value=invoice_value,
-        numero_material=numero_material,
+        numero_material=numero_material_final,
         plant=plant,
         descripcion_material=descripcion_material,
         nombre_proveedor=nombre_proveedor,
@@ -3855,6 +4398,11 @@ async def bulk_create_or_update_compras(
     
     for idx, compra_data in enumerate(compras_data, start=1):
         try:
+            # Normalizar numero_material para no guardar notación científica
+            raw_num = compra_data.get('numero_material')
+            if raw_num is not None:
+                n = _normalizar_numero_material(raw_num)
+                compra_data = {**compra_data, 'numero_material': (n if n else None)}
             material_doc = compra_data.get('material_document')
             material_doc_item = compra_data.get('material_doc_item')
             purchasing_doc = compra_data.get('purchasing_document')
@@ -3921,6 +4469,9 @@ async def bulk_create_compras(
     for compra_data in compras_data:
         datos_insercion = {k: v for k, v in compra_data.items()
                           if k not in ('id', 'created_at', 'updated_at')}
+        if datos_insercion.get('numero_material') is not None:
+            n = _normalizar_numero_material(datos_insercion['numero_material'])
+            datos_insercion['numero_material'] = n if n else None
         compra = Compra(**datos_insercion)
         compras_objects.append(compra)
     
@@ -4058,6 +4609,7 @@ def _pais_origen_material_to_dict(pais_origen_material: PaisOrigenMaterial) -> D
         "codigo_proveedor": pais_origen_material.codigo_proveedor,
         "numero_material": pais_origen_material.numero_material,
         "pais_origen": pais_origen_material.pais_origen,
+        "porcentaje_compra": float(pais_origen_material.porcentaje_compra) if pais_origen_material.porcentaje_compra is not None else None,
         "created_at": pais_origen_material.created_at.isoformat() if pais_origen_material.created_at else None,
         "updated_at": pais_origen_material.updated_at.isoformat() if pais_origen_material.updated_at else None
     }
@@ -4089,13 +4641,15 @@ async def create_pais_origen_material(
     codigo_proveedor: str,
     numero_material: str,
     pais_origen: str,
+    porcentaje_compra: Optional[float] = None,
     user_id: Optional[int] = None
 ) -> PaisOrigenMaterial:
     """Crea un nuevo país de origen de material."""
     pais_origen_material = PaisOrigenMaterial(
         codigo_proveedor=codigo_proveedor,
         numero_material=numero_material,
-        pais_origen=pais_origen
+        pais_origen=pais_origen,
+        porcentaje_compra=porcentaje_compra
     )
     db.add(pais_origen_material)
     await db.flush()  # Flush para obtener el ID sin hacer commit
@@ -4123,6 +4677,7 @@ async def update_pais_origen_material(
     db: AsyncSession,
     pais_id: int,
     pais_origen: Optional[str] = None,
+    porcentaje_compra: Optional[float] = None,
     user_id: Optional[int] = None
 ) -> Optional[PaisOrigenMaterial]:
     """Actualiza un país de origen de material."""
@@ -4137,6 +4692,10 @@ async def update_pais_origen_material(
     if pais_origen is not None and pais_origen_material.pais_origen != pais_origen:
         pais_origen_material.pais_origen = pais_origen
         campos_modificados.append("pais_origen")
+    
+    if porcentaje_compra is not None and pais_origen_material.porcentaje_compra != porcentaje_compra:
+        pais_origen_material.porcentaje_compra = porcentaje_compra
+        campos_modificados.append("porcentaje_compra")
     
     # Solo registrar en historial si hubo cambios
     if campos_modificados and user_id is not None:
@@ -4166,6 +4725,7 @@ async def upsert_pais_origen_material(
     codigo_proveedor: str,
     numero_material: str,
     pais_origen: str,
+    porcentaje_compra: Optional[float] = None,
     user_id: Optional[int] = None
 ) -> PaisOrigenMaterial:
     """Crea o actualiza un país de origen de material (upsert)."""
@@ -4177,6 +4737,7 @@ async def upsert_pais_origen_material(
             db,
             pais_id=existing.id,
             pais_origen=pais_origen,
+            porcentaje_compra=porcentaje_compra,
             user_id=user_id
         )
     else:
@@ -4186,8 +4747,60 @@ async def upsert_pais_origen_material(
             codigo_proveedor=codigo_proveedor,
             numero_material=numero_material,
             pais_origen=pais_origen,
+            porcentaje_compra=porcentaje_compra,
             user_id=user_id
         )
+
+
+async def actualizar_porcentaje_compra_desde_filas(
+    db: AsyncSession,
+    filas: List[Dict[str, Any]],
+    user_id: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Actualiza porcentaje_compra en pais_origen_material a partir de una lista de filas.
+    Cada fila debe tener: codigo_proveedor (int o str), numero_material (str), porcentaje_compra (float o None).
+    numero_material se normaliza con _normalizar_numero_material antes de buscar.
+    Retorna: actualizados, no_encontrados, errores.
+    """
+    resultado: Dict[str, Any] = {
+        "actualizados": 0,
+        "no_encontrados": 0,
+        "errores": []
+    }
+    for fila in filas:
+        try:
+            codigo_proveedor = fila.get("codigo_proveedor")
+            numero_material_raw = fila.get("numero_material")
+            porcentaje_compra = fila.get("porcentaje_compra")
+            if codigo_proveedor is None or numero_material_raw is None:
+                continue
+            if porcentaje_compra is not None:
+                try:
+                    porcentaje_compra = float(porcentaje_compra)
+                except (TypeError, ValueError):
+                    porcentaje_compra = None
+            codigo_proveedor = int(codigo_proveedor)
+            numero_material = _normalizar_numero_material(numero_material_raw)
+            if not numero_material:
+                continue
+            pais = await get_pais_origen_material_by_proveedor_material(
+                db, str(codigo_proveedor), numero_material
+            )
+            if not pais:
+                resultado["no_encontrados"] += 1
+                continue
+            await update_pais_origen_material(
+                db,
+                pais_id=pais.id,
+                pais_origen=None,
+                porcentaje_compra=porcentaje_compra,
+                user_id=user_id
+            )
+            resultado["actualizados"] += 1
+        except Exception as e:
+            resultado["errores"].append(f"{fila.get('codigo_proveedor')}/{fila.get('numero_material')}: {str(e)}")
+    return resultado
 
 
 async def list_paises_origen_material(
@@ -4791,6 +5404,176 @@ async def count_ventas(
     
     result = await db.execute(query)
     return result.scalar() or 0
+
+
+async def list_partes_icr_por_cliente(
+    db: AsyncSession,
+    codigo_cliente: int,
+) -> List[str]:
+    """
+    Devuelve los números de parte únicos (producto_condensado) que ha adquirido un cliente,
+    considerando solo ventas donde precio_exmetal_km, precio_exmetal_m, precio_full_metal_km
+    y precio_full_metal_m no son null ni 0.
+    """
+    query = (
+        select(Venta.producto_condensado)
+        .where(
+            Venta.codigo_cliente == codigo_cliente,
+            Venta.producto_condensado.isnot(None),
+            Venta.producto_condensado != "",
+            Venta.precio_exmetal_km.isnot(None),
+            Venta.precio_exmetal_km != 0,
+            Venta.precio_exmetal_m.isnot(None),
+            Venta.precio_exmetal_m != 0,
+            Venta.precio_full_metal_km.isnot(None),
+            Venta.precio_full_metal_km != 0,
+            Venta.precio_full_metal_m.isnot(None),
+            Venta.precio_full_metal_m != 0,
+        )
+        .distinct()
+        .order_by(Venta.producto_condensado)
+    )
+    result = await db.execute(query)
+    rows = result.all()
+    return [str(r[0]).strip() for r in rows if r[0] and str(r[0]).strip()]
+
+
+def _sum_value_items(items: List[Dict[str, Any]]) -> float:
+    """Suma la columna Value (qty * porcentaje_compra/100 * precio_compra) de una lista de ítems con proveedores."""
+    total = 0.0
+    for item in items:
+        for p in (item.get("proveedores") or []):
+            qty = item.get("qty")
+            pct = p.get("porcentaje_compra")
+            precio = p.get("precio_compra")
+            if qty is not None and pct is not None and precio is not None:
+                total += float(qty) * float(pct) / 100 * float(precio)
+    return round(total, 3)
+
+
+async def get_icr_para_parte(
+    db: AsyncSession,
+    codigo_cliente: int,
+    numero_parte: str,
+) -> Optional[float]:
+    """
+    Calcula el Regional Index (ICR) para un cliente y número de parte.
+    Fórmula: ((Total Originating Supplies + Markup) / F.O.B USD value) * 100.
+    Devuelve None si no se puede calcular (sin FOB, sin BOM, etc.).
+    """
+    bom_data = await get_bom_items_for_parte(db, str(numero_parte).strip())
+    items_orig = bom_data.get("items_originating") or []
+    items_non_orig = bom_data.get("items_non_originating") or []
+    total_originating_value = _sum_value_items(items_orig)
+    total_non_originating_value = _sum_value_items(items_non_orig)
+    fob_total_value = await get_ultimo_precio_venta_cliente_parte(db, int(codigo_cliente), str(numero_parte).strip())
+    if fob_total_value is None:
+        return None
+    fob_total_value = round(fob_total_value, 3)
+    markup_value = round(
+        fob_total_value - total_originating_value - total_non_originating_value,
+        3,
+    )
+    if fob_total_value == 0:
+        return None
+    regional_index = (total_originating_value + markup_value) / fob_total_value * 100
+    return round(regional_index, 2)
+
+
+async def get_analisis_icr_detalle(
+    db: AsyncSession,
+    codigo_cliente: int,
+) -> Dict[str, Any]:
+    """
+    Devuelve el detalle para la vista Análisis ICR: nombre del cliente y lista de partes
+    con part_number, description, tariff_schedule (fracción de Parte), origin, icr.
+    Solo ventas con precios ICR no null ni 0.
+    """
+    # Nombre del cliente: primero desde tabla clientes, si no desde ventas
+    cliente_row = await db.execute(
+        select(Cliente.nombre).where(Cliente.codigo_cliente == codigo_cliente)
+    )
+    cliente_nombre = cliente_row.scalar_one_or_none()
+    if cliente_nombre is None:
+        venta_nombre = await db.execute(
+            select(Venta.cliente)
+            .where(Venta.codigo_cliente == codigo_cliente, Venta.cliente.isnot(None))
+            .limit(1)
+        )
+        cliente_nombre = (venta_nombre.scalar_one_or_none() or "").strip() or str(codigo_cliente)
+
+    base_filter = and_(
+        Venta.codigo_cliente == codigo_cliente,
+        Venta.producto_condensado.isnot(None),
+        Venta.producto_condensado != "",
+        Venta.precio_exmetal_km.isnot(None),
+        Venta.precio_exmetal_km != 0,
+        Venta.precio_exmetal_m.isnot(None),
+        Venta.precio_exmetal_m != 0,
+        Venta.precio_full_metal_km.isnot(None),
+        Venta.precio_full_metal_km != 0,
+        Venta.precio_full_metal_m.isnot(None),
+        Venta.precio_full_metal_m != 0,
+    )
+    ventas_query = (
+        select(Venta.producto_condensado, Venta.descripcion_producto)
+        .where(base_filter)
+        .order_by(Venta.producto_condensado, desc(Venta.id))
+    )
+    ventas_result = await db.execute(ventas_query)
+    ventas_rows = ventas_result.all()
+
+    # Un parte por producto_condensado, primera descripción encontrada
+    part_numbers_seen = set()
+    partes_list = []
+    for row in ventas_rows:
+        pn = (row[0] and str(row[0]).strip()) or ""
+        if not pn or pn in part_numbers_seen:
+            continue
+        part_numbers_seen.add(pn)
+        descr = (row[1] and str(row[1]).strip()) or "—"
+        partes_list.append({"part_number": pn, "description": descr})
+
+    # Ordenar por part_number
+    partes_list.sort(key=lambda x: x["part_number"])
+
+    # Obtener fracción (tariff) y descripción canónica desde tabla partes
+    for p in partes_list:
+        p["tariff_schedule"] = "—"
+        p["origin"] = "—"
+    if partes_list:
+        numeros = [p["part_number"] for p in partes_list]
+        partes_db = await db.execute(
+            select(Parte.numero_parte, Parte.fraccion, Parte.descripcion).where(Parte.numero_parte.in_(numeros))
+        )
+        for r in partes_db.all():
+            pn = str(r[0]).strip()
+            fraccion = (r[1] and str(r[1]).strip()) or "—"
+            descr_parte = (r[2] and str(r[2]).strip()) or ""
+            for p in partes_list:
+                if p["part_number"] == pn:
+                    p["tariff_schedule"] = fraccion
+                    if descr_parte:
+                        p["description"] = descr_parte  # descripción canónica por número de parte
+                    break
+
+    # Calcular ICR (Regional index) por parte para mostrarlo en la lista
+    for p in partes_list:
+        p["icr"] = await get_icr_para_parte(db, codigo_cliente, p["part_number"])
+
+    # Completion Status = (número de partes con ICR > 60%) / total * 100
+    total_partes = len(partes_list)
+    partes_icr_over_60 = sum(1 for p in partes_list if p.get("icr") is not None and float(p["icr"]) > 60)
+    completion_pct = round((partes_icr_over_60 / total_partes * 100), 2) if total_partes else 0
+
+    return {
+        "codigo_cliente": codigo_cliente,
+        "cliente_nombre": cliente_nombre,
+        "partes": partes_list,
+        "total": total_partes,
+        "completion_pct": completion_pct,
+        "partes_icr_over_60": partes_icr_over_60,
+    }
 
 
 # ============================================================================

@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Certification of Origin - USMCA / T-MEC</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 10pt; line-height: 1.25; color: #000; }
+    .header { text-align: center; margin-bottom: 12px; }
+    .header h1 { font-size: 14pt; font-weight: bold; margin: 0 0 4px 0; }
+    .header h2 { font-size: 12pt; font-weight: bold; margin: 0 0 2px 0; }
+    .header .tmec { font-size: 11pt; font-weight: bold; margin: 0 0 8px 0; }
+    .section-label { font-weight: bold; font-size: 9pt; margin-bottom: 4px; }
+    .address-block { margin-bottom: 8px; font-size: 9pt; }
+    .address-block p { margin: 0 0 2px 0; }
+    table.goods { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 9pt; }
+    table.goods th, table.goods td { border: 1px solid #333; padding: 4px 6px; text-align: left; }
+    table.goods th { background: #f0f0f0; font-weight: bold; }
+    .blanket-period { margin: 10px 0; font-size: 9pt; }
+    .cert-text { margin: 12px 0; font-size: 9pt; text-align: justify; }
+    .cert-text p { margin: 0 0 4px 0; }
+    .pages-note { margin: 8px 0; font-size: 9pt; }
+    .signature-label { font-weight: bold; font-size: 9pt; margin-bottom: 2px; }
+    .signature-value { font-size: 9pt; margin-bottom: 8px; }
+    .tbl-cols { width: 100%; margin-bottom: 10px; }
+    .tbl-cols td { width: 50%; vertical-align: top; padding: 0 12px 0 0; }
+    .tbl-cols td.last { padding: 0 0 0 12px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>United States Mexico Canada Agreement – USMCA</h1>
+    <h2>CERTIFICATION OF ORIGEN</h2>
+    <p class="tmec">T-MEC</p>
+  </div>
+
+  <table class="tbl-cols" cellpadding="0" cellspacing="0"><tr>
+    <td>
+      <div class="section-label">1.- CERTIFIER, NAME, AND ADDRESS</div>
+      <div class="address-block">
+        <p>{{ certifier_company }}</p>
+        <p>{{ certifier_address_1 }}</p>
+        <p>{{ certifier_address_2 }}</p>
+        <p>{{ certifier_address_3 }}</p>
+        <p>TAX IDENTIFICATION NUMBER: {{ certifier_tax_id }}</p>
+        <p>TELEPHONE {{ certifier_phone }} &nbsp; EMAIL {{ certifier_email }}</p>
+      </div>
+    </td>
+    <td class="last">
+      <div class="section-label">2.- EXPORTER NAME, AND ADDRESS</div>
+      <div class="address-block">
+        <p>{{ exporter_company }}</p>
+        <p>{{ exporter_address_1 }}</p>
+        <p>{{ exporter_address_2 }}</p>
+        <p>{{ exporter_address_3 }}</p>
+        <p>TAX IDENTIFICATION NUMBER: {{ exporter_tax_id }}</p>
+        <p>TELEPHONE {{ exporter_phone }} &nbsp; EMAIL {{ exporter_email }}</p>
+      </div>
+    </td>
+  </tr></table>
+
+  <table class="tbl-cols" cellpadding="0" cellspacing="0"><tr>
+    <td>
+      <div class="section-label">3.- PRODUCER NAME, ADDRESS AND EMAIL</div>
+      <div class="address-block">
+        <p>{{ producer_company }}</p>
+        <p>{{ producer_address_1 }}</p>
+        <p>{{ producer_address_2 }}</p>
+        <p>{{ producer_address_3 }}</p>
+        <p>TAX IDENTIFICATION NUMBER: {{ producer_tax_id }}</p>
+        <p>TELEPHONE {{ producer_phone }} &nbsp; EMAIL {{ producer_email }}</p>
+      </div>
+    </td>
+    <td class="last">
+      <div class="section-label">4.- IMPORTER NAME, ADDRESS AND EMAIL.</div>
+      <div class="address-block">
+        <p><strong>{{ cliente_nombre or '—' }}</strong></p>
+        <p>Customer # {{ codigo_cliente or '—' }}</p>
+        {% if importer_address %}
+        <p>{{ importer_address }}</p>
+        {% else %}
+        <p>VARIOUS (optional customer address)</p>
+        {% endif %}
+      </div>
+    </td>
+  </tr></table>
+
+  <table class="goods">
+    <thead>
+      <tr>
+        <th style="width:5%">5.</th>
+        <th style="width:35%">DESCRIPTION OF GOOD (S)</th>
+        <th style="width:20%">6. HS TARIFF CLASSIFICATION NUMBER</th>
+        <th style="width:20%">7. CRITERION OF ORIGIN</th>
+        <th style="width:20%">8. ORIGIN COUNTRY</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in partes %}
+      <tr>
+        <td></td>
+        <td>{{ p.part_number or '—' }}{% if p.description %} — {{ p.description[:80] }}{% if (p.description or '')|length > 80 %}...{% endif %}{% endif %}</td>
+        <td>{{ p.tariff_schedule or '—' }}</td>
+        <td>B</td>
+        <td>{{ p.origin or 'MX' }}</td>
+      </tr>
+      {% endfor %}
+      {% if not partes %}
+      <tr>
+        <td></td>
+        <td>—</td>
+        <td>—</td>
+        <td>—</td>
+        <td>—</td>
+      </tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  <div class="blanket-period">
+    <span><strong>9. BLANKET PERIOD (MM/DD/YY)</strong></span><br/>
+    <span>FROM: {{ blanket_period_from }}</span>
+    <span>TO: {{ blanket_period_to }}</span>
+  </div>
+
+  <div class="cert-text">
+    <p>I certify that the goods described in this document qualify as originating and the information contained in this document is true and accurate.</p>
+    <p>I assume responsibility for proving such representations and agree to maintain and present upon request or to make available during a verification visit, documentation necessary to support this certification.</p>
+  </div>
+
+  <div class="pages-note">
+    This certification consists of {{ num_pages }} page(s), including all attachments.
+  </div>
+
+  <table class="tbl-cols" cellpadding="0" cellspacing="0"><tr>
+    <td>
+      <div class="signature-label">CERTIFIER'S SIGNATURE</div>
+      <div class="signature-value">&nbsp;</div>
+      <div class="signature-label">CERTIFIER'S NAME (PRINT OR TYPE)</div>
+      <div class="signature-value">{{ certifier_name }}</div>
+      <div class="signature-label">DATE (MM/DD/YY)</div>
+      <div class="signature-value">{{ certification_date }}</div>
+    </td>
+    <td class="last">
+      <div class="signature-label">COMPANY NAME</div>
+      <div class="signature-value">{{ certifier_company }}</div>
+      <div class="signature-label">CERTIFIER'S TITLE</div>
+      <div class="signature-value">{{ certifier_title }}</div>
+      <div class="signature-label">CERTIFIER TYPE (IMPORTER, EXPORTER, PRODUCER)</div>
+      <div class="signature-value">{{ certifier_type }}</div>
+    </td>
+  </tr></table>
+</body>
+</html>

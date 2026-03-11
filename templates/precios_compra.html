@@ -118,6 +118,7 @@
         Gestión y consulta de precios de materiales por proveedor
       </p>
     </div>
+    {% if current_user.rol == 'admin' %}
     <div class="flex gap-2">
       <button
         id="btn-actualizar-pais-origen"
@@ -148,6 +149,7 @@
         </span>
       </button>
     </div>
+    {% endif %}
   </div>
 
   <!-- Tarjetas de Estadísticas -->

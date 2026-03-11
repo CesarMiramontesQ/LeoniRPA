@@ -399,6 +399,28 @@ class="size-6 shrink-0 {% if active_page in ['carga_proveedor', 'carga_cliente',
                           Cross Reference
                         </a>
                       </li>
+                      <li>
+                        <a
+                          href="/analisis-icr"
+                          class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page == 'analisis_icr' %}border-l-4 border-orange-600 bg-gray-50 text-[#003D89] pl-[calc(0.5rem-4px)]{% else %}bg-orange-500/90 text-white hover:bg-orange-600{% endif %}"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke-width="1.5"
+                            stroke="currentColor"
+                            class="size-6 shrink-0 {% if active_page == 'analisis_icr' %}text-[#003D89]{% else %}text-white{% endif %}"
+                          >
+                            <path
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"
+                            />
+                          </svg>
+                          Analisis ICR
+                        </a>
+                      </li>
                       {% if current_user and current_user.rol == 'admin' %}
                       <li>
                         <a
@@ -791,6 +813,28 @@ class="size-6 shrink-0 {% if active_page in ['carga_proveedor', 'carga_cliente',
                       <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 6h9m-9 6h9m-9 6h9M4.5 6h.008v.008H4.5V6Zm0 6h.008v.008H4.5V12Zm0 6h.008v.008H4.5V18Z" />
                     </svg>
                     Cross Reference
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href="/analisis-icr"
+                    class="group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page == 'analisis_icr' %}border-l-4 border-orange-600 bg-gray-50 text-[#003D89] pl-[calc(0.5rem-4px)]{% else %}bg-orange-500/90 text-white hover:bg-orange-600{% endif %}"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke-width="1.5"
+                      stroke="currentColor"
+                      class="size-6 shrink-0 {% if active_page == 'analisis_icr' %}text-[#003D89]{% else %}text-white{% endif %}"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"
+                      />
+                    </svg>
+                    Analisis ICR
                   </a>
                 </li>
                 {% if current_user and current_user.rol == 'admin' %}

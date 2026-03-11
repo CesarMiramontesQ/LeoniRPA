@@ -56,6 +56,7 @@
         Gestión y consulta de países de origen de materiales por proveedor
       </p>
     </div>
+    {% if current_user.rol == 'admin' %}
     <div>
       <button
         id="btn-actualizar-paises"
@@ -72,6 +73,7 @@
         </span>
       </button>
     </div>
+    {% endif %}
   </div>
 
   <!-- Tarjetas de Estadísticas -->
@@ -190,6 +192,14 @@
                 </svg>
               </div>
             </th>
+            <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="porcentaje_compra">
+              <div class="flex items-center gap-1">
+                % Compra
+                <svg class="h-4 w-4 text-gray-400 sort-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 15 12 18.75 15.75 15m-7.5-6L12 5.25 15.75 9" />
+                </svg>
+              </div>
+            </th>
             <th scope="col" class="cursor-pointer px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="updated_at">
               <div class="flex items-center gap-1">
                 Última Actualización
@@ -206,7 +216,7 @@
         <tbody class="divide-y divide-gray-200 bg-white" id="tabla-paises-body">
           <!-- Los datos se cargarán dinámicamente -->
           <tr id="fila-sin-datos">
-            <td colspan="7" class="px-6 py-12 text-center text-sm text-gray-500">
+            <td colspan="8" class="px-6 py-12 text-center text-sm text-gray-500">
               <div class="flex flex-col items-center">
                 <svg class="h-12 w-12 text-gray-400 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.944 11.944 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
@@ -433,6 +443,19 @@
                   />
                 </div>
               </div>
+              <div>
+                <label for="edit-porcentaje-compra" class="block text-sm/6 font-medium text-gray-900">% Compra</label>
+                <div class="mt-2">
+                  <input
+                    type="number"
+                    id="edit-porcentaje-compra"
+                    step="0.01"
+                    min="0"
+                    placeholder="Ej: 100"
+                    class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6"
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -507,6 +530,7 @@
        data-codigo-proveedor="{{ pais.codigo_proveedor or '' }}"
        data-numero-material="{{ pais.numero_material or '' }}"
        data-pais-origen="{{ pais.pais_origen or '' }}"
+       data-porcentaje-compra="{{ pais.porcentaje_compra if pais.porcentaje_compra is not none else '' }}"
        data-updated-at="{{ pais.updated_at | to_iso }}"
        data-created-at="{{ pais.created_at | to_iso }}"
        data-proveedor-nombre="{{ pais.proveedor_nombre or '' }}"
@@ -558,6 +582,7 @@
         codigo_proveedor: el.dataset.codigoProveedor || '',
         numero_material: el.dataset.numeroMaterial || '',
         pais_origen: el.dataset.paisOrigen || '',
+        porcentaje_compra: el.dataset.porcentajeCompra !== undefined && el.dataset.porcentajeCompra !== '' ? parseFloat(el.dataset.porcentajeCompra) : null,
         updated_at: el.dataset.updatedAt || null,
         created_at: el.dataset.createdAt || null,
         proveedor_nombre: el.dataset.proveedorNombre || null,
@@ -802,7 +827,7 @@
     if (datosPagina.length === 0) {
       tbody.innerHTML = `
         <tr id="fila-sin-datos">
-          <td colspan="7" class="px-6 py-12 text-center text-sm text-gray-500">
+          <td colspan="8" class="px-6 py-12 text-center text-sm text-gray-500">
             <div class="flex flex-col items-center">
               <svg class="h-12 w-12 text-gray-400 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.944 11.944 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
@@ -816,7 +841,7 @@
     } else {
       tbody.innerHTML = datosPagina.map(pais => {
         const fechaActualizacion = pais.updated_at ? new Date(pais.updated_at).toLocaleDateString('es-MX') : 'N/A';
-        
+        const pctCompra = pais.porcentaje_compra != null ? String(pais.porcentaje_compra) : '';
         return `
           <tr class="hover:bg-gray-50">
             <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">${escapeHtml(pais.proveedor_nombre || 'N/A')}</td>
@@ -824,11 +849,12 @@
             <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">${escapeHtml(pais.numero_material || 'N/A')}</td>
             <td class="px-4 py-3 text-sm text-gray-500 max-w-xs truncate" title="${escapeHtml(pais.material_descripcion || '')}">${escapeHtml(pais.material_descripcion || 'N/A')}</td>
             <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">${escapeHtml(pais.pais_origen || 'N/A')}</td>
+            <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">${pctCompra ? escapeHtml(pctCompra) : '—'}</td>
             <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">${fechaActualizacion}</td>
             <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">
               <button
                 type="button"
-                onclick="abrirModalEditar(${pais.id}, '${escapeHtml(pais.codigo_proveedor || '')}', '${escapeHtml(pais.numero_material || '')}', '${escapeHtml(pais.pais_origen || '')}')"
+                onclick="abrirModalEditar(${pais.id}, '${escapeHtml(pais.codigo_proveedor || '')}', '${escapeHtml(pais.numero_material || '')}', '${escapeHtml(pais.pais_origen || '')}', ${pctCompra ? escapeHtml(pctCompra) : 'null'})"
                 class="text-[#003D89] hover:text-[#003080] font-medium"
               >
                 Editar
@@ -881,11 +907,12 @@
   }
 
   // Funciones para el modal de edición
-  function abrirModalEditar(id, codigoProveedor, numeroMaterial, paisOrigen) {
+  function abrirModalEditar(id, codigoProveedor, numeroMaterial, paisOrigen, porcentajeCompra) {
     paisEditandoId = id;
     document.getElementById('edit-codigo-proveedor').value = codigoProveedor;
     document.getElementById('edit-numero-material').value = numeroMaterial;
     document.getElementById('edit-pais-origen').value = paisOrigen;
+    document.getElementById('edit-porcentaje-compra').value = (porcentajeCompra != null && porcentajeCompra !== '') ? porcentajeCompra : '';
     document.getElementById('modal-editar-pais').classList.remove('hidden');
     document.body.style.overflow = 'hidden';
   }
@@ -905,19 +932,22 @@
       return;
     }
 
+    const pctCompraRaw = document.getElementById('edit-porcentaje-compra').value.trim();
+    const porcentajeCompra = pctCompraRaw === '' ? null : parseFloat(pctCompraRaw);
+
     const btnGuardar = document.getElementById('btn-guardar-pais');
     btnGuardar.disabled = true;
     btnGuardar.textContent = 'Guardando...';
 
     try {
+      const body = { pais_origen: paisOrigen };
+      if (porcentajeCompra != null && !isNaN(porcentajeCompra)) body.porcentaje_compra = porcentajeCompra;
       const response = await fetch(`/api/paises-origen/${paisEditandoId}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          pais_origen: paisOrigen
-        })
+        body: JSON.stringify(body)
       });
 
       if (!response.ok) {

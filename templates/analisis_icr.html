@@ -1,0 +1,335 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="space-y-6">
+  <!-- Título y búsqueda inicial -->
+  <div>
+    <h1 class="text-2xl font-semibold text-gray-900">Análisis ICR</h1>
+    <p class="mt-1 text-sm text-gray-600">
+      Consulta los números de parte que ha adquirido un cliente según los registros de ventas (solo ventas con precios ICR definidos).
+    </p>
+  </div>
+
+  <div id="icr-busqueda" class="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
+    <div class="flex flex-wrap items-end gap-4">
+      <div class="min-w-[200px] flex-1">
+        <label for="icr-codigo-cliente" class="block text-sm font-medium text-gray-900">Número de cliente</label>
+        <input
+          id="icr-codigo-cliente"
+          type="text"
+          inputmode="numeric"
+          placeholder="Ej. 2012576"
+          class="mt-2 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+        />
+      </div>
+      <button
+        id="icr-buscar"
+        type="button"
+        class="rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#003366]"
+      >
+        Buscar
+      </button>
+    </div>
+    <p id="icr-msg" class="mt-3 text-sm text-gray-500">Ingrese el número de cliente y pulse Buscar.</p>
+  </div>
+
+  <!-- Vista detalle cliente: secciones separadas como en otras vistas -->
+  <div id="icr-vista-cliente" class="hidden space-y-6">
+    <div>
+      <button type="button" id="icr-buscar-otro" class="rounded-md bg-orange-500 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-orange-600">
+        ← Buscar otro cliente
+      </button>
+    </div>
+    <!-- Encabezado del cliente -->
+    <div class="rounded-lg bg-white p-6 shadow-sm">
+      <h2 id="icr-cliente-header" class="text-xl font-semibold text-gray-900"></h2>
+    </div>
+
+    <!-- Panel de filtros -->
+    <div class="rounded-lg bg-white p-6 shadow-sm">
+      <div class="flex flex-wrap items-center justify-between gap-4">
+      <div class="flex flex-wrap items-center gap-4">
+        <div class="flex items-center gap-2">
+          <label for="icr-filter-part" class="whitespace-nowrap text-sm font-medium text-gray-900">Filter Part Number:</label>
+          <input
+            id="icr-filter-part"
+            type="text"
+            placeholder="Search part number..."
+            class="block w-56 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+          />
+        </div>
+        <label class="flex cursor-pointer items-center gap-2">
+          <input id="icr-include-crossref" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-[#003D89] focus:ring-[#003D89]" />
+          <span class="text-sm text-gray-700">Include Cross Reference</span>
+        </label>
+      </div>
+      <div class="flex items-center gap-2">
+        <button type="button" class="flex items-center gap-1.5 rounded-md bg-[#003D89] px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-[#003366]">
+          <svg class="h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 15.75V18m-7.5-6.75h.008v.008H8.25v-.008zm0 2.25h.008v.008H8.25V13.5zm0-2.25h.008v.008H8.25v-.008zm0 2.25h.008v.008H8.25v-.008zm0-2.25h.008v.008H8.25v-.008zm0 2.25h.008v.008H8.25V18zm2.498-6.75h.007v.008h-.007V18zm0 2.25h.007v.008h-.007v-.008zm0-2.25h.007v.008h-.007V13.5zm0 2.25h.007v.008h-.007v-.008zm0-2.25h.007v.008h-.007v-.008zm0 2.25h.007v.008h-.007V18zm2.504-6.75h.008v.008h-.008V18zm0 2.25h.008v.008h-.008v-.008zm0-2.25h.008v.008h-.008V13.5z" /></svg>
+          Calculation
+        </button>
+        <button type="button" id="icr-certificado-excel" class="flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700">
+          <svg class="h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+          Descargar Excel
+        </button>
+        <button type="button" id="icr-certificado-pdf" class="flex items-center gap-1.5 rounded-md bg-[#003D89] px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-[#003366]">
+          <svg class="h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" /></svg>
+          Certificate (PDF)
+        </button>
+        <button type="button" class="flex items-center gap-1.5 rounded-md bg-[#003D89] px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-[#003366]">
+          <svg class="h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z" /></svg>
+          Manufacturers
+        </button>
+      </div>
+      </div>
+    </div>
+
+    <!-- Tarjetas de estadísticas (estilo Carga Cliente: borde izquierdo y valor en color) -->
+    <div>
+      <dl class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6 border-l-4 border-green-500">
+          <dt class="truncate text-sm font-medium text-gray-500">Completion Status</dt>
+          <dd class="mt-1 flex items-center gap-2">
+            <span id="icr-completion-label" class="text-3xl font-semibold tracking-tight text-green-600">100%</span>
+          </dd>
+        </div>
+        <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6 border-l-4 border-blue-500">
+          <dt class="truncate text-sm font-medium text-gray-500">Original Components</dt>
+          <dd id="icr-original-value" class="mt-1 text-3xl font-semibold tracking-tight text-blue-600">0</dd>
+        </div>
+        <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6 border-l-4 border-amber-500">
+          <dt class="truncate text-sm font-medium text-gray-500">Non-Original Components</dt>
+          <dd id="icr-non-original-value" class="mt-1 text-3xl font-semibold tracking-tight text-amber-600">0</dd>
+        </div>
+        <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6 border-l-4 border-indigo-500">
+          <dt class="truncate text-sm font-medium text-gray-500">Conforming Part Numbers</dt>
+          <dd id="icr-conforming-value" class="mt-1 text-3xl font-semibold tracking-tight text-indigo-600">0</dd>
+        </div>
+      </dl>
+    </div>
+
+    <!-- Tabla de números de parte (bloque independiente como en otras vistas) -->
+    <div class="rounded-lg bg-white shadow-sm">
+      <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+        <span class="text-sm text-gray-600">
+          Mostrando <span id="icr-registros-mostrados" class="font-medium">0</span> de <span id="icr-total-registros" class="font-medium">0</span> números de parte
+        </span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Part Number</th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Description</th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Tariff Schedule</th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">ICR</th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                Select
+                <button type="button" id="icr-seleccionar-todos" class="ml-2 rounded border border-gray-300 bg-white px-2 py-0.5 text-xs font-normal text-gray-700 hover:bg-gray-50">Seleccionar todos</button>
+              </th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500 w-24">Action</th>
+            </tr>
+          </thead>
+          <tbody id="icr-tbody" class="divide-y divide-gray-200 bg-white"></tbody>
+        </table>
+      </div>
+      <div id="icr-empty" class="hidden px-6 py-8 text-center text-sm text-gray-500">No se encontraron números de parte con precios ICR.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const input = document.getElementById('icr-codigo-cliente');
+  const btn = document.getElementById('icr-buscar');
+  const msg = document.getElementById('icr-msg');
+  const busqueda = document.getElementById('icr-busqueda');
+  const vistaCliente = document.getElementById('icr-vista-cliente');
+  const clienteHeader = document.getElementById('icr-cliente-header');
+  const filterPart = document.getElementById('icr-filter-part');
+  const tbody = document.getElementById('icr-tbody');
+  const emptyState = document.getElementById('icr-empty');
+  const registrosMostrados = document.getElementById('icr-registros-mostrados');
+  const totalRegistros = document.getElementById('icr-total-registros');
+  let allPartes = [];
+  let currentCodigoCliente = null;
+  var selectedPartNumbers = new Set();
+
+  function setMsg(text, isError) {
+    msg.textContent = text;
+    msg.className = 'mt-3 text-sm ' + (isError ? 'text-red-600' : 'text-gray-500');
+  }
+
+  function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  function filterPartes() {
+    const q = (filterPart.value || '').trim().toLowerCase();
+    const list = q ? allPartes.filter(function (p) {
+      return (p.part_number || '').toLowerCase().indexOf(q) >= 0 ||
+             (p.description || '').toLowerCase().indexOf(q) >= 0;
+    }) : allPartes;
+    if (registrosMostrados) registrosMostrados.textContent = list.length;
+    if (totalRegistros) totalRegistros.textContent = allPartes.length;
+    renderTableRows(list);
+  }
+
+  function renderTableRows(partes) {
+    if (partes.length === 0) {
+      tbody.innerHTML = '';
+      emptyState.classList.remove('hidden');
+      return;
+    }
+    emptyState.classList.add('hidden');
+    tbody.innerHTML = partes.map(function (p) {
+      var partNum = (p.part_number || '').replace(/"/g, '&quot;');
+      var checked = selectedPartNumbers.has(p.part_number || '') ? ' checked' : '';
+      return '<tr data-part-number="' + escapeHtml(partNum) + '" class="hover:bg-gray-50">' +
+        '<td class="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900">' + escapeHtml(p.part_number || '—') + '</td>' +
+        '<td class="max-w-xs truncate px-6 py-4 text-sm text-gray-600" title="' + escapeHtml(p.description || '') + '">' + escapeHtml(p.description || '—') + '</td>' +
+        '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + escapeHtml(p.tariff_schedule || '—') + '</td>' +
+        '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + (p.icr != null && p.icr !== '' ? (typeof p.icr === 'number' ? p.icr.toFixed(2) + '%' : p.icr) : '—') + '</td>' +
+        '<td class="whitespace-nowrap px-6 py-4"><input type="checkbox" class="icr-select-checkbox h-4 w-4 rounded border-gray-300 text-[#003D89] focus:ring-[#003D89]" data-part-number="' + escapeHtml(partNum) + '"' + checked + ' /></td>' +
+        '<td class="whitespace-nowrap px-6 py-4"><button type="button" class="icr-ver-detalle rounded-md bg-[#003D89] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#003366]">Ver detalle</button></td>' +
+        '</tr>';
+    }).join('');
+
+    tbody.querySelectorAll('tr').forEach(function (tr) {
+      var partNumber = tr.getAttribute('data-part-number');
+      var btnDetalle = tr.querySelector('.icr-ver-detalle');
+      if (btnDetalle && currentCodigoCliente != null && partNumber) {
+        btnDetalle.addEventListener('click', function (e) {
+          e.stopPropagation();
+          window.location = '/analisis-icr/material?codigo_cliente=' + encodeURIComponent(currentCodigoCliente) + '&numero_parte=' + encodeURIComponent(partNumber);
+        });
+      }
+      var cb = tr.querySelector('.icr-select-checkbox');
+      if (cb && partNumber) {
+        cb.addEventListener('change', function () {
+          var pn = this.getAttribute('data-part-number') || partNumber;
+          if (this.checked) selectedPartNumbers.add(pn);
+          else selectedPartNumbers.delete(pn);
+        });
+      }
+    });
+  }
+
+  function showVistaCliente(data) {
+    currentCodigoCliente = data.codigo_cliente != null ? data.codigo_cliente : null;
+    allPartes = data.partes || [];
+    selectedPartNumbers.clear();
+    clienteHeader.textContent = (data.codigo_cliente || '') + ' ' + (data.cliente_nombre || '');
+    document.getElementById('icr-completion-label').textContent = (data.completion_pct != null ? data.completion_pct + '%' : '100%');
+    document.getElementById('icr-original-value').textContent = String(data.original_components != null ? data.original_components : 0);
+    document.getElementById('icr-non-original-value').textContent = String(data.non_original_components != null ? data.non_original_components : 0);
+    document.getElementById('icr-conforming-value').textContent = String(data.conforming_part_numbers != null ? data.conforming_part_numbers : data.total || 0);
+    filterPart.value = '';
+    busqueda.classList.add('hidden');
+    vistaCliente.classList.remove('hidden');
+    if (totalRegistros) totalRegistros.textContent = data.total != null ? data.total : (data.partes && data.partes.length) || 0;
+    filterPartes();
+  }
+
+  function hideVistaCliente() {
+    vistaCliente.classList.add('hidden');
+    busqueda.classList.remove('hidden');
+  }
+
+  btn.addEventListener('click', function () {
+    var raw = (input.value || '').trim();
+    if (!raw) {
+      setMsg('Ingrese el número de cliente.', true);
+      return;
+    }
+    var codigo = parseInt(raw, 10);
+    if (isNaN(codigo)) {
+      setMsg('El número de cliente debe ser numérico.', true);
+      return;
+    }
+
+    setMsg('Buscando...');
+    hideVistaCliente();
+
+    fetch('/api/analisis-icr/partes?codigo_cliente=' + encodeURIComponent(codigo), { method: 'GET', headers: { 'Accept': 'application/json' } })
+      .then(function (r) {
+        if (!r.ok) return r.json().then(function (d) { throw new Error(d.error || 'Error en la petición'); });
+        return r.json();
+      })
+      .then(function (data) {
+        setMsg('Cliente cargado: ' + (data.partes && data.partes.length) + ' número(s) de parte.');
+        showVistaCliente(data);
+      })
+      .catch(function (err) {
+        setMsg(err.message || 'Error al consultar.', true);
+      });
+  });
+
+  input.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') btn.click();
+  });
+
+  filterPart.addEventListener('input', filterPartes);
+
+  document.getElementById('icr-seleccionar-todos').addEventListener('click', function () {
+    tbody.querySelectorAll('.icr-select-checkbox').forEach(function (cb) {
+      var pn = cb.getAttribute('data-part-number') || '';
+      if (pn) selectedPartNumbers.add(pn);
+      cb.checked = true;
+    });
+  });
+
+  document.getElementById('icr-buscar-otro').addEventListener('click', function () {
+    hideVistaCliente();
+    input.focus();
+  });
+
+  function descargarCertificado(formato) {
+    if (currentCodigoCliente == null) return;
+    var selected = Array.from(selectedPartNumbers);
+    if (selected.length === 0) {
+      alert('Seleccione al menos un número de parte en la columna Select para generar el certificado.');
+      return;
+    }
+    var params = new URLSearchParams();
+    params.set('codigo_cliente', String(currentCodigoCliente));
+    selected.forEach(function (np) { params.append('numero_parte', np); });
+    var isPdf = formato === 'pdf';
+    var url = isPdf ? '/api/analisis-icr/certificado-pdf?' + params.toString() : '/api/analisis-icr/certificado-excel?' + params.toString();
+    var accept = isPdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    var ext = isPdf ? 'pdf' : 'xlsx';
+    fetch(url, { method: 'GET', headers: { 'Accept': accept } })
+      .then(function (r) {
+        if (!r.ok) {
+          return r.json().then(function (d) { throw new Error(d.error || 'Error al generar el certificado'); });
+        }
+        return r.blob();
+      })
+      .then(function (blob) {
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'certificado_co_' + currentCodigoCliente + '.' + ext;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      })
+      .catch(function (err) {
+        alert(err.message || 'Error al generar el certificado');
+      });
+  }
+
+  document.getElementById('icr-certificado-excel').addEventListener('click', function () { descargarCertificado('excel'); });
+  document.getElementById('icr-certificado-pdf').addEventListener('click', function () { descargarCertificado('pdf'); });
+
+  // Si la URL trae codigo_cliente, cargar ese cliente al entrar (ej. volver desde página de material)
+  (function () {
+    var params = new URLSearchParams(window.location.search);
+    var codigo = params.get('codigo_cliente');
+    if (codigo && codigo.trim()) {
+      input.value = codigo.trim();
+      btn.click();
+    }
+  })();
+})();
+</script>
+{% endblock %}
