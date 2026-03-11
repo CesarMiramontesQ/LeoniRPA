@@ -473,6 +473,21 @@ def _render_certificado_co_xlsx(context: dict) -> bytes:
         r, c = _cell_to_write(ws, row, col)
         ws.cell(row=r, column=c).value = value
 
+    def _ajustar_ancho_columnas(ws, columnas: tuple, fila_ini: int, fila_fin: int, ancho_min=8, ancho_max=55):
+        """Ajusta el ancho de las columnas para que se muestre todo el texto (según contenido en fila_ini..fila_fin)."""
+        try:
+            from openpyxl.utils import get_column_letter
+            for col_idx in columnas:
+                max_len = ancho_min
+                for row in range(fila_ini, fila_fin + 1):
+                    val = ws.cell(row=row, column=col_idx).value
+                    if val is not None:
+                        max_len = max(max_len, len(str(val)))
+                w = min(ancho_max, max(max_len * 1.23, ancho_min))
+                ws.column_dimensions[get_column_letter(col_idx)].width = w
+        except Exception as e:
+            logger.warning("No se pudo ajustar ancho de columnas: %s", e)
+
     cliente_nombre = (context.get("cliente_nombre") or "").strip() or "VARIOUS (optional customer address)"
     _set_cell(ws, 16, 5, cliente_nombre)
 
@@ -574,6 +589,73 @@ def _render_certificado_co_xlsx(context: dict) -> bytes:
             ws.add_image(img)
         except Exception as e:
             logger.warning("No se pudo insertar la imagen de firma en el certificado: %s", e)
+
+    # Hoja C.O. 3: tabla con Description, Customer Part Number, Leoni Part Number, Leoni Part Name, NUMBER (tariff), B, MX.
+    # Filas 9-17 en plantilla (9 filas de formato fijo). Si hay más de 9 materiales, insertar filas a partir de la 18.
+    if "C.O. 3" in wb.sheetnames:
+        ws_co3 = wb["C.O. 3"]
+        fila_ini_co3 = 9
+        fila_fin_tabla_co3 = 17
+        num_filas_co3 = 9
+        columnas_co3 = (2, 3, 4, 5, 6, 8, 9)  # B=Description, C=Customer Part#, D=Leoni Part#, E=Leoni Part Name, F=NUMBER, H=B, I=origin
+        partes_co3 = context.get("partes") or []
+        num_partes_co3 = len(partes_co3)
+        filas_extra_co3 = max(0, num_partes_co3 - num_filas_co3)
+        if filas_extra_co3 > 0:
+            fila_ins_co3 = fila_fin_tabla_co3 + 1
+            ws_co3.insert_rows(fila_ins_co3, filas_extra_co3)
+            for rng in list(ws_co3.merged_cells.ranges):
+                if rng.min_row >= fila_ins_co3:
+                    rng.shift(row_shift=filas_extra_co3, col_shift=0)
+            # Merge F:G en cada fila nueva (igual que en la plantilla).
+            for r in range(fila_ins_co3, fila_ins_co3 + filas_extra_co3):
+                ws_co3.merge_cells(start_row=r, start_column=6, end_row=r, end_column=7)
+            rd3 = ws_co3.row_dimensions
+            altura_co3 = 15.0
+            if fila_fin_tabla_co3 in rd3 and getattr(rd3[fila_fin_tabla_co3], "height", None) is not None:
+                altura_co3 = rd3[fila_fin_tabla_co3].height
+            for row_idx in sorted(rd3.keys(), reverse=True):
+                if row_idx >= fila_ins_co3:
+                    ref = rd3[row_idx]
+                    new_row = row_idx + filas_extra_co3
+                    if getattr(ref, "height", None) is not None:
+                        rd3[new_row].height = ref.height
+                    if getattr(ref, "hidden", None) is not None:
+                        rd3[new_row].hidden = ref.hidden
+                    del rd3[row_idx]
+            for r in range(fila_ins_co3, fila_ins_co3 + filas_extra_co3):
+                rd3[r].height = altura_co3
+            from copy import copy
+            # Copiar formato (bordes incluidos) de la fila de referencia a cada fila nueva; incluir F y G (6 y 7).
+            columnas_con_formato_co3 = (2, 3, 4, 5, 6, 7, 8, 9)
+            for r in range(fila_ins_co3, fila_ins_co3 + filas_extra_co3):
+                for col in columnas_con_formato_co3:
+                    src = ws_co3.cell(row=fila_fin_tabla_co3, column=col)
+                    tgt = ws_co3.cell(row=r, column=col)
+                    if hasattr(src, "_style") and getattr(src, "_style", None) is not None:
+                        tgt._style = copy(src._style)
+        # Limpiar filas de datos: 9-17 y las dos filas 18-19 de la plantilla. Si se insertaron filas, 18 y 19
+        # quedaron desplazadas abajo (18+filas_extra_co3, 19+filas_extra_co3), hay que vaciarlas también.
+        ultima_fila_a_limpiar = 19 + filas_extra_co3
+        for row in range(fila_ini_co3, ultima_fila_a_limpiar + 1):
+            for col in columnas_co3:
+                _set_cell(ws_co3, row, col, "")
+        for i, p in enumerate(partes_co3):
+            row = fila_ini_co3 + i
+            numero = (p.get("part_number") or "").strip()
+            descripcion = (p.get("description") or "").strip()
+            if descripcion:
+                descripcion = descripcion[:120].strip()
+            _set_cell(ws_co3, row, 2, descripcion or "")
+            _set_cell(ws_co3, row, 3, numero)
+            _set_cell(ws_co3, row, 4, numero)
+            _set_cell(ws_co3, row, 5, descripcion or "")
+            _set_cell(ws_co3, row, 6, (p.get("tariff_schedule") or "").strip() or "")
+            _set_cell(ws_co3, row, 8, "B")
+            _set_cell(ws_co3, row, 9, (p.get("origin") or "").strip() or "MX")
+        # Ajustar ancho de columnas en C.O. 3 para que se vea todo el texto.
+        fila_fin_datos_co3 = fila_ini_co3 + max(num_partes_co3, 1) - 1
+        _ajustar_ancho_columnas(ws_co3, (2, 3, 4, 5, 6, 7, 8, 9), 8, fila_fin_datos_co3)
 
     out = BytesIO()
     wb.save(out)
