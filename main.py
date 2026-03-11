@@ -580,12 +580,24 @@ def _render_certificado_co_xlsx(context: dict) -> bytes:
     if _CERT_FIRMA_IMG.exists():
         try:
             from openpyxl.drawing.image import Image as XLImage
+            from openpyxl.drawing.spreadsheet_drawing import OneCellAnchor, AnchorMarker
+            from openpyxl.drawing.xdr import XDRPositiveSize2D
+            from openpyxl.utils.units import cm_to_EMU, pixels_to_EMU
             img = XLImage(str(_CERT_FIRMA_IMG))
             if img.width > 180 or img.height > 55:
                 r = min(180 / img.width, 55 / img.height)
                 img.width = int(img.width * r)
                 img.height = int(img.height * r)
-            img.anchor = f"B{fila_firma_ini}"  # BC 53,54 → B(53+despl)
+            # Desplazar la firma un poco a la derecha y hacia abajo para que no quede en el borde ni tapada en blanco.
+            # B = col 1 (0-based), fila_firma_ini = fila 1-based → row 0-based = fila_firma_ini - 1
+            marker = AnchorMarker(
+                col=1,
+                row=fila_firma_ini - 1,
+                colOff=cm_to_EMU(0.25),
+                rowOff=cm_to_EMU(0.12),
+            )
+            ext = XDRPositiveSize2D(pixels_to_EMU(img.width), pixels_to_EMU(img.height))
+            img.anchor = OneCellAnchor(_from=marker, ext=ext)
             ws.add_image(img)
         except Exception as e:
             logger.warning("No se pudo insertar la imagen de firma en el certificado: %s", e)
@@ -698,19 +710,39 @@ def _render_certificado_co_pdf(context: dict) -> bytes:
             from pypdf import PdfReader, PdfWriter
             reader = PdfReader(pdf_path)
             writer = PdfWriter()
-            writer.add_page(reader.pages[0])
+            # Incluir C.O. (pág 1) y C.O. 3 (pág 2) en el mismo PDF.
+            for i in range(min(2, len(reader.pages))):
+                writer.add_page(reader.pages[i])
             out = BytesIO()
             writer.write(out)
             return out.getvalue()
-        if use_excel_win and _convert_xlsx_to_pdf_with_excel(tmp_xlsx, pdf_path, "C.O."):
-            return pdf_path.read_bytes()
+        if use_excel_win:
+            # Exportar hoja C.O. y hoja C.O. 3 a PDFs temporales y unirlos en uno solo.
+            from pypdf import PdfReader, PdfWriter
+            pdf_co = tmpdir_path / "co.pdf"
+            pdf_co3 = tmpdir_path / "co3.pdf"
+            ok1 = _convert_xlsx_to_pdf_with_excel(tmp_xlsx, pdf_co, "C.O.")
+            ok2 = _convert_xlsx_to_pdf_with_excel(tmp_xlsx, pdf_co3, "C.O. 3")
+            if ok1:
+                writer = PdfWriter()
+                reader1 = PdfReader(pdf_co)
+                writer.add_page(reader1.pages[0])
+                if ok2 and pdf_co3.exists():
+                    reader2 = PdfReader(pdf_co3)
+                    if len(reader2.pages) > 0:
+                        writer.add_page(reader2.pages[0])
+                out = BytesIO()
+                writer.write(out)
+                return out.getvalue()
         if use_excel_mac:
             ok, err_msg = _convert_xlsx_to_pdf_with_excel_mac(tmp_xlsx, pdf_path)
             if ok:
                 from pypdf import PdfReader, PdfWriter
                 reader = PdfReader(pdf_path)
                 writer = PdfWriter()
-                writer.add_page(reader.pages[0])
+                # Excel en Mac guarda todo el libro: incluir C.O. (pág 1) y C.O. 3 (pág 2).
+                for i in range(min(2, len(reader.pages))):
+                    writer.add_page(reader.pages[i])
                 out = BytesIO()
                 writer.write(out)
                 return out.getvalue()
