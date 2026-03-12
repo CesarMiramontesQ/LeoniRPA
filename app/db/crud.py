@@ -113,8 +113,8 @@ async def create_execution(
         maquina=maquina
     )
     db.add(execution)
+    await db.flush()  # Asigna id; evitar refresh aquí reduce riesgo de MissingGreenlet
     await db.commit()
-    await db.refresh(execution)
     return execution
 
 
@@ -232,8 +232,8 @@ async def create_sales_execution(
         maquina=maquina
     )
     db.add(execution)
+    await db.flush()  # Asigna id; evitar refresh aquí reduce riesgo de MissingGreenlet
     await db.commit()
-    await db.refresh(execution)
     return execution
 
 

@@ -6425,15 +6425,17 @@ async def iniciar_descarga(
             archivo_nombre=nombre_archivo
         )
 
-        # Ejecutar el script y esperar a que termine (timeout 5 min) sin bloquear el event loop
-        try:
-            result = await asyncio.to_thread(
-                subprocess.run,
+        # Ejecutar el script en un thread para no bloquear el event loop (run_in_executor evita conflicto greenlet/SQLAlchemy)
+        loop = asyncio.get_running_loop()
+        def _run_compras_vbs():
+            return subprocess.run(
                 ["cscript", "//nologo", str(vbs_path), fecha_inicio_str, fecha_fin_str],
                 cwd=str(script_dir),
                 capture_output=True,
                 timeout=300,
             )
+        try:
+            result = await loop.run_in_executor(None, _run_compras_vbs)
         except subprocess.TimeoutExpired:
             await crud.update_execution_status(
                 db=db, execution_id=execution.id, estado=ExecutionStatus.FAILED,
@@ -7194,14 +7196,16 @@ async def iniciar_descarga_ventas(
                 content={"error": f"No se encontró el script ventas.vbs en {script_dir}"}
             )
         
-        try:
-            result = await asyncio.to_thread(
-                subprocess.run,
+        loop = asyncio.get_running_loop()
+        def _run_ventas_vbs():
+            return subprocess.run(
                 ["cscript", "//nologo", str(vbs_path), periodo_sap],
                 cwd=str(script_dir),
                 capture_output=True,
                 timeout=300,
             )
+        try:
+            result = await loop.run_in_executor(None, _run_ventas_vbs)
         except subprocess.TimeoutExpired:
             err = "El proceso de descarga superó el tiempo máximo (5 minutos)."
             await crud.update_sales_execution_status(

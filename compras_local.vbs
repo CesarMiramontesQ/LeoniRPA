@@ -38,7 +38,29 @@ Sub Esperar(segundos)
    WScript.Sleep CLng(segundos) * 1000
 End Sub
 
-' --- CERRAR EXCEL (AGRESIVO): mata TODAS las instancias de Excel por proceso ---
+' --- Cerrar la instancia de Excel que abrio SAP (evitar taskkill para no dejar "Excel invitado" al abrir luego) ---
+Sub CerrarExcelExportacion()
+   Dim xlApp
+   On Error Resume Next
+   Set xlApp = GetObject(, "Excel.Application")
+   If Err.Number = 0 And Not (xlApp Is Nothing) Then
+      xlApp.DisplayAlerts = False
+      Do While xlApp.Workbooks.Count > 0
+         xlApp.Workbooks(1).Close False
+      Loop
+      xlApp.Quit
+      Set xlApp = Nothing
+      Esperar 2
+      On Error GoTo 0
+      Exit Sub
+   End If
+   Err.Clear
+   On Error GoTo 0
+   ' Fallback: si no se pudo obtener/cerrar Excel, matar solo entonces (evitar dejar procesos huérfanos)
+   MatarExcelPorProceso
+End Sub
+
+' --- CERRAR EXCEL (solo si CerrarExcelExportacion no pudo): mata TODAS las instancias de Excel ---
 Sub MatarExcelPorProceso()
    Dim sh
    On Error Resume Next
@@ -314,9 +336,9 @@ session.findById("wnd[0]/usr/cntlMEALV_GRID_CONTROL_80FN_HIST/shellcont/shell").
 session.findById("wnd[0]/usr/cntlMEALV_GRID_CONTROL_80FN_HIST/shellcont/shell").selectContextMenuItem "&XXL"
 GuardarExportacionExcel carpetaSalida, "historial_compras_" & fechaInicio & "_" & fechaFin & ".xlsx"
 
-' --- CIERRE TOTAL DE EXCEL (taskkill) ---
+' --- Cerrar Excel usado por la exportacion (graceful primero; taskkill solo si hace falta) ---
 Esperar 2
-MatarExcelPorProceso
+CerrarExcelExportacion
 
 ' --- Cerrar SAP al final del proceso ---
 Sub CerrarSAP()

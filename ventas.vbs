@@ -76,6 +76,7 @@ Sub SaveLatestExcelAs(fullPathXlsx)
       Exit Sub
    End If
    xlApp.DisplayAlerts = False
+   ' Visible = False para no mostrar ventana durante guardado; si Excel abre "como invitado", suele ser porque el script se ejecuta desde otro contexto (ej. servidor web). Ejecutar la descarga con el usuario logueado en la misma PC ayuda.
    xlApp.Visible = False
    Set wb = xlApp.ActiveWorkbook
    wb.SaveAs fullPathXlsx, 51
