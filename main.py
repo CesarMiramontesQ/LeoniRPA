@@ -28,6 +28,7 @@ import socket
 import platform
 import os
 import logging
+import zipfile
 
 try:
     from io import BytesIO
@@ -43,20 +44,38 @@ except ImportError:
 # Certificado C.O.: plantilla Excel + Office/LibreOffice para PDF
 _CERT_PLANTILLA_XLSX = Path(__file__).resolve().parent / "Plantilla calificados.xlsx"
 _CERT_FIRMA_IMG = Path(__file__).resolve().parent / "firma.png"
+# Plantilla Word para componentes con ICR < 60% (no calificados USMCA)
+_CERT_PLANTILLA_NO_CALIFICADOS_DOCX = Path(__file__).resolve().parent / "Plantilla no calificados.docx"
 
 
 def _find_libreoffice() -> Optional[str]:
-    """Devuelve la ruta del ejecutable de LibreOffice (soffice) o None si no se encuentra."""
+    """Devuelve la ruta del ejecutable de LibreOffice (soffice) o None si no se encuentra.
+    En Mac busca en /Applications y ~/Applications (incl. LibreOffice X.X.app).
+    """
     exe = os.environ.get("LIBREOFFICE_PATH") or os.environ.get("SOFFICE_PATH")
     if exe and Path(exe).exists():
         return exe
     if platform.system() == "Darwin":
+        # Rutas fijas
         for p in (
             "/Applications/LibreOffice.app/Contents/MacOS/soffice",
             "/Applications/OpenOffice.app/Contents/MacOS/soffice",
         ):
             if Path(p).exists():
                 return p
+        # Cualquier LibreOffice*.app en Applications (p. ej. "LibreOffice 24.2.0.app")
+        for base in ("/Applications", Path.home() / "Applications"):
+            base_path = Path(base)
+            if not base_path.is_dir():
+                continue
+            for app in base_path.glob("LibreOffice*.app"):
+                soffice = app / "Contents" / "MacOS" / "soffice"
+                if soffice.exists():
+                    return str(soffice)
+            # OpenOffice
+            soffice_oo = base_path / "OpenOffice.app" / "Contents" / "MacOS" / "soffice"
+            if soffice_oo.exists():
+                return str(soffice_oo)
     if platform.system() == "Windows":
         for p in (
             r"C:\Program Files\LibreOffice\program\soffice.exe",
@@ -440,10 +459,6 @@ def _render_certificado_co_xlsx(context: dict) -> bytes:
             f"No se encontró la plantilla: {_CERT_PLANTILLA_XLSX}. Coloque 'Plantilla calificados.xlsx' en la raíz del proyecto."
         )
 
-    ahora = context.get("_ahora") or datetime.now()
-    date_from = ahora.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-    date_to = ahora.replace(month=12, day=31, hour=0, minute=0, second=0, microsecond=0)
-
     with BytesIO() as buf:
         with open(_CERT_PLANTILLA_XLSX, "rb") as f:
             buf.write(f.read())
@@ -491,116 +506,23 @@ def _render_certificado_co_xlsx(context: dict) -> bytes:
     cliente_nombre = (context.get("cliente_nombre") or "").strip() or "VARIOUS (optional customer address)"
     _set_cell(ws, 16, 5, cliente_nombre)
 
-    fila_ejemplo_plantilla = 24
-    fila_inicio_materiales = 25
-    fila_fin_tabla_plantilla = 39
-    num_filas_tabla_plantilla = 15
-    columnas_tabla = (2, 3, 4, 5, 6, 7, 8, 9, 10)
-    _merges_por_fila = [(2, 3), (4, 6), (7, 8)]
+    # En C.O. no se rellenan componentes (se deja como en plantilla, p. ej. SEE ATTACHED). Solo cliente y número de páginas.
+    # La firma va ya en la plantilla; no se inserta aquí.
 
-    partes = context.get("partes") or []
-    num_partes = len(partes)
-    filas_extra = max(0, num_partes - num_filas_tabla_plantilla)
-    if filas_extra > 0:
-        fila_insertar = fila_fin_tabla_plantilla + 1
-        ws.insert_rows(fila_insertar, filas_extra)
-        # Desplazar merges para que firma, fechas y bloque de contenido bajen con la tabla.
-        for rng in list(ws.merged_cells.ranges):
-            if rng.min_row >= fila_insertar:
-                rng.shift(row_shift=filas_extra, col_shift=0)
-        # Desplazar alturas de fila (row_dimensions): openpyxl no lo hace al insertar.
-        # Así la firma y el resto del pie conservan su alto en la nueva posición.
-        rd = ws.row_dimensions
-        altura_nuevas_filas = 15.0
-        if fila_insertar in rd and getattr(rd[fila_insertar], "height", None) is not None:
-            altura_nuevas_filas = rd[fila_insertar].height
-        for row_idx in sorted(rd.keys(), reverse=True):
-            if row_idx >= fila_insertar:
-                new_row = row_idx + filas_extra
-                ref = rd[row_idx]
-                if getattr(ref, "height", None) is not None:
-                    rd[new_row].height = ref.height
-                if getattr(ref, "hidden", None) is not None:
-                    rd[new_row].hidden = ref.hidden
-                del rd[row_idx]
-        for r in range(fila_insertar, fila_insertar + filas_extra):
-            rd[r].height = altura_nuevas_filas
-        from copy import copy
-        fila_referencia = fila_fin_tabla_plantilla
-        for r in range(fila_fin_tabla_plantilla + 1, fila_fin_tabla_plantilla + 1 + filas_extra):
-            for (c1, c2) in _merges_por_fila:
-                ws.merge_cells(start_row=r, start_column=c1, end_row=r, end_column=c2)
-            for col in columnas_tabla:
-                src = ws.cell(row=fila_referencia, column=col)
-                tgt = ws.cell(row=r, column=col)
-                if hasattr(src, "_style") and getattr(src, "_style", None) is not None:
-                    tgt._style = copy(src._style)
-    desplazamiento = filas_extra
-
-    for col in columnas_tabla:
-        _set_cell(ws, fila_ejemplo_plantilla, col, "")
-    num_filas_a_limpiar = max(num_partes if num_partes else 12, 12)
-    for row in range(fila_inicio_materiales, fila_inicio_materiales + num_filas_a_limpiar):
-        for col in columnas_tabla:
-            _set_cell(ws, row, col, "")
-
-    for i, p in enumerate(partes):
-        row = fila_inicio_materiales + i
-        numero = (p.get("part_number") or "").strip()
-        descripcion = (p.get("description") or "").strip()
-        if descripcion:
-            descripcion = descripcion[:120].strip()
-        _set_cell(ws, row, 2, numero)
-        _set_cell(ws, row, 4, descripcion or "")
-        _set_cell(ws, row, 7, (p.get("tariff_schedule") or "").strip() or "")
-        _set_cell(ws, row, 9, "B")
-        _set_cell(ws, row, 10, (p.get("origin") or "").strip() or "MX")
-    if not partes:
-        _set_cell(ws, fila_inicio_materiales, 2, "SEE ATTACHED")
-        _set_cell(ws, fila_inicio_materiales, 4, "SEE ATTACHED")
-        _set_cell(ws, fila_inicio_materiales, 7, "SEE ATTACHED")
-
-    _set_cell(ws, 41 + desplazamiento, 5, date_from)
-    _set_cell(ws, 42 + desplazamiento, 5, date_to)
-    _set_cell(ws, 61 + desplazamiento, 2, ahora)
-
-    # Firma en plantilla: columna BC, filas 53-54. Se mueve con desplazamiento (insertar filas).
-    fila_firma_ini = 53 + desplazamiento
-    fila_firma_fin = 54 + desplazamiento
-    try:
-        from openpyxl.styles import Alignment
-        alinear_centro = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        for row in range(fila_firma_ini, fila_firma_fin + 1):
-            for col in (2, 3):  # B y C
-                c = ws.cell(row=row, column=col)
-                c.alignment = alinear_centro
-    except Exception as e:
-        logger.warning("No se pudo aplicar alineación a la zona de firma: %s", e)
-
-    if _CERT_FIRMA_IMG.exists():
-        try:
-            from openpyxl.drawing.image import Image as XLImage
-            from openpyxl.drawing.spreadsheet_drawing import OneCellAnchor, AnchorMarker
-            from openpyxl.drawing.xdr import XDRPositiveSize2D
-            from openpyxl.utils.units import cm_to_EMU, pixels_to_EMU
-            img = XLImage(str(_CERT_FIRMA_IMG))
-            if img.width > 180 or img.height > 55:
-                r = min(180 / img.width, 55 / img.height)
-                img.width = int(img.width * r)
-                img.height = int(img.height * r)
-            # Desplazar la firma un poco a la derecha y hacia abajo para que no quede en el borde ni tapada en blanco.
-            # B = col 1 (0-based), fila_firma_ini = fila 1-based → row 0-based = fila_firma_ini - 1
-            marker = AnchorMarker(
-                col=1,
-                row=fila_firma_ini - 1,
-                colOff=cm_to_EMU(0.25),
-                rowOff=cm_to_EMU(0.12),
-            )
-            ext = XDRPositiveSize2D(pixels_to_EMU(img.width), pixels_to_EMU(img.height))
-            img.anchor = OneCellAnchor(_from=marker, ext=ext)
-            ws.add_image(img)
-        except Exception as e:
-            logger.warning("No se pudo insertar la imagen de firma en el certificado: %s", e)
+    # Número de páginas del certificado: C.O. (1) + C.O. 3 (2) = 2 cuando existe hoja C.O. 3.
+    num_pages = int(context.get("num_pages") or (2 if "C.O. 3" in wb.sheetnames else 1))
+    text_pages = "This certification consists of"
+    text_suffix = "page(s), including all attachments."
+    for row in range(1, min(ws.max_row + 1, 120)):
+        for col in range(1, min(ws.max_column + 1, 30)):
+            val = ws.cell(row=row, column=col).value
+            if isinstance(val, str) and text_pages in val and "page(s)" in val:
+                r, c = _cell_to_write(ws, row, col)
+                ws.cell(row=r, column=c).value = f"{text_pages} {num_pages} {text_suffix}"
+                break
+        else:
+            continue
+        break
 
     # Hoja C.O. 3: tabla con Description, Customer Part Number, Leoni Part Number, Leoni Part Name, NUMBER (tariff), B, MX.
     # Filas 9-17 en plantilla (9 filas de formato fijo). Si hay más de 9 materiales, insertar filas a partir de la 18.
@@ -655,16 +577,17 @@ def _render_certificado_co_xlsx(context: dict) -> bytes:
         for i, p in enumerate(partes_co3):
             row = fila_ini_co3 + i
             numero = (p.get("part_number") or "").strip()
+            customer_part = (p.get("customer_part_number") or numero or "").strip()
+            _set_cell(ws_co3, row, 2, "Electrical Cable")
+            _set_cell(ws_co3, row, 3, customer_part)
+            _set_cell(ws_co3, row, 4, numero)
             descripcion = (p.get("description") or "").strip()
             if descripcion:
                 descripcion = descripcion[:120].strip()
-            _set_cell(ws_co3, row, 2, descripcion or "")
-            _set_cell(ws_co3, row, 3, numero)
-            _set_cell(ws_co3, row, 4, numero)
             _set_cell(ws_co3, row, 5, descripcion or "")
             _set_cell(ws_co3, row, 6, (p.get("tariff_schedule") or "").strip() or "")
             _set_cell(ws_co3, row, 8, "B")
-            _set_cell(ws_co3, row, 9, (p.get("origin") or "").strip() or "MX")
+            _set_cell(ws_co3, row, 9, "MX")
         # Ajustar ancho de columnas en C.O. 3 para que se vea todo el texto.
         fila_fin_datos_co3 = fila_ini_co3 + max(num_partes_co3, 1) - 1
         _ajustar_ancho_columnas(ws_co3, (2, 3, 4, 5, 6, 7, 8, 9), 8, fila_fin_datos_co3)
@@ -758,6 +681,125 @@ def _render_certificado_co_pdf(context: dict) -> bytes:
         raise RuntimeError("No se pudo convertir la plantilla Excel a PDF.")
 
 
+def _render_no_calificados_docx(context: dict) -> bytes:
+    """
+    Rellena la plantilla Word 'Plantilla no calificados.docx' con los componentes con ICR < 60%.
+    Context debe tener: codigo_cliente, cliente_nombre, partes (lista con part_number, description,
+    tariff_schedule, customer_part_number), blanket_year (opcional).
+    Devuelve el .docx en bytes.
+    """
+    from io import BytesIO
+    from docx import Document
+    from docx.shared import Pt
+    from docx.enum.table import WD_TABLE_ALIGNMENT
+
+    if not _CERT_PLANTILLA_NO_CALIFICADOS_DOCX.exists():
+        raise FileNotFoundError(
+            f"No se encontró la plantilla: {_CERT_PLANTILLA_NO_CALIFICADOS_DOCX}. "
+            "Coloque 'Plantilla no calificados.docx' en la raíz del proyecto."
+        )
+    doc = Document(str(_CERT_PLANTILLA_NO_CALIFICADOS_DOCX))
+    codigo_cliente = context.get("codigo_cliente") or ""
+    cliente_nombre = (context.get("cliente_nombre") or "").strip() or "—"
+    partes = context.get("partes") or []
+    ahora = context.get("_ahora") or datetime.now()
+    blanket_year = context.get("blanket_year") or ahora.year
+
+    # Reemplazar XXXXX y año en la primera tabla (filas 0 y 1: Customer Code, Customer Name, Blanket Year)
+    tbl0 = doc.tables[0]
+    xxxx_count = 0
+    for row in tbl0.rows[:2]:
+        for cell in row.cells:
+            full = cell.text
+            if "XXXXX" in full:
+                xxxx_count += 1
+                if xxxx_count == 1:
+                    cell.text = full.replace("XXXXX", str(codigo_cliente))
+                else:
+                    cell.text = full.replace("XXXXX", cliente_nombre)
+            if "2026" in full:
+                cell.text = full.replace("2026", str(blanket_year))
+
+    # Tabla: fila 2 = encabezado, filas 3+ = datos. Columnas: Leoni Part Number, Leoni Part Name, Customer Part Number (cross reference), Description, HTS, Comments
+    num_cols = 6
+    data_start_row = 3
+    header_row = tbl0.rows[2]
+    num_data_rows_template = max(0, len(tbl0.rows) - data_start_row)
+    for i, p in enumerate(partes):
+        row_idx = data_start_row + i
+        part_number = (p.get("part_number") or "").strip()
+        descripcion = (p.get("description") or "").strip() or "Electrical Cable"
+        if len(descripcion) > 120:
+            descripcion = descripcion[:120].strip()
+        # Customer Part Number: viene del cross reference (customer_part_number); si no hay, se usa part_number
+        customer_part = (p.get("customer_part_number") or part_number or "").strip()
+        tariff = (p.get("tariff_schedule") or "").strip() or "8544.49"
+        if row_idx < len(tbl0.rows):
+            row = tbl0.rows[row_idx]
+            cells = row.cells
+            if len(cells) >= num_cols:
+                cells[0].text = part_number
+                cells[1].text = descripcion
+                cells[2].text = customer_part
+                cells[3].text = "Electrical Cable"
+                cells[4].text = tariff
+                cells[5].text = "Not USMCA Complaint"
+        else:
+            new_row = tbl0.add_row()
+            vals = [part_number, descripcion, customer_part, "Electrical Cable", tariff, "Not USMCA Complaint"]
+            for c in range(min(num_cols, len(new_row.cells))):
+                new_row.cells[c].text = vals[c]
+
+    # Vaciar filas de datos sobrantes si hay menos partes que filas plantilla
+    for row_idx in range(data_start_row + len(partes), len(tbl0.rows)):
+        row = tbl0.rows[row_idx]
+        for cell in row.cells[:num_cols]:
+            cell.text = ""
+
+    # Tabla con letra más pequeña para que quepa en el documento y centrada
+    tabla_font_pt = 8
+    tbl0.alignment = WD_TABLE_ALIGNMENT.CENTER
+    for row in tbl0.rows:
+        for cell in row.cells:
+            for paragraph in cell.paragraphs:
+                for run in paragraph.runs:
+                    run.font.size = Pt(tabla_font_pt)
+
+    out = BytesIO()
+    doc.save(out)
+    out.seek(0)
+    return out.getvalue()
+
+
+def _render_no_calificados_pdf(context: dict) -> bytes:
+    """Genera el PDF de la declaración no calificados: docx rellenado y conversión con LibreOffice."""
+    import tempfile
+    docx_bytes = _render_no_calificados_docx(context)
+    libreoffice = _find_libreoffice()
+    if not libreoffice:
+        _mac = " (en Mac: brew install --cask libreoffice o descarga desde libreoffice.org). " if platform.system() == "Darwin" else " "
+        raise RuntimeError(
+            "Para generar el PDF hace falta LibreOffice (soffice)."
+            + _mac
+            + "Si está en otra ruta, defina la variable de entorno LIBREOFFICE_PATH. "
+            "La descarga del .docx está disponible sin PDF."
+        )
+    with tempfile.TemporaryDirectory(prefix="no_calificados_") as tmpdir:
+        tmpdir_path = Path(tmpdir)
+        tmp_docx = tmpdir_path / "no_calificados.docx"
+        tmp_docx.write_bytes(docx_bytes)
+        pdf_path = tmpdir_path / "no_calificados.pdf"
+        subprocess.run(
+            [libreoffice, "--headless", "--convert-to", "pdf", "--outdir", str(tmpdir_path), str(tmp_docx)],
+            capture_output=True,
+            timeout=60,
+            cwd=str(tmpdir_path),
+        )
+        if not pdf_path.exists():
+            raise RuntimeError("LibreOffice no generó el PDF. Compruebe la plantilla e instalación.")
+        return pdf_path.read_bytes()
+
+
 @app.get("/api/analisis-icr/certificado-pdf")
 async def api_analisis_icr_certificado_pdf(
     request: Request,
@@ -792,6 +834,13 @@ async def api_analisis_icr_certificado_pdf(
             {"error": "Ninguno de los números de parte seleccionados pertenece a este cliente."},
             status_code=400,
         )
+    # Customer Part Number desde cross_reference para la hoja C.O. 3
+    part_numbers = [(p.get("part_number") or "").strip() for p in partes_para_certificado]
+    cross_ref = await crud.get_cross_reference_por_cliente_materiales(db, str(codigo_cliente), part_numbers)
+    for p in partes_para_certificado:
+        np = (p.get("part_number") or "").strip()
+        p["customer_part_number"] = (cross_ref.get(np) or np or "").strip()
+
     ahora = datetime.now()
     def _fmt_date(d):
         return f"{d.month}/{d.day}/{d.strftime('%y')}"
@@ -807,7 +856,7 @@ async def api_analisis_icr_certificado_pdf(
         "blanket_period_from": blanket_from,
         "blanket_period_to": blanket_to,
         "certification_date": certification_date,
-        "num_pages": 1,
+        "num_pages": 2,  # C.O. (pág 1) + C.O. 3 (pág 2)
         "_ahora": ahora,
     }
     try:
@@ -859,6 +908,13 @@ async def api_analisis_icr_certificado_excel(
             {"error": "Ninguno de los números de parte seleccionados pertenece a este cliente."},
             status_code=400,
         )
+    # Customer Part Number desde cross_reference para la hoja C.O. 3
+    part_numbers = [(p.get("part_number") or "").strip() for p in partes_para_certificado]
+    cross_ref = await crud.get_cross_reference_por_cliente_materiales(db, str(codigo_cliente), part_numbers)
+    for p in partes_para_certificado:
+        np = (p.get("part_number") or "").strip()
+        p["customer_part_number"] = (cross_ref.get(np) or np or "").strip()
+
     ahora = datetime.now()
 
     def _fmt_date(d):
@@ -874,7 +930,7 @@ async def api_analisis_icr_certificado_excel(
         "blanket_period_from": blanket_from,
         "blanket_period_to": blanket_to,
         "certification_date": _fmt_date(ahora),
-        "num_pages": 1,
+        "num_pages": 2,  # C.O. (pág 1) + C.O. 3 (pág 2)
         "_ahora": ahora,
     }
     try:
@@ -891,6 +947,341 @@ async def api_analisis_icr_certificado_excel(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@app.get("/api/analisis-icr/certificado-pack")
+async def api_analisis_icr_certificado_pack(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    codigo_cliente: Optional[int] = None,
+    numero_parte: List[str] = Query(default=[], description="Números de parte seleccionados (columna Select)"),
+):
+    """
+    Genera un ZIP con los documentos según la selección:
+    - Si hay partes que califican (ICR >= 60%): incluye certificado Excel + PDF (solo esas partes).
+    - Si hay partes que no califican (ICR < 60% o sin ICR): incluye además Word + PDF de no calificados (cliente completo).
+    Si solo hay partes que califican: ZIP con certificado_co.xlsx y certificado_co.pdf.
+    """
+    if codigo_cliente is None:
+        return JSONResponse({"error": "Falta el parámetro codigo_cliente"}, status_code=400)
+    selected = [str(n).strip() for n in numero_parte if n is not None and str(n).strip()]
+    if not selected:
+        return JSONResponse(
+            {"error": "Seleccione al menos un número de parte en la columna Select para generar el certificado."},
+            status_code=400,
+        )
+    detalle = await crud.get_analisis_icr_detalle(db, codigo_cliente=codigo_cliente)
+    todas_partes = detalle.get("partes") or []
+    partes_seleccionadas = []
+    for np in selected:
+        for p in todas_partes:
+            if (p.get("part_number") or "").strip() == np:
+                partes_seleccionadas.append(p)
+                break
+    if not partes_seleccionadas:
+        return JSONResponse(
+            {"error": "Ninguno de los números de parte seleccionados pertenece a este cliente."},
+            status_code=400,
+        )
+
+    def _califica(p):
+        icr = p.get("icr")
+        if icr is None:
+            return False
+        try:
+            return float(icr) >= 60
+        except (TypeError, ValueError):
+            return False
+
+    partes_que_califican = [p for p in partes_seleccionadas if _califica(p)]
+    hay_no_calificados = any(not _califica(p) for p in partes_seleccionadas)
+
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        ahora = datetime.now()
+
+        if partes_que_califican:
+            part_numbers = [(p.get("part_number") or "").strip() for p in partes_que_califican]
+            cross_ref = await crud.get_cross_reference_por_cliente_materiales(db, str(codigo_cliente), part_numbers)
+            for p in partes_que_califican:
+                np = (p.get("part_number") or "").strip()
+                p["customer_part_number"] = (cross_ref.get(np) or np or "").strip()
+            def _fmt_date(d):
+                return f"{d.month}/{d.day}/{d.strftime('%y')}"
+            cert_context = {
+                **_CERT_CO_LEONI,
+                "codigo_cliente": codigo_cliente,
+                "cliente_nombre": detalle.get("cliente_nombre") or str(codigo_cliente),
+                "importer_address": None,
+                "partes": partes_que_califican,
+                "blanket_period_from": _fmt_date(ahora.replace(month=1, day=1)),
+                "blanket_period_to": _fmt_date(ahora.replace(month=12, day=31)),
+                "certification_date": _fmt_date(ahora),
+                "num_pages": 2,
+                "_ahora": ahora,
+            }
+            xlsx_bytes = await asyncio.to_thread(_render_certificado_co_xlsx, cert_context)
+            zf.writestr(f"certificado_co_{codigo_cliente}.xlsx", xlsx_bytes)
+            pdf_bytes = await asyncio.to_thread(_render_certificado_co_pdf, cert_context)
+            zf.writestr(f"certificado_co_{codigo_cliente}.pdf", pdf_bytes)
+
+        if hay_no_calificados:
+            todas_partes = detalle.get("partes") or []
+            partes_no_calificados = [
+                p for p in todas_partes
+                if p.get("icr") is None or (isinstance(p.get("icr"), (int, float)) and float(p["icr"]) < 60)
+            ]
+            if partes_no_calificados:
+                part_numbers = [(p.get("part_number") or "").strip() for p in partes_no_calificados]
+                cross_ref = await crud.get_cross_reference_por_cliente_materiales(db, str(codigo_cliente), part_numbers)
+                for p in partes_no_calificados:
+                    np = (p.get("part_number") or "").strip()
+                    p["customer_part_number"] = (cross_ref.get(np) or np or "").strip()
+                no_cert_context = {
+                    "codigo_cliente": codigo_cliente,
+                    "cliente_nombre": detalle.get("cliente_nombre") or str(codigo_cliente),
+                    "partes": partes_no_calificados,
+                    "blanket_year": ahora.year,
+                    "_ahora": ahora,
+                }
+                docx_bytes = await asyncio.to_thread(_render_no_calificados_docx, no_cert_context)
+                zf.writestr(f"no_calificados_{codigo_cliente}.docx", docx_bytes)
+                try:
+                    pdf_nc_bytes = await asyncio.to_thread(_render_no_calificados_pdf, no_cert_context)
+                    zf.writestr(f"no_calificados_{codigo_cliente}.pdf", pdf_nc_bytes)
+                except Exception as e:
+                    logger.warning("No se pudo incluir PDF no calificados en el pack: %s", e)
+
+    buf.seek(0)
+    filename_zip = f"certificado_pack_{codigo_cliente}.zip"
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename_zip}"'},
+    )
+
+
+@app.get("/api/analisis-icr/no-calificados-docx")
+async def api_analisis_icr_no_calificados_docx(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    codigo_cliente: Optional[int] = None,
+):
+    """
+    Genera la declaración jurada (Word) para componentes con ICR < 60% (no calificados USMCA).
+    Incluye todos los números de parte del cliente con ICR < 60% o sin ICR calculado.
+    """
+    if codigo_cliente is None:
+        return JSONResponse({"error": "Falta el parámetro codigo_cliente"}, status_code=400)
+    detalle = await crud.get_analisis_icr_detalle(db, codigo_cliente=codigo_cliente)
+    todas_partes = detalle.get("partes") or []
+    partes_no_calificados = [
+        p for p in todas_partes
+        if p.get("icr") is None or (isinstance(p.get("icr"), (int, float)) and float(p["icr"]) < 60)
+    ]
+    if not partes_no_calificados:
+        return JSONResponse(
+            {"error": "No hay componentes con ICR < 60% para este cliente."},
+            status_code=400,
+        )
+    part_numbers = [(p.get("part_number") or "").strip() for p in partes_no_calificados]
+    # Customer Part Number en la plantilla Word: se obtiene del cross reference (customer_material por material/cliente)
+    cross_ref = await crud.get_cross_reference_por_cliente_materiales(db, str(codigo_cliente), part_numbers)
+    for p in partes_no_calificados:
+        np = (p.get("part_number") or "").strip()
+        p["customer_part_number"] = (cross_ref.get(np) or np or "").strip()
+    ahora = datetime.now()
+    context = {
+        "codigo_cliente": codigo_cliente,
+        "cliente_nombre": detalle.get("cliente_nombre") or str(codigo_cliente),
+        "partes": partes_no_calificados,
+        "blanket_year": ahora.year,
+        "_ahora": ahora,
+    }
+    try:
+        docx_bytes = await asyncio.to_thread(_render_no_calificados_docx, context)
+    except Exception as e:
+        logger.exception("Error generando Word no calificados.")
+        return JSONResponse(
+            {"error": f"Error al generar el documento: {e!s}"},
+            status_code=500,
+        )
+    filename = f"no_calificados_{codigo_cliente}.docx"
+    return Response(
+        content=docx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/analisis-icr/no-calificados-pdf")
+async def api_analisis_icr_no_calificados_pdf(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    codigo_cliente: Optional[int] = None,
+):
+    """
+    Genera la declaración jurada en PDF para componentes con ICR < 60% (no calificados USMCA).
+    Requiere LibreOffice instalado para la conversión docx → pdf.
+    """
+    if codigo_cliente is None:
+        return JSONResponse({"error": "Falta el parámetro codigo_cliente"}, status_code=400)
+    detalle = await crud.get_analisis_icr_detalle(db, codigo_cliente=codigo_cliente)
+    todas_partes = detalle.get("partes") or []
+    partes_no_calificados = [
+        p for p in todas_partes
+        if p.get("icr") is None or (isinstance(p.get("icr"), (int, float)) and float(p["icr"]) < 60)
+    ]
+    if not partes_no_calificados:
+        return JSONResponse(
+            {"error": "No hay componentes con ICR < 60% para este cliente."},
+            status_code=400,
+        )
+    part_numbers = [(p.get("part_number") or "").strip() for p in partes_no_calificados]
+    # Customer Part Number en la plantilla Word: se obtiene del cross reference (customer_material por material/cliente)
+    cross_ref = await crud.get_cross_reference_por_cliente_materiales(db, str(codigo_cliente), part_numbers)
+    for p in partes_no_calificados:
+        np = (p.get("part_number") or "").strip()
+        p["customer_part_number"] = (cross_ref.get(np) or np or "").strip()
+    ahora = datetime.now()
+    context = {
+        "codigo_cliente": codigo_cliente,
+        "cliente_nombre": detalle.get("cliente_nombre") or str(codigo_cliente),
+        "partes": partes_no_calificados,
+        "blanket_year": ahora.year,
+        "_ahora": ahora,
+    }
+    try:
+        pdf_bytes = await asyncio.to_thread(_render_no_calificados_pdf, context)
+    except Exception as e:
+        logger.exception("Error generando PDF no calificados.")
+        return JSONResponse(
+            {"error": f"Error al generar el PDF: {e!s}"},
+            status_code=500,
+        )
+    filename = f"no_calificados_{codigo_cliente}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/api/reportes/partes-no-calificados-icr")
+async def api_reportes_partes_no_calificados_icr(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Reporte Excel: todos los números de parte que no cumplen ICR > 60% por cliente.
+    Origen: ventas con sales_km y precios (exmetal/full_metal) no vacíos ni 0;
+    para cada (codigo_cliente, part_number) se calcula ICR y se listan los que tienen ICR < 60 o sin ICR.
+    """
+    from io import BytesIO
+    from sqlalchemy import select
+    from app.db.models import Parte
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        pares = await crud.list_todos_clientes_partes_con_ventas_icr(db)
+    except Exception as e:
+        logger.exception("Error en list_todos_clientes_partes_con_ventas_icr")
+        return JSONResponse(
+            {"error": f"Error al obtener datos para el reporte: {str(e)}"},
+            status_code=500,
+        )
+    if not pares:
+        return JSONResponse(
+            {"error": "No hay ventas con sales_km y precios ICR válidos para generar el reporte."},
+            status_code=400,
+        )
+
+    # Calcular ICR por cada (cliente, parte) y filtrar no conformes (ICR < 60 o None)
+    filas = []
+    try:
+        for p in pares:
+            icr = await crud.get_icr_para_parte(db, p["codigo_cliente"], p["part_number"])
+            if icr is not None and float(icr) > 60:
+                continue
+            filas.append({
+                "codigo_cliente": p["codigo_cliente"],
+                "cliente_nombre": p["cliente_nombre"],
+                "part_number": p["part_number"],
+                "icr": icr,
+            })
+    except Exception as e:
+        logger.exception("Error al calcular ICR en reporte partes no calificados")
+        return JSONResponse(
+            {"error": f"Error al calcular ICR para el reporte: {str(e)}"},
+            status_code=500,
+        )
+
+    if not filas:
+        return JSONResponse(
+            {"error": "No hay componentes con ICR < 60% (todos cumplen o no se pudo calcular)."},
+            status_code=400,
+        )
+
+    try:
+        # Descripción y tarifa desde tabla Parte
+        part_numbers = list({f["part_number"] for f in filas})
+        partes_query = await db.execute(
+            select(Parte.numero_parte, Parte.descripcion, Parte.fraccion).where(Parte.numero_parte.in_(part_numbers))
+        )
+        partes_map = {}
+        for r in partes_query.all():
+            pn = (r[0] and str(r[0])).strip()
+            if pn:
+                partes_map[pn] = {"description": (r[1] or "").strip() or "—", "tariff_schedule": (r[2] or "").strip() or "—"}
+
+        for f in filas:
+            info = partes_map.get(f["part_number"]) or {}
+            f["description"] = info.get("description", "—")
+            f["tariff_schedule"] = info.get("tariff_schedule", "—")
+
+        # Excel
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Partes ICR < 60%"
+        headers = ["Codigo Cliente", "Cliente Nombre", "Part Number", "Description", "Tariff Schedule", "ICR"]
+        header_fill = PatternFill(fill_type="solid", start_color="4472C4", end_color="4472C4")
+        header_font = Font(bold=True, color="FFFFFF")
+        for col_idx, h in enumerate(headers, start=1):
+            c = ws.cell(row=1, column=col_idx, value=h)
+            c.fill = header_fill
+            c.font = header_font
+        for row_idx, f in enumerate(filas, start=2):
+            ws.cell(row=row_idx, column=1, value=f["codigo_cliente"])
+            ws.cell(row=row_idx, column=2, value=f["cliente_nombre"])
+            ws.cell(row=row_idx, column=3, value=f["part_number"])
+            ws.cell(row=row_idx, column=4, value=f["description"])
+            ws.cell(row=row_idx, column=5, value=f["tariff_schedule"])
+            ws.cell(row=row_idx, column=6, value=f["icr"] if f["icr"] is not None else "—")
+        for col in range(1, len(headers) + 1):
+            ws.column_dimensions[ws.cell(row=1, column=col).column_letter].width = 18
+
+        buf = BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        filename = f"reporte_partes_icr_menor_60_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+        return Response(
+            content=buf.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception as e:
+        logger.exception("Error al generar Excel en reporte partes no calificados")
+        return JSONResponse(
+            {"error": f"Error al generar el Excel: {str(e)}"},
+            status_code=500,
+        )
 
 
 @app.get("/analisis-icr/material")
@@ -5421,6 +5812,7 @@ async def actualizar_pais_origen(
         data = await request.json()
         pais_origen = data.get("pais_origen")
         porcentaje_compra = data.get("porcentaje_compra")
+        comentario = data.get("comentario")
         if porcentaje_compra is not None and porcentaje_compra != "":
             try:
                 porcentaje_compra = float(porcentaje_compra)
@@ -5428,6 +5820,10 @@ async def actualizar_pais_origen(
                 porcentaje_compra = None
         else:
             porcentaje_compra = None
+        if comentario is not None and isinstance(comentario, str):
+            comentario = comentario.strip() or None
+        else:
+            comentario = None
         
         if not pais_origen:
             return JSONResponse(
@@ -5440,6 +5836,7 @@ async def actualizar_pais_origen(
             pais_id=pais_id,
             pais_origen=pais_origen,
             porcentaje_compra=porcentaje_compra,
+            comentario=comentario,
             user_id=current_user.id
         )
         
@@ -5457,7 +5854,8 @@ async def actualizar_pais_origen(
                 "codigo_proveedor": pais_actualizado.codigo_proveedor,
                 "numero_material": pais_actualizado.numero_material,
                 "pais_origen": pais_actualizado.pais_origen,
-                "porcentaje_compra": float(pais_actualizado.porcentaje_compra) if pais_actualizado.porcentaje_compra is not None else None
+                "porcentaje_compra": float(pais_actualizado.porcentaje_compra) if pais_actualizado.porcentaje_compra is not None else None,
+                "comentario": pais_actualizado.comentario,
             }
         })
     except Exception as e:
@@ -6604,8 +7002,12 @@ async def procesar_archivos(
                         compra_data[campo_db] = convertir_valor(valor, 'date')
                     elif campo_db in ['amount_in_lc', 'amount', 'gr_ir_clearing_value_lc', 'invoice_value', 'price']:
                         compra_data[campo_db] = convertir_valor(valor, 'float')
+                    elif campo_db == 'numero_material':
+                        # Evitar notación científica (ej. Excel 3.41301E+11 -> 341301000000)
+                        raw = convertir_valor(valor, 'str')
+                        compra_data[campo_db] = (crud._normalizar_numero_material(raw) if raw else None)
                     else:
-                        # numero_material y otros campos string
+                        # plant, descripcion_material, nombre_proveedor y otros string
                         compra_data[campo_db] = convertir_valor(valor, 'str')
                 
                 return compra_data

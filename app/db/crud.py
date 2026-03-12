@@ -998,22 +998,34 @@ async def get_bom_vigente_by_parte(
     return bom, rev, items
 
 
-# Países que se consideran "originating" (Canadá, USA, México); el resto es non-originating
-_BOM_ORIGINATING_PAISES = (
-    "mexico", "méxico", "mex", "mx",
-    "usa", "us", "united states", "estados unidos", "u.s.a.", "u.s.",
-    "canada", "canadá", "ca",
-)
+# Solo USA, Mexico y Canada se consideran "originating". Origen desde tabla pais_origen_material.
+# Cualquier otro valor (Turkey, China, etc.) es non-originating.
 
 
 def _is_originating_pais(pais: Optional[str]) -> bool:
-    """True si pais es Canadá, USA o México (o variantes)."""
+    """
+    True solo si pais es USA, Mexico o Canada (según valores en pais_origen_material).
+    Cualquier otro país o valor es non-originating.
+    """
     if not pais:
         return False
-    p = pais.strip().lower()
+    p = (pais.strip() or "").lower()
     if not p:
         return False
-    return p in _BOM_ORIGINATING_PAISES or any(v in p for v in _BOM_ORIGINATING_PAISES)
+    # USA: códigos y nombres habituales
+    if p in ("usa", "us", "u.s.a.", "u.s.", "united states", "estados unidos") or "united states" in p or "estados unidos" in p:
+        return True
+    # Mexico: códigos y nombres habituales
+    if p in ("mexico", "méxico", "mex", "mx"):
+        return True
+    if "mexico" in p or "méxico" in p:
+        return True
+    # Canada: solo Canada/Canadá (evitar que "ca" suelto coincida con otros países)
+    if p in ("canada", "canadá", "ca"):
+        return True
+    if p.startswith("canada") or p.startswith("canadá"):
+        return True
+    return False
 
 
 async def get_bom_items_for_parte(
@@ -1023,8 +1035,8 @@ async def get_bom_items_for_parte(
     """
     Obtiene los ítems del BOM de un número de parte (primer BOM vigente encontrado).
     Retorna dict con: parte (info), items_originating, items_non_originating.
-    El país de origen se busca en pais_origen_material por numero_material (= numero_parte del componente).
-    Originating = Canadá, USA o México; el resto non-originating.
+    El país de origen viene de la tabla pais_origen_material (por numero_material + codigo_proveedor).
+    Solo USA, Mexico y Canada se consideran originating; todo lo demás es non-originating.
     """
     parte = await get_parte_by_numero(db, numero_parte)
     if not parte:
@@ -1058,85 +1070,127 @@ async def get_bom_items_for_parte(
     )
     rows = result_items.all()
 
-    # Proveedores y porcentaje de compra desde precios_materiales; pais_origen desde pais_origen_material
+    # Proveedores, porcentaje de compra, país de origen y comentario desde pais_origen_material (solo con % > 0).
+    # PU/Kg (precio_compra) desde el último registro de compras (columna price) por (numero_material, codigo_proveedor).
     numeros_parte = list({str((comp.numero_parte or "").strip()) for _, comp in rows if (comp.numero_parte or "").strip()})
     proveedores_by_material: Dict[str, List[Dict[str, Any]]] = {}
     if numeros_parte:
-        result_precios = await db.execute(
+        result_pais = await db.execute(
             select(
-                PrecioMaterial.numero_material,
-                PrecioMaterial.codigo_proveedor,
-                PrecioMaterial.precio,
-                PrecioMaterial.currency_uom,
-                PrecioMaterial.Porcentaje_Compra,
-                PrecioMaterial.Comentario,
-                Proveedor.nombre.label("proveedor_nombre"),
+                PaisOrigenMaterial.numero_material,
+                PaisOrigenMaterial.codigo_proveedor,
+                PaisOrigenMaterial.pais_origen,
+                PaisOrigenMaterial.porcentaje_compra,
+                PaisOrigenMaterial.comentario,
             )
-            .join(Proveedor, Proveedor.codigo_proveedor == PrecioMaterial.codigo_proveedor)
             .where(
-                PrecioMaterial.numero_material.in_(numeros_parte),
-                PrecioMaterial.Porcentaje_Compra.isnot(None),
-                PrecioMaterial.Porcentaje_Compra > 0,
+                PaisOrigenMaterial.numero_material.in_(numeros_parte),
+                PaisOrigenMaterial.porcentaje_compra.isnot(None),
+                PaisOrigenMaterial.porcentaje_compra > 0,
             )
-            .order_by(PrecioMaterial.numero_material, PrecioMaterial.id)
+            .order_by(PaisOrigenMaterial.numero_material, PaisOrigenMaterial.codigo_proveedor)
         )
-        precios_rows = result_precios.all()
-        keys_pais = [(str((r[0] or "").strip()), int(r[1])) for r in precios_rows if r[0] and r[1] is not None]
-        pais_by_key: Dict[tuple, str] = {}
-        if keys_pais:
-            result_pais = await db.execute(
-                select(
-                    PaisOrigenMaterial.numero_material,
-                    PaisOrigenMaterial.codigo_proveedor,
-                    PaisOrigenMaterial.pais_origen,
-                ).where(
-                    and_(
-                        PaisOrigenMaterial.numero_material.in_({k[0] for k in keys_pais}),
-                        PaisOrigenMaterial.codigo_proveedor.in_({k[1] for k in keys_pais}),
-                    )
-                )
-            )
-            for r in result_pais.all():
-                k = (str((r[0] or "").strip()), int(r[1]))
-                if r[2] is not None:
-                    pais_by_key[k] = str((r[2] or "").strip())
-        for row in precios_rows:
-            num = str((row[0] or "").strip())
-            if not num:
+        pais_rows = result_pais.all()
+        # Datos por (material, proveedor): pais_origen, porcentaje_compra y comentario desde pais_origen_material
+        pais_data_by_key: Dict[tuple, Dict[str, Any]] = {}
+        for r in pais_rows:
+            num = str((r[0] or "").strip())
+            cod = int(r[1]) if r[1] is not None else None
+            if not num or cod is None:
                 continue
-            pct = float(row[4]) if row[4] is not None else None
+            pct = float(r[3]) if r[3] is not None else None
             if pct is None or pct == 0:
                 continue
-            cod_prov = int(row[1]) if row[1] is not None else None
-            key_pais = (num, cod_prov) if cod_prov is not None else None
-            prov_entry = {
-                "nombre_proveedor": (row[6] or "").strip() or str(cod_prov),
-                "codigo_proveedor": cod_prov,
-                "pais_origen": pais_by_key.get(key_pais, "") if key_pais else "",
+            key = (num, cod)
+            pais_data_by_key[key] = {
+                "pais_origen": (r[2] or "").strip() if r[2] is not None else "",
                 "porcentaje_compra": pct,
-                "precio_compra": float(row[2]) if row[2] is not None else None,
-                "currency_uom": (row[3] or "").strip() or None,
-                "comentario": (row[5] or "").strip() if row[5] else None,
+                "comentario": (r[4] or "").strip() if r[4] else None,
             }
-            if num not in proveedores_by_material:
-                proveedores_by_material[num] = []
-            proveedores_by_material[num].append(prov_entry)
+        # Último precio (PU/Kg) por (numero_material, codigo_proveedor) desde tabla compras (columna price)
+        ultimo_precio_by_key: Dict[tuple, Dict[str, Any]] = {}
+        if pais_data_by_key:
+            keys_list = list(pais_data_by_key.keys())
+            numeros_set = list({k[0] for k in keys_list})
+            codigos_set = list({k[1] for k in keys_list})
+            result_compras = await db.execute(
+                select(
+                    Compra.numero_material,
+                    Compra.codigo_proveedor,
+                    Compra.price,
+                    Compra.currency,
+                )
+                .where(
+                    Compra.numero_material.in_(numeros_set),
+                    Compra.codigo_proveedor.in_(codigos_set),
+                    Compra.price.isnot(None),
+                )
+                .order_by(
+                    Compra.numero_material,
+                    Compra.codigo_proveedor,
+                    desc(Compra.posting_date).nulls_last(),
+                    desc(Compra.id),
+                )
+            )
+            for row in result_compras.all():
+                num = str((row[0] or "").strip())
+                cod_prov = int(row[1]) if row[1] is not None else None
+                if not num or cod_prov is None:
+                    continue
+                key = (num, cod_prov)
+                if key not in pais_data_by_key or key in ultimo_precio_by_key:
+                    continue
+                ultimo_precio_by_key[key] = {
+                    "price": float(row[2]) if row[2] is not None else None,
+                    "currency": (row[3] or "").strip() if row[3] else None,
+                }
+        # Nombres de proveedor
+        codigos_proveedor = list({k[1] for k in pais_data_by_key.keys()})
+        proveedor_nombres: Dict[int, str] = {}
+        if codigos_proveedor:
+            result_prov = await db.execute(
+                select(Proveedor.codigo_proveedor, Proveedor.nombre).where(
+                    Proveedor.codigo_proveedor.in_(codigos_proveedor)
+                )
+            )
+            for row in result_prov.all():
+                if row[0] is not None:
+                    proveedor_nombres[int(row[0])] = (row[1] or "").strip() or str(row[0])
+        # Armar lista de proveedores por material (pais_origen_material + último precio de compras)
+        if pais_data_by_key:
+            for (num, cod), data in pais_data_by_key.items():
+                ultimo = ultimo_precio_by_key.get((num, cod)) or {}
+                prov_entry = {
+                    "nombre_proveedor": proveedor_nombres.get(cod) or str(cod),
+                    "codigo_proveedor": cod,
+                    "pais_origen": data["pais_origen"],
+                    "porcentaje_compra": data["porcentaje_compra"],
+                    "precio_compra": ultimo.get("price"),
+                    "currency_uom": ultimo.get("currency"),
+                    "comentario": data.get("comentario"),
+                }
+                if num not in proveedores_by_material:
+                    proveedores_by_material[num] = []
+                proveedores_by_material[num].append(prov_entry)
 
     if numeros_parte and proveedores_by_material:
 
-        # Para el número de parte "310004003", PU/Kg = precio del material + último precio de compra de "310004000" del mismo proveedor
+        # Para el número de parte "310004003", PU/Kg = precio del material + último precio de compra de "310004000" del mismo proveedor (desde compras)
         if "310004003" in proveedores_by_material:
             proveedores_310004003 = list({int(p["codigo_proveedor"]) for p in proveedores_by_material["310004003"] if p.get("codigo_proveedor") is not None})
             precio_310004000_by_proveedor: Dict[int, float] = {}
             if proveedores_310004003:
                 result_310004000 = await db.execute(
-                    select(PrecioMaterial.codigo_proveedor, PrecioMaterial.precio).where(
-                        PrecioMaterial.numero_material == "310004000",
-                        PrecioMaterial.codigo_proveedor.in_(proveedores_310004003),
+                    select(Compra.codigo_proveedor, Compra.price)
+                    .where(
+                        Compra.numero_material == "310004000",
+                        Compra.codigo_proveedor.in_(proveedores_310004003),
+                        Compra.price.isnot(None),
                     )
+                    .order_by(Compra.codigo_proveedor, desc(Compra.posting_date).nulls_last(), desc(Compra.id))
                 )
                 for row in result_310004000.all():
-                    if row[0] is not None and row[1] is not None:
+                    if row[0] is not None and row[1] is not None and int(row[0]) not in precio_310004000_by_proveedor:
                         precio_310004000_by_proveedor[int(row[0])] = float(row[1])
             for p in proveedores_by_material["310004003"]:
                 cod = int(p["codigo_proveedor"]) if p.get("codigo_proveedor") is not None else None
@@ -1144,7 +1198,7 @@ async def get_bom_items_for_parte(
                 base = p.get("precio_compra")
                 p["precio_compra"] = (float(base) if base is not None else 0) + extra
 
-        # Materiales con comentario "MAS COBRE": si no tienen precio para ese proveedor, usar el último PU de 310004000 del proveedor 521348
+        # Materiales con comentario "MAS COBRE": si no tienen precio para ese proveedor, usar el último precio de compra de 310004000 del proveedor 521348 (desde compras)
         precio_mas_cobre_fallback: Optional[float] = None
         if any(
             (p.get("comentario") or "").strip().upper() == "MAS COBRE"
@@ -1152,10 +1206,11 @@ async def get_bom_items_for_parte(
             for p in prov_list
         ):
             res_mas_cobre = await db.execute(
-                select(PrecioMaterial.precio).where(
-                    PrecioMaterial.numero_material == "310004000",
-                    PrecioMaterial.codigo_proveedor == 521348,
-                ).order_by(desc(PrecioMaterial.updated_at)).limit(1)
+                select(Compra.price).where(
+                    Compra.numero_material == "310004000",
+                    Compra.codigo_proveedor == 521348,
+                    Compra.price.isnot(None),
+                ).order_by(desc(Compra.posting_date).nulls_last(), desc(Compra.id)).limit(1)
             )
             p_row = res_mas_cobre.scalar_one_or_none()
             if p_row is not None:
@@ -1168,14 +1223,14 @@ async def get_bom_items_for_parte(
                     ):
                         p["precio_compra"] = precio_mas_cobre_fallback
 
-        # Para el material "310905000" siempre usar la última compra con precio > 10
+        # Para el material "310905000" siempre usar la última compra con precio > 10 (desde compras)
         if "310905000" in proveedores_by_material:
             ultima_compra_310905000 = await db.execute(
                 select(Compra.price).where(
                     Compra.numero_material == "310905000",
                     Compra.price.isnot(None),
                     Compra.price > 10,
-                ).order_by(desc(Compra.posting_date), desc(Compra.id)).limit(1)
+                ).order_by(desc(Compra.posting_date).nulls_last(), desc(Compra.id)).limit(1)
             )
             row_precio = ultima_compra_310905000.scalar_one_or_none()
             precio_310905000 = float(row_precio) if row_precio is not None else None
@@ -1187,17 +1242,20 @@ async def get_bom_items_for_parte(
     non_originating = []
     for bi, comp in rows:
         numero_comp = str((comp.numero_parte or "").strip())
-        proveedores = proveedores_by_material.get(numero_comp) if numero_comp else []
-        # Origen principal: el del proveedor con mayor % compra, o el primero; si no hay datos, BomItem.origin
+        proveedores_raw = (proveedores_by_material.get(numero_comp) or []) if numero_comp else []
+        # Solo incluir proveedores con porcentaje de compra válido (> 0); excluir null/0
+        proveedores = [p for p in proveedores_raw if (p.get("porcentaje_compra") or 0) > 0]
+        # Origen: proveedor con mayor % compra. Si hay proveedores pero sin país en BD, no usar bi.origin (evita clasificar Turkey como originating).
         if proveedores:
             sorted_prov = sorted(
                 proveedores,
                 key=lambda p: (p["porcentaje_compra"] or 0),
                 reverse=True,
             )
-            pais_origen = sorted_prov[0].get("pais_origen") or ""
+            pais_origen = (sorted_prov[0].get("pais_origen") or "").strip() or ""
             origin_display = pais_origen or "—"
-            is_originating = _is_originating_pais(pais_origen) if pais_origen else _is_originating_pais(bi.origin)
+            # Cuando hay proveedores, clasificar solo por pais_origen; si está vacío, considerar non-originating (no usar bi.origin)
+            is_originating = _is_originating_pais(pais_origen) if pais_origen else False
         else:
             pais_origen = None
             origin_display = (bi.origin or "").strip() or "—"
@@ -2269,6 +2327,37 @@ async def list_cross_reference(
     return list(result.scalars().all())
 
 
+async def get_cross_reference_por_cliente_materiales(
+    db: AsyncSession,
+    customer: str,
+    materiales: List[str],
+) -> dict:
+    """
+    Devuelve un diccionario material -> customer_material para el cliente y la lista de materiales.
+    Si un material tiene varias entradas en cross_reference, se usa la primera (por customer_material).
+    """
+    if not materiales:
+        return {}
+    customer_str = str(customer).strip()
+    materiales_set = [m.strip() for m in materiales if (m or "").strip()]
+    if not materiales_set:
+        return {}
+    query = (
+        select(CrossReference.material, CrossReference.customer_material)
+        .where(CrossReference.customer == customer_str)
+        .where(CrossReference.material.in_(materiales_set))
+        .order_by(CrossReference.material, CrossReference.customer_material)
+    )
+    result = await db.execute(query)
+    rows = result.all()
+    # Primera aparición por material (puede haber varios customer_material por material).
+    out = {}
+    for material, customer_material in rows:
+        if material not in out and (customer_material or "").strip():
+            out[material] = (customer_material or "").strip()
+    return out
+
+
 async def count_cross_reference(
     db: AsyncSession,
     search: Optional[str] = None,
@@ -2463,22 +2552,41 @@ async def get_precio_venta_by_id(
     return result.scalar_one_or_none()
 
 
+def _venta_precio_icr_filters():
+    """Filtros para ventas con precios ICR válidos (no null ni 0)."""
+    return and_(
+        Venta.precio_exmetal_km.isnot(None),
+        Venta.precio_exmetal_km != 0,
+        Venta.precio_exmetal_m.isnot(None),
+        Venta.precio_exmetal_m != 0,
+        Venta.precio_full_metal_km.isnot(None),
+        Venta.precio_full_metal_km != 0,
+        Venta.precio_full_metal_m.isnot(None),
+        Venta.precio_full_metal_m != 0,
+    )
+
+
 async def get_ultimo_precio_venta_cliente_parte(
     db: AsyncSession,
     codigo_cliente: int,
     numero_parte: str,
 ) -> Optional[float]:
     """
-    Obtiene el último precio de venta (precio_venta) para un cliente y número de parte.
-    Si hay varios registros (p. ej. por tipo_cable), devuelve el más reciente por updated_at.
+    Obtiene el precio del último registro de venta de ese número de parte para el cliente.
+    Fuente: tabla ventas (última venta por id con producto_condensado = numero_parte y precios ICR válidos).
+    Se usa precio_full_metal_km como precio de referencia.
     """
+    numero_parte = str(numero_parte).strip()
+    if not numero_parte:
+        return None
     result = await db.execute(
-        select(PrecioVenta.precio_venta)
+        select(Venta.precio_full_metal_km)
         .where(
-            PrecioVenta.codigo_cliente == int(codigo_cliente),
-            PrecioVenta.numero_parte == str(numero_parte).strip(),
+            Venta.codigo_cliente == int(codigo_cliente),
+            Venta.producto_condensado == numero_parte,
+            _venta_precio_icr_filters(),
         )
-        .order_by(desc(PrecioVenta.updated_at))
+        .order_by(desc(Venta.id))
         .limit(1)
     )
     row = result.scalar_one_or_none()
@@ -4602,6 +4710,10 @@ async def count_compras(
 
 # ==================== CRUD para PaisOrigenMaterial ====================
 
+# Sentinel para "comentario no enviado" en update (no modificar el campo)
+_COMENTARIO_SENTINEL = object()
+
+
 def _pais_origen_material_to_dict(pais_origen_material: PaisOrigenMaterial) -> Dict[str, Any]:
     """Convierte un objeto PaisOrigenMaterial a diccionario para el historial."""
     return {
@@ -4610,6 +4722,7 @@ def _pais_origen_material_to_dict(pais_origen_material: PaisOrigenMaterial) -> D
         "numero_material": pais_origen_material.numero_material,
         "pais_origen": pais_origen_material.pais_origen,
         "porcentaje_compra": float(pais_origen_material.porcentaje_compra) if pais_origen_material.porcentaje_compra is not None else None,
+        "comentario": pais_origen_material.comentario,
         "created_at": pais_origen_material.created_at.isoformat() if pais_origen_material.created_at else None,
         "updated_at": pais_origen_material.updated_at.isoformat() if pais_origen_material.updated_at else None
     }
@@ -4642,6 +4755,7 @@ async def create_pais_origen_material(
     numero_material: str,
     pais_origen: str,
     porcentaje_compra: Optional[float] = None,
+    comentario: Optional[str] = None,
     user_id: Optional[int] = None
 ) -> PaisOrigenMaterial:
     """Crea un nuevo país de origen de material."""
@@ -4649,7 +4763,8 @@ async def create_pais_origen_material(
         codigo_proveedor=codigo_proveedor,
         numero_material=numero_material,
         pais_origen=pais_origen,
-        porcentaje_compra=porcentaje_compra
+        porcentaje_compra=porcentaje_compra,
+        comentario=comentario,
     )
     db.add(pais_origen_material)
     await db.flush()  # Flush para obtener el ID sin hacer commit
@@ -4678,6 +4793,7 @@ async def update_pais_origen_material(
     pais_id: int,
     pais_origen: Optional[str] = None,
     porcentaje_compra: Optional[float] = None,
+    comentario: Optional[str] = _COMENTARIO_SENTINEL,
     user_id: Optional[int] = None
 ) -> Optional[PaisOrigenMaterial]:
     """Actualiza un país de origen de material."""
@@ -4696,6 +4812,11 @@ async def update_pais_origen_material(
     if porcentaje_compra is not None and pais_origen_material.porcentaje_compra != porcentaje_compra:
         pais_origen_material.porcentaje_compra = porcentaje_compra
         campos_modificados.append("porcentaje_compra")
+    
+    # comentario: solo actualizar si se pasó el parámetro (permite borrar enviando None o "")
+    if comentario is not _COMENTARIO_SENTINEL and pais_origen_material.comentario != comentario:
+        pais_origen_material.comentario = comentario
+        campos_modificados.append("comentario")
     
     # Solo registrar en historial si hubo cambios
     if campos_modificados and user_id is not None:
@@ -4726,6 +4847,7 @@ async def upsert_pais_origen_material(
     numero_material: str,
     pais_origen: str,
     porcentaje_compra: Optional[float] = None,
+    comentario: Optional[str] = None,
     user_id: Optional[int] = None
 ) -> PaisOrigenMaterial:
     """Crea o actualiza un país de origen de material (upsert)."""
@@ -4738,6 +4860,7 @@ async def upsert_pais_origen_material(
             pais_id=existing.id,
             pais_origen=pais_origen,
             porcentaje_compra=porcentaje_compra,
+            comentario=comentario,
             user_id=user_id
         )
     else:
@@ -4748,6 +4871,7 @@ async def upsert_pais_origen_material(
             numero_material=numero_material,
             pais_origen=pais_origen,
             porcentaje_compra=porcentaje_compra,
+            comentario=comentario,
             user_id=user_id
         )
 
@@ -5438,9 +5562,77 @@ async def list_partes_icr_por_cliente(
     return [str(r[0]).strip() for r in rows if r[0] and str(r[0]).strip()]
 
 
+# Filtro común: ventas con sales_km y precios ICR no vacíos ni 0 (para reportes y análisis).
+_ventas_icr_filter = and_(
+    Venta.codigo_cliente.isnot(None),
+    Venta.producto_condensado.isnot(None),
+    Venta.producto_condensado != "",
+    Venta.sales_km.isnot(None),
+    Venta.sales_km != 0,
+    Venta.precio_exmetal_km.isnot(None),
+    Venta.precio_exmetal_km != 0,
+    Venta.precio_exmetal_m.isnot(None),
+    Venta.precio_exmetal_m != 0,
+    Venta.precio_full_metal_km.isnot(None),
+    Venta.precio_full_metal_km != 0,
+    Venta.precio_full_metal_m.isnot(None),
+    Venta.precio_full_metal_m != 0,
+)
+
+
+async def list_todos_clientes_partes_con_ventas_icr(db: AsyncSession) -> List[Dict[str, Any]]:
+    """
+    Lista todos los (codigo_cliente, numero_parte) únicos a partir de ventas que tienen
+    sales_km y columnas de precio (precio_exmetal_km, precio_exmetal_m, precio_full_metal_km,
+    precio_full_metal_m) no vacías ni 0.
+    Devuelve lista de dicts con codigo_cliente, cliente_nombre, part_number.
+    """
+    query = (
+        select(Venta.codigo_cliente, Venta.producto_condensado)
+        .where(_ventas_icr_filter)
+        .distinct()
+        .order_by(Venta.codigo_cliente, Venta.producto_condensado)
+    )
+    result = await db.execute(query)
+    rows = result.all()
+    if not rows:
+        return []
+    # Nombres de cliente desde tabla Cliente
+    codigos = list({int(r[0]) for r in rows if r[0] is not None})
+    nombres_query = select(Cliente.codigo_cliente, Cliente.nombre).where(Cliente.codigo_cliente.in_(codigos))
+    nombres_result = await db.execute(nombres_query)
+    nombres_map = {int(r[0]): (r[1] or "").strip() for r in nombres_result.all() if r[0] is not None}
+    # Si no está en Cliente, opcionalmente desde Venta.cliente (una consulta por codigo faltante)
+    codigos_sin_nombre = [c for c in codigos if not nombres_map.get(c)]
+    if codigos_sin_nombre:
+        fallback = await db.execute(
+            select(Venta.codigo_cliente, Venta.cliente).where(
+                Venta.codigo_cliente.in_(codigos_sin_nombre), Venta.cliente.isnot(None)
+            )
+        )
+        for r in fallback.all():
+            cod = int(r[0]) if r[0] is not None else None
+            if cod is not None and cod not in nombres_map:
+                nombres_map[cod] = (r[1] or "").strip()
+    out = []
+    for r in rows:
+        codigo = r[0]
+        pn = (r[1] and str(r[1]).strip()) or ""
+        if codigo is None or not pn:
+            continue
+        out.append({
+            "codigo_cliente": int(codigo),
+            "cliente_nombre": nombres_map.get(int(codigo)) or str(codigo),
+            "part_number": pn,
+        })
+    return out
+
+
 def _sum_value_items(items: List[Dict[str, Any]]) -> float:
     """Suma la columna Value (qty * porcentaje_compra/100 * precio_compra) de una lista de ítems con proveedores."""
     total = 0.0
+    if items is None:
+        return total
     for item in items:
         for p in (item.get("proveedores") or []):
             qty = item.get("qty")
@@ -5462,8 +5654,8 @@ async def get_icr_para_parte(
     Devuelve None si no se puede calcular (sin FOB, sin BOM, etc.).
     """
     bom_data = await get_bom_items_for_parte(db, str(numero_parte).strip())
-    items_orig = bom_data.get("items_originating") or []
-    items_non_orig = bom_data.get("items_non_originating") or []
+    items_orig = (bom_data.get("items_originating") or []) if bom_data else []
+    items_non_orig = (bom_data.get("items_non_originating") or []) if bom_data else []
     total_originating_value = _sum_value_items(items_orig)
     total_non_originating_value = _sum_value_items(items_non_orig)
     fob_total_value = await get_ultimo_precio_venta_cliente_parte(db, int(codigo_cliente), str(numero_parte).strip())
@@ -5528,7 +5720,7 @@ async def get_analisis_icr_detalle(
     partes_list = []
     for row in ventas_rows:
         pn = (row[0] and str(row[0]).strip()) or ""
-        if not pn or pn in part_numbers_seen:
+        if not pn or pn == "DUMMY" or pn in part_numbers_seen:
             continue
         part_numbers_seen.add(pn)
         descr = (row[1] and str(row[1]).strip()) or "—"
@@ -5560,6 +5752,23 @@ async def get_analisis_icr_detalle(
     # Calcular ICR (Regional index) por parte para mostrarlo en la lista
     for p in partes_list:
         p["icr"] = await get_icr_para_parte(db, codigo_cliente, p["part_number"])
+
+    # Partes que tienen al menos un ítem de BOM (revisión vigente): para mostrar/ocultar Select
+    part_numbers_with_bom = set()
+    if partes_list:
+        numeros = [p["part_number"] for p in partes_list]
+        q_bom = (
+            select(Parte.numero_parte)
+            .join(Bom, Bom.parte_id == Parte.id)
+            .join(BomRevision, (BomRevision.bom_id == Bom.id) & (BomRevision.effective_to.is_(None)))
+            .join(BomItem, BomItem.bom_revision_id == BomRevision.id)
+            .where(Parte.numero_parte.in_(numeros))
+            .distinct()
+        )
+        result_bom = await db.execute(q_bom)
+        part_numbers_with_bom = {str(r[0]).strip() for r in result_bom.all() if r[0]}
+    for p in partes_list:
+        p["has_bom_items"] = (p.get("part_number") or "").strip() in part_numbers_with_bom
 
     # Completion Status = (número de partes con ICR > 60%) / total * 100
     total_partes = len(partes_list)

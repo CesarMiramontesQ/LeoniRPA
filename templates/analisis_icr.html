@@ -44,42 +44,40 @@
       <h2 id="icr-cliente-header" class="text-xl font-semibold text-gray-900"></h2>
     </div>
 
-    <!-- Panel de filtros -->
+    <!-- Panel de filtros y botones en una fila -->
     <div class="rounded-lg bg-white p-6 shadow-sm">
-      <div class="flex flex-wrap items-center justify-between gap-4">
-      <div class="flex flex-wrap items-center gap-4">
+      <div class="flex flex-wrap items-center justify-between gap-3">
         <div class="flex items-center gap-2">
           <label for="icr-filter-part" class="whitespace-nowrap text-sm font-medium text-gray-900">Filter Part Number:</label>
           <input
             id="icr-filter-part"
             type="text"
             placeholder="Search part number..."
-            class="block w-56 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+            class="block w-48 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
           />
         </div>
-        <label class="flex cursor-pointer items-center gap-2">
-          <input id="icr-include-crossref" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-[#003D89] focus:ring-[#003D89]" />
-          <span class="text-sm text-gray-700">Include Cross Reference</span>
-        </label>
-      </div>
-      <div class="flex items-center gap-2">
-        <button type="button" class="flex items-center gap-1.5 rounded-md bg-[#003D89] px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-[#003366]">
-          <svg class="h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 15.75V18m-7.5-6.75h.008v.008H8.25v-.008zm0 2.25h.008v.008H8.25V13.5zm0-2.25h.008v.008H8.25v-.008zm0 2.25h.008v.008H8.25v-.008zm0-2.25h.008v.008H8.25v-.008zm0 2.25h.008v.008H8.25V18zm2.498-6.75h.007v.008h-.007V18zm0 2.25h.007v.008h-.007v-.008zm0-2.25h.007v.008h-.007V13.5zm0 2.25h.007v.008h-.007v-.008zm0-2.25h.007v.008h-.007v-.008zm0 2.25h.007v.008h-.007V18zm2.504-6.75h.008v.008h-.008V18zm0 2.25h.008v.008h-.008v-.008zm0-2.25h.008v.008h-.008V13.5z" /></svg>
-          Calculation
-        </button>
-        <button type="button" id="icr-certificado-excel" class="flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700">
-          <svg class="h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
-          Descargar Excel
-        </button>
-        <button type="button" id="icr-certificado-pdf" class="flex items-center gap-1.5 rounded-md bg-[#003D89] px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-[#003366]">
+        <div class="flex flex-wrap items-center gap-2">
+        <button type="button" id="icr-certificado-pack" class="flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700" title="Genera ZIP: certificado Excel+PDF (partes que califican) y, si hay no calificados, Word+PDF de no calificados">
           <svg class="h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" /></svg>
-          Certificate (PDF)
+          Generar certificado
         </button>
-        <button type="button" class="flex items-center gap-1.5 rounded-md bg-[#003D89] px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-[#003366]">
-          <svg class="h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Zm0 3h.008v.008h-.008v-.008Z" /></svg>
-          Manufacturers
+        <button type="button" id="icr-certificado-excel" class="flex items-center gap-1.5 rounded-md bg-slate-500 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-slate-600" title="Solo Excel del certificado (partes seleccionadas que califican)">
+          <svg class="h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+          Solo Excel
         </button>
-      </div>
+        <button type="button" id="icr-no-calificados-docx" class="flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-amber-700" title="Declaración jurada para componentes con ICR &lt; 60%">
+          <svg class="h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
+          No calificados (Word)
+        </button>
+        <button type="button" id="icr-no-calificados-pdf" class="flex items-center gap-1.5 rounded-md bg-amber-700 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-amber-800" title="Declaración jurada PDF para componentes con ICR &lt; 60%">
+          <svg class="h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" /></svg>
+          No calificados (PDF)
+        </button>
+        <button type="button" id="icr-reporte-partes-no-calificados" class="flex items-center gap-1.5 rounded-md bg-slate-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-slate-700" title="Reporte Excel: todos los clientes y partes con ICR &lt; 60% (ventas con sales_km y precios)">
+          <svg class="h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+          Reporte ICR &lt; 60% (Excel)
+        </button>
+        </div>
       </div>
     </div>
 
@@ -185,13 +183,16 @@
     emptyState.classList.add('hidden');
     tbody.innerHTML = partes.map(function (p) {
       var partNum = (p.part_number || '').replace(/"/g, '&quot;');
-      var checked = selectedPartNumbers.has(p.part_number || '') ? ' checked' : '';
+      var hasBom = p.has_bom_items === true;
+      var selectCell = hasBom
+        ? '<input type="checkbox" class="icr-select-checkbox h-4 w-4 rounded border-gray-300 text-[#003D89] focus:ring-[#003D89]" data-part-number="' + escapeHtml(partNum) + '"' + (selectedPartNumbers.has(p.part_number || '') ? ' checked' : '') + ' />'
+        : '<span class="text-gray-400">—</span>';
       return '<tr data-part-number="' + escapeHtml(partNum) + '" class="hover:bg-gray-50">' +
         '<td class="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900">' + escapeHtml(p.part_number || '—') + '</td>' +
         '<td class="max-w-xs truncate px-6 py-4 text-sm text-gray-600" title="' + escapeHtml(p.description || '') + '">' + escapeHtml(p.description || '—') + '</td>' +
         '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + escapeHtml(p.tariff_schedule || '—') + '</td>' +
         '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + (p.icr != null && p.icr !== '' ? (typeof p.icr === 'number' ? p.icr.toFixed(2) + '%' : p.icr) : '—') + '</td>' +
-        '<td class="whitespace-nowrap px-6 py-4"><input type="checkbox" class="icr-select-checkbox h-4 w-4 rounded border-gray-300 text-[#003D89] focus:ring-[#003D89]" data-part-number="' + escapeHtml(partNum) + '"' + checked + ' /></td>' +
+        '<td class="whitespace-nowrap px-6 py-4">' + selectCell + '</td>' +
         '<td class="whitespace-nowrap px-6 py-4"><button type="button" class="icr-ver-detalle rounded-md bg-[#003D89] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#003366]">Ver detalle</button></td>' +
         '</tr>';
     }).join('');
@@ -285,6 +286,36 @@
     input.focus();
   });
 
+  function descargarCertificadoPack() {
+    if (currentCodigoCliente == null) return;
+    var selected = Array.from(selectedPartNumbers);
+    if (selected.length === 0) {
+      alert('Seleccione al menos un número de parte en la columna Select para generar el certificado.');
+      return;
+    }
+    var params = new URLSearchParams();
+    params.set('codigo_cliente', String(currentCodigoCliente));
+    selected.forEach(function (np) { params.append('numero_parte', np); });
+    var url = '/api/analisis-icr/certificado-pack?' + params.toString();
+    fetch(url, { method: 'GET', headers: { 'Accept': 'application/zip' } })
+      .then(function (r) {
+        if (!r.ok) {
+          return r.json().then(function (d) { throw new Error(d.error || 'Error al generar el certificado'); });
+        }
+        return r.blob();
+      })
+      .then(function (blob) {
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'certificado_pack_' + currentCodigoCliente + '.zip';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      })
+      .catch(function (err) {
+        alert(err.message || 'Error al generar el certificado');
+      });
+  }
+
   function descargarCertificado(formato) {
     if (currentCodigoCliente == null) return;
     var selected = Array.from(selectedPartNumbers);
@@ -318,8 +349,61 @@
       });
   }
 
+  function descargarNoCalificados(formato) {
+    if (currentCodigoCliente == null) return;
+    var url = '/api/analisis-icr/no-calificados-' + (formato === 'pdf' ? 'pdf' : 'docx') + '?codigo_cliente=' + encodeURIComponent(currentCodigoCliente);
+    var accept = formato === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    var ext = formato === 'pdf' ? 'pdf' : 'docx';
+    fetch(url, { method: 'GET', headers: { 'Accept': accept } })
+      .then(function (r) {
+        if (!r.ok) {
+          return r.json().then(function (d) { throw new Error(d.error || 'Error al generar el documento'); });
+        }
+        return r.blob();
+      })
+      .then(function (blob) {
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'no_calificados_' + currentCodigoCliente + '.' + ext;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      })
+      .catch(function (err) {
+        alert(err.message || 'Error al generar el documento');
+      });
+  }
+
+  document.getElementById('icr-certificado-pack').addEventListener('click', descargarCertificadoPack);
   document.getElementById('icr-certificado-excel').addEventListener('click', function () { descargarCertificado('excel'); });
-  document.getElementById('icr-certificado-pdf').addEventListener('click', function () { descargarCertificado('pdf'); });
+  document.getElementById('icr-no-calificados-docx').addEventListener('click', function () { descargarNoCalificados('docx'); });
+  document.getElementById('icr-no-calificados-pdf').addEventListener('click', function () { descargarNoCalificados('pdf'); });
+
+  document.getElementById('icr-reporte-partes-no-calificados').addEventListener('click', function () {
+    var url = '/api/reportes/partes-no-calificados-icr';
+    fetch(url, { method: 'GET', headers: { 'Accept': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' } })
+      .then(function (r) {
+        if (!r.ok) {
+          var ct = (r.headers.get('Content-Type') || '').toLowerCase();
+          if (ct.indexOf('application/json') >= 0) {
+            return r.json().then(function (d) { throw new Error(d.error || 'Error al generar el reporte'); });
+          }
+          return r.text().then(function (text) {
+            throw new Error(text && text.length < 200 ? text : 'Error al generar el reporte (código ' + r.status + ')');
+          });
+        }
+        return r.blob();
+      })
+      .then(function (blob) {
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'reporte_partes_icr_menor_60.xlsx';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      })
+      .catch(function (err) {
+        alert(err.message || 'Error al generar el reporte');
+      });
+  });
 
   // Si la URL trae codigo_cliente, cargar ese cliente al entrar (ej. volver desde página de material)
   (function () {
