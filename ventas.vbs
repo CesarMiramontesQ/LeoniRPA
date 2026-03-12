@@ -42,6 +42,10 @@ Sub Esperar(segundos)
    WScript.Sleep segundos * 1000
 End Sub
 
+Sub Log(mensaje)
+   WScript.Echo "[ventas] " & Now & " - " & mensaje
+End Sub
+
 ' --- Excel: esperar que SAP abra Excel tras "Copy to XXL" ---
 Function WaitForExcelApp(maxSeconds)
    Dim xlApp, i
@@ -255,13 +259,69 @@ Esperar 2
 DeleteIfExists outFile
 SaveLatestExcelAs outFile
 
-' --- Cerrar SAP al final del proceso ---
-Sub CerrarSAP()
+' --- Cerrar SAP GUI completamente (session + application), igual que exportar-sap.vbs ---
+Sub CerrarSAPCompleto()
+   Dim wIdx3, wndP
    On Error Resume Next
-   If Not connection Is Nothing Then connection.Close
+   If session Is Nothing Then
+      Log "  No hay sesion SAP para cerrar."
+      On Error GoTo 0
+      Exit Sub
+   End If
+   ' Cerrar popups abiertos primero
+   For wIdx3 = 5 To 1 Step -1
+      Err.Clear
+      Set wndP = Nothing
+      Set wndP = session.findById("wnd[" & wIdx3 & "]")
+      If Err.Number = 0 And Not (wndP Is Nothing) Then
+         session.findById("wnd[" & wIdx3 & "]").close
+         Esperar 1
+      End If
+      Err.Clear
+   Next
+   ' Cerrar sesion SAP con /nex (cierra sin guardar ni preguntar)
+   Log "  Cerrando sesion SAP con /nex..."
+   Err.Clear
+   session.findById("wnd[0]/tbar[0]/okcd").text = "/nex"
+   session.findById("wnd[0]").sendVKey 0
+   Esperar 2
+   ' Si pide confirmacion, aceptar
+   Err.Clear
+   Set wndP = Nothing
+   Set wndP = session.findById("wnd[1]")
+   If Err.Number = 0 And Not (wndP Is Nothing) Then
+      session.findById("wnd[1]").sendVKey 0
+      Esperar 1
+   End If
+   Err.Clear
+   Log "  Sesion SAP cerrada."
+   ' Cerrar SAP GUI completamente
+   Log "  Cerrando SAP GUI (application)..."
+   Err.Clear
+   If Not (connection Is Nothing) Then
+      connection.CloseSession session.Id
+      Esperar 1
+   End If
+   Err.Clear
+   If Not (connection Is Nothing) Then
+      If connection.Children.Count = 0 Then
+         connection.CloseConnection
+         Esperar 1
+      End If
+   End If
+   Err.Clear
+   If Not (application Is Nothing) Then
+      If application.Children.Count = 0 Then
+         Log "  No quedan conexiones, cerrando SAP Logon..."
+         shell.Run "taskkill /F /IM saplogon.exe", 0, True
+         Esperar 1
+      End If
+   End If
+   Err.Clear
+   Log "  SAP GUI cerrado completamente."
    Set session = Nothing
    Set connection = Nothing
    Set application = Nothing
    On Error GoTo 0
 End Sub
-CerrarSAP
+CerrarSAPCompleto

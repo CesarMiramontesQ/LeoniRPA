@@ -6385,8 +6385,8 @@ async def iniciar_descarga(
         except:
             hostname = platform.node() or "unknown"
         
-        # Crear el registro de ejecución
-        execution = await crud.create_execution(
+        # Crear el registro de ejecución (retorna id para evitar MissingGreenlet al acceder al objeto tras commit)
+        execution_id = await crud.create_execution(
             db=db,
             user_id=current_user.id,
             fecha_inicio_periodo=fecha_inicio_dt,
@@ -6395,7 +6395,6 @@ async def iniciar_descarga(
             transaccion="ME80FN",  # Transaccion del script compras_local.vbs
             maquina=hostname
         )
-        execution_id = execution.id  # para actualizar en except si falla después
 
         # Construir el nombre del archivo esperado (el VBS exporta .xlsx)
         fecha_inicio_str = fecha_inicio_dt.strftime("%Y%m%d")
@@ -6408,7 +6407,7 @@ async def iniciar_descarga(
         vbs_path = script_dir / "compras_local.vbs"
         if not vbs_path.exists():
             await crud.update_execution_status(
-                db=db, execution_id=execution.id, estado=ExecutionStatus.FAILED,
+                db=db, execution_id=execution_id, estado=ExecutionStatus.FAILED,
                 detalles=f"No se encontró el script compras_local.vbs en {script_dir}"
             )
             return JSONResponse(
@@ -6419,8 +6418,8 @@ async def iniciar_descarga(
         # Actualizar con la información del archivo esperado (estado PENDING mientras corre)
         await crud.update_execution_status(
             db=db,
-            execution_id=execution.id,
-            estado=execution.estado,
+            execution_id=execution_id,
+            estado=ExecutionStatus.PENDING,
             archivo_ruta=ruta_completa,
             archivo_nombre=nombre_archivo
         )
@@ -6438,7 +6437,7 @@ async def iniciar_descarga(
             result = await loop.run_in_executor(None, _run_compras_vbs)
         except subprocess.TimeoutExpired:
             await crud.update_execution_status(
-                db=db, execution_id=execution.id, estado=ExecutionStatus.FAILED,
+                db=db, execution_id=execution_id, estado=ExecutionStatus.FAILED,
                 detalles="El proceso de descarga superó el tiempo máximo (5 minutos)."
             )
             return JSONResponse(
@@ -6447,7 +6446,7 @@ async def iniciar_descarga(
             )
         except Exception as e:
             await crud.update_execution_status(
-                db=db, execution_id=execution.id, estado=ExecutionStatus.FAILED,
+                db=db, execution_id=execution_id, estado=ExecutionStatus.FAILED,
                 detalles=f"Error al ejecutar el script: {str(e)}"
             )
             return JSONResponse(
@@ -6458,7 +6457,7 @@ async def iniciar_descarga(
         if result.returncode != 0:
             err_msg = (result.stderr or result.stdout or b"").decode("utf-8", errors="replace").strip() or f"Código de salida: {result.returncode}"
             await crud.update_execution_status(
-                db=db, execution_id=execution.id, estado=ExecutionStatus.FAILED,
+                db=db, execution_id=execution_id, estado=ExecutionStatus.FAILED,
                 detalles=f"El script SAP finalizó con error. {err_msg}"
             )
             return JSONResponse(
@@ -6516,7 +6515,7 @@ async def iniciar_descarga(
 
         await crud.update_execution_status(
             db=db,
-            execution_id=execution.id,
+            execution_id=execution_id,
             estado=ExecutionStatus.SUCCESS,
             archivo_nombre=nombre_archivo,
             detalles=detalles_str,
@@ -6525,7 +6524,7 @@ async def iniciar_descarga(
         content_response = {
             "success": True,
             "message": "Proceso de descarga terminado",
-            "execution_id": execution.id,
+            "execution_id": execution_id,
             "archivo_esperado": nombre_archivo,
             "ruta_completa": ruta_completa,
             "procesamiento_automatico": detalles_str is not None,
@@ -6585,8 +6584,8 @@ async def procesar_archivos(
         # Fecha de hoy para el periodo (el procesamiento no tiene periodo específico)
         fecha_hoy = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         
-        # Crear el registro de ejecución inicial
-        execution = await crud.create_execution(
+        # Crear el registro de ejecución inicial (retorna id para evitar MissingGreenlet)
+        execution_id = await crud.create_execution(
             db=db,
             user_id=current_user.id,
             fecha_inicio_periodo=fecha_hoy,
@@ -6595,7 +6594,6 @@ async def procesar_archivos(
             transaccion="Procesar Archivos Excel",
             maquina=hostname
         )
-        execution_id = execution.id
         fecha_inicio_ejecucion = datetime.now()
         
         # Actualizar estado a RUNNING
@@ -7132,7 +7130,7 @@ async def iniciar_descarga_ventas(
     import subprocess
     import asyncio
     from pathlib import Path
-    execution = None
+    execution_id = None
     try:
         # Validar y convertir periodo (YYYY-MM) a primer/último día y a formato SAP PPP.YYYY
         try:
@@ -7157,8 +7155,8 @@ async def iniciar_descarga_ventas(
         except:
             hostname = platform.node() or "unknown"
         
-        # Crear el registro de ejecución
-        execution = await crud.create_sales_execution(
+        # Crear el registro de ejecución (retorna id para evitar MissingGreenlet)
+        execution_id = await crud.create_sales_execution(
             db=db,
             user_id=current_user.id,
             fecha_inicio_periodo=fecha_inicio_dt,
@@ -7176,8 +7174,8 @@ async def iniciar_descarga_ventas(
         
         await crud.update_sales_execution_status(
             db=db,
-            execution_id=execution.id,
-            estado=execution.estado,
+            execution_id=execution_id,
+            estado=ExecutionStatus.PENDING,
             archivo_ruta=ruta_completa,
             archivo_nombre=nombre_archivo
         )
@@ -7188,7 +7186,7 @@ async def iniciar_descarga_ventas(
         if not vbs_path.exists():
             err = f"No se encontró el script ventas.vbs en {script_dir}"
             await crud.update_sales_execution_status(
-                db=db, execution_id=execution.id, estado=ExecutionStatus.FAILED,
+                db=db, execution_id=execution_id, estado=ExecutionStatus.FAILED,
                 mensaje_error=err, detalles=err
             )
             return JSONResponse(
@@ -7209,7 +7207,7 @@ async def iniciar_descarga_ventas(
         except subprocess.TimeoutExpired:
             err = "El proceso de descarga superó el tiempo máximo (5 minutos)."
             await crud.update_sales_execution_status(
-                db=db, execution_id=execution.id, estado=ExecutionStatus.FAILED,
+                db=db, execution_id=execution_id, estado=ExecutionStatus.FAILED,
                 mensaje_error=err, detalles=err
             )
             return JSONResponse(
@@ -7219,7 +7217,7 @@ async def iniciar_descarga_ventas(
         except Exception as e:
             err = f"Error al ejecutar el script: {str(e)}"
             await crud.update_sales_execution_status(
-                db=db, execution_id=execution.id, estado=ExecutionStatus.FAILED,
+                db=db, execution_id=execution_id, estado=ExecutionStatus.FAILED,
                 mensaje_error=err, detalles=err
             )
             return JSONResponse(
@@ -7231,7 +7229,7 @@ async def iniciar_descarga_ventas(
             err_msg = (result.stderr or result.stdout or b"").decode("utf-8", errors="replace").strip() or f"Código de salida: {result.returncode}"
             err_full = f"El script SAP finalizó con error. {err_msg}"
             await crud.update_sales_execution_status(
-                db=db, execution_id=execution.id, estado=ExecutionStatus.FAILED,
+                db=db, execution_id=execution_id, estado=ExecutionStatus.FAILED,
                 mensaje_error=err_full, detalles=err_full
             )
             return JSONResponse(
@@ -7244,7 +7242,7 @@ async def iniciar_descarga_ventas(
         content_response = {
             "success": True,
             "message": "Proceso de descarga finalizado correctamente",
-            "execution_id": execution.id,
+            "execution_id": execution_id,
             "archivo_esperado": nombre_archivo,
             "ruta_completa": ruta_completa,
             "periodo_sap": periodo_sap,
@@ -7252,7 +7250,7 @@ async def iniciar_descarga_ventas(
         if path_ventas_xlsx.exists():
             try:
                 resultado_proceso = await _procesar_archivo_ventas_desde_ruta(
-                    db, path_ventas_xlsx, execution.id, current_user.id
+                    db, path_ventas_xlsx, execution_id, current_user.id
                 )
                 content_response["procesamiento_automatico"] = True
                 content_response["registros_insertados"] = resultado_proceso.get("registros_insertados", 0)
@@ -7272,7 +7270,7 @@ async def iniciar_descarga_ventas(
                 content_response["error_procesamiento"] = str(e)
         else:
             await crud.update_sales_execution_status(
-                db=db, execution_id=execution.id, estado=ExecutionStatus.SUCCESS,
+                db=db, execution_id=execution_id, estado=ExecutionStatus.SUCCESS,
                 detalles="Descarga finalizada correctamente. No se encontró archivo Excel para procesar."
             )
         
@@ -7281,9 +7279,9 @@ async def iniciar_descarga_ventas(
     except Exception as e:
         err_msg = str(e)
         err_full = f"Error al iniciar la descarga: {err_msg}"
-        if execution is not None:
+        if execution_id is not None:
             await crud.update_sales_execution_status(
-                db=db, execution_id=execution.id, estado=ExecutionStatus.FAILED,
+                db=db, execution_id=execution_id, estado=ExecutionStatus.FAILED,
                 mensaje_error=err_full, detalles=err_full
             )
         return JSONResponse(
@@ -8722,10 +8720,9 @@ async def _procesar_archivo_ventas_desde_ruta(
     Devuelve el dict con success, message, registros_insertados, etc. En error de validación/lectura actualiza ejecución y devuelve dict con success=False."""
     from datetime import timezone as tz
     import pandas as pd
-    execution = None
     if execution_id is None and user_id is not None:
         ahora_utc = datetime.now(tz.utc)
-        execution = await crud.create_sales_execution(
+        execution_id = await crud.create_sales_execution(
             db=db,
             user_id=user_id,
             fecha_inicio_periodo=ahora_utc,
@@ -8734,7 +8731,6 @@ async def _procesar_archivo_ventas_desde_ruta(
             transaccion="Procesar archivo",
             maquina=socket.gethostname() if hasattr(socket, 'gethostname') else (platform.node() or "unknown"),
         )
-        execution_id = execution.id
         await crud.update_sales_execution_status(
             db=db, execution_id=execution_id, estado=ExecutionStatus.RUNNING, archivo_nombre=path_ventas.name
         )
@@ -8820,7 +8816,7 @@ async def procesar_archivos_ventas(
     import pandas as pd
     import traceback
     
-    execution = None
+    execution_id = None
     ahora_utc = None
     try:
         # Validar que sea un archivo Excel
@@ -8864,10 +8860,10 @@ async def procesar_archivos_ventas(
         
         # Si se creó el registro de ejecución, actualizarlo a FAILED
         try:
-            if execution is not None:
+            if execution_id is not None:
                 await crud.update_sales_execution_status(
                     db=db,
-                    execution_id=execution.id,
+                    execution_id=execution_id,
                     estado=ExecutionStatus.FAILED,
                     mensaje_error=str(e),
                     detalles=str(e),

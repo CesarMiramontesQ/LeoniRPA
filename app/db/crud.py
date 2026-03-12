@@ -101,8 +101,8 @@ async def create_execution(
     sistema_sap: Optional[str] = None,
     transaccion: Optional[str] = None,
     maquina: Optional[str] = None
-) -> ExecutionHistory:
-    """Crea un nuevo registro de ejecución."""
+) -> int:
+    """Crea un nuevo registro de ejecución. Retorna el id asignado (evita acceder al objeto tras commit y MissingGreenlet)."""
     execution = ExecutionHistory(
         user_id=user_id,
         fecha_inicio_periodo=fecha_inicio_periodo,
@@ -113,9 +113,10 @@ async def create_execution(
         maquina=maquina
     )
     db.add(execution)
-    await db.flush()  # Asigna id; evitar refresh aquí reduce riesgo de MissingGreenlet
+    await db.flush()  # Asigna id; leer antes de commit para no tocar el objeto después
+    eid = execution.id
     await db.commit()
-    return execution
+    return eid
 
 
 async def get_execution_by_id(
@@ -220,8 +221,8 @@ async def create_sales_execution(
     sistema_sap: Optional[str] = None,
     transaccion: Optional[str] = None,
     maquina: Optional[str] = None
-) -> SalesExecutionHistory:
-    """Crea un nuevo registro de ejecución de ventas."""
+) -> int:
+    """Crea un nuevo registro de ejecución de ventas. Retorna el id asignado (evita MissingGreenlet tras commit)."""
     execution = SalesExecutionHistory(
         user_id=user_id,
         fecha_inicio_periodo=fecha_inicio_periodo,
@@ -232,9 +233,10 @@ async def create_sales_execution(
         maquina=maquina
     )
     db.add(execution)
-    await db.flush()  # Asigna id; evitar refresh aquí reduce riesgo de MissingGreenlet
+    await db.flush()
+    eid = execution.id
     await db.commit()
-    return execution
+    return eid
 
 
 async def get_sales_execution_by_id(
