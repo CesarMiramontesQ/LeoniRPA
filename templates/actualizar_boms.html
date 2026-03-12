@@ -163,7 +163,8 @@
     </div>
   </div>
 
-  <!-- Últimos movimientos -->
+  {% if current_user and current_user.rol == 'admin' %}
+  <!-- Últimos movimientos (solo administradores) -->
   <div class="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
@@ -192,6 +193,7 @@
       </table>
     </div>
   </div>
+  {% endif %}
 
 </div>
 

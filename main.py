@@ -1619,10 +1619,10 @@ async def api_actualizar_precios_venta_desde_ventas(
 @app.get("/api/precios-venta/historial")
 async def api_precios_venta_historial(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(["admin"])),
     db: AsyncSession = Depends(get_db),
 ):
-    """Devuelve los últimos movimientos del historial de precios de venta."""
+    """Devuelve los últimos movimientos del historial de precios de venta. Solo administradores."""
     historial = await crud.list_precio_venta_historial(db, limit=5, offset=0)
     items = []
     for h in historial:
@@ -2690,10 +2690,10 @@ async def api_ejecutar_actualizacion_boms_stream(
 @app.get("/api/actualizar-boms/movimientos")
 async def api_actualizar_boms_movimientos(
     limit: int = 5,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(["admin"])),
     db: AsyncSession = Depends(get_db),
 ):
-    """API para listar movimientos recientes de actualización de BOMs."""
+    """API para listar movimientos recientes de actualización de BOMs. Solo administradores."""
     _ = current_user
     limit = max(1, min(limit, 20))
     rows_db = await crud.list_bom_historial(db, limit=limit, offset=0)
@@ -3184,8 +3184,8 @@ async def proveedores(request: Request, current_user: User = Depends(get_current
     proveedores_activos = await crud.count_proveedores(db, estatus=True)
     proveedores_inactivos = await crud.count_proveedores(db, estatus=False)
     
-    # Obtener los últimos 10 movimientos del historial
-    historial_reciente = await crud.list_proveedor_historial(db, limit=10, offset=0)
+    # Historial de movimientos solo para administradores
+    historial_reciente = await crud.list_proveedor_historial(db, limit=10, offset=0) if current_user.rol == "admin" else []
     
     return templates.TemplateResponse(
         "proveedores.html",
@@ -3211,8 +3211,8 @@ async def materiales(request: Request, current_user: User = Depends(get_current_
     # Calcular estadísticas
     total_materiales = await crud.count_materiales(db)
     
-    # Obtener los últimos 10 movimientos del historial
-    historial_reciente = await crud.list_material_historial(db, limit=10, offset=0)
+    # Historial de movimientos solo para administradores
+    historial_reciente = await crud.list_material_historial(db, limit=10, offset=0) if current_user.rol == "admin" else []
     
     return templates.TemplateResponse(
         "materiales.html",
@@ -3284,10 +3284,10 @@ async def api_pesos_netos(
 @app.get("/api/pesos-netos/movimientos")
 async def api_pesos_netos_movimientos(
     limit: int = 5,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(["admin"])),
     db: AsyncSession = Depends(get_db),
 ):
-    """API para listar movimientos recientes de actualización de pesos netos."""
+    """API para listar movimientos recientes de actualización de pesos netos. Solo administradores."""
     _ = current_user
     limit = max(1, min(limit, 20))
     rows_db = await crud.list_peso_neto_historial(db, limit=limit, offset=0)
@@ -4065,10 +4065,10 @@ async def api_cross_reference(
 @app.get("/api/cross-reference/movimientos")
 async def api_cross_reference_movimientos(
     limit: int = 5,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(["admin"])),
     db: AsyncSession = Depends(get_db),
 ):
-    """API para listar movimientos recientes de actualización de Cross Reference."""
+    """API para listar movimientos recientes de actualización de Cross Reference. Solo administradores."""
     _ = current_user
     limit = max(1, min(limit, 20))
     rows_db = await crud.list_cross_reference_historial(db, limit=limit, offset=0)
@@ -4099,8 +4099,8 @@ async def precios_compra(request: Request, current_user: User = Depends(get_curr
     # Calcular estadísticas
     total_precios = await crud.count_precios_materiales(db)
     
-    # Obtener los últimos 5 movimientos del historial
-    historial_reciente = await crud.list_precio_material_historial(db, limit=10, offset=0)
+    # Historial de movimientos solo para administradores
+    historial_reciente = await crud.list_precio_material_historial(db, limit=10, offset=0) if current_user.rol == "admin" else []
     
     return templates.TemplateResponse(
         "precios_compra.html",
@@ -4222,10 +4222,10 @@ async def api_precio_ultimas_compras(
 @app.get("/api/precios-compra/historial")
 async def api_precios_compra_historial(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(["admin"])),
     db: AsyncSession = Depends(get_db)
 ):
-    """Devuelve los últimos 15 movimientos del historial de precios de materiales."""
+    """Devuelve los últimos 15 movimientos del historial de precios de materiales. Solo administradores."""
     historial = await crud.list_precio_material_historial(
         db,
         limit=15,
@@ -4334,8 +4334,8 @@ async def paises_origen(request: Request, current_user: User = Depends(get_curre
     )
     materiales_pendientes = result_pendientes.scalar() or 0
     
-    # Obtener los últimos 5 movimientos del historial
-    historial_reciente = await crud.list_pais_origen_material_historial(db, limit=10, offset=0)
+    # Historial de movimientos solo para administradores
+    historial_reciente = await crud.list_pais_origen_material_historial(db, limit=10, offset=0) if current_user.rol == "admin" else []
     
     return templates.TemplateResponse(
         "paises_origen.html",
@@ -4381,9 +4381,13 @@ async def carga_proveedor(
     
     total_pages = (total_proveedores + limit - 1) // limit
     
-    # Obtener historial reciente de movimientos
-    historial = await crud.list_carga_proveedor_historial(db, limit=20)
-    total_historial = await crud.count_carga_proveedor_historial(db)
+    # Historial de movimientos solo para administradores
+    if current_user.rol == "admin":
+        historial = await crud.list_carga_proveedor_historial(db, limit=20)
+        total_historial = await crud.count_carga_proveedor_historial(db)
+    else:
+        historial = []
+        total_historial = 0
     
     # Obtener conteos por estatus para las tarjetas
     count_alta = await crud.count_carga_proveedores(db, estatus="Alta")
@@ -4489,8 +4493,9 @@ async def carga_proveedores_nacional(
     count_baja = await crud.count_carga_proveedores_nacional(db, estatus="Baja")
     count_sin_modificacion = await crud.count_carga_proveedores_nacional(db, estatus="Sin modificacion")
     count_total = await crud.count_carga_proveedores_nacional(db)
-    historial = await crud.list_carga_proveedores_nacional_historial(db, limit=50)
-    total_historial = await crud.count_carga_proveedores_nacional_historial(db)
+    # Historial solo para administradores
+    historial = await crud.list_carga_proveedores_nacional_historial(db, limit=50) if current_user.rol == "admin" else []
+    total_historial = await crud.count_carga_proveedores_nacional_historial(db) if current_user.rol == "admin" else 0
     return templates.TemplateResponse(
         "carga_proveedores_nacional.html",
         {
@@ -4593,8 +4598,8 @@ async def carga_cliente(
     count_sin_modificacion = await crud.count_carga_clientes(db, estatus="Sin modificacion")
     count_total = await crud.count_carga_clientes(db)
     
-    # Obtener historial de movimientos (últimos 50)
-    historial = await crud.list_carga_cliente_historial(db, limit=50)
+    # Historial de movimientos solo para administradores
+    historial = await crud.list_carga_cliente_historial(db, limit=50) if current_user.rol == "admin" else []
     
     return templates.TemplateResponse(
         "carga_cliente.html",
@@ -4826,10 +4831,8 @@ async def virtuales(request: Request, current_user: User = Depends(get_current_u
     # Valores distintos de tipo_exportacion para el filtro (desde toda la tabla)
     tipo_exportacion_opciones = await crud.get_tipo_exportacion_distintos_master_virtuales(db)
 
-    # Últimos 10 movimientos del historial
-    historial_reciente = await crud.list_master_unificado_virtuales_historial(
-        db, limit=10, offset=0
-    )
+    # Historial de movimientos solo para administradores
+    historial_reciente = await crud.list_master_unificado_virtuales_historial(db, limit=10, offset=0) if current_user.rol == "admin" else []
 
     # Años para el selector de descarga Excel (actual y 5 anteriores)
     año_actual = datetime.now().year
@@ -5284,14 +5287,14 @@ async def actualizar_master_virtuales(
 @app.get("/api/virtuales/historial")
 async def api_virtuales_historial(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(["admin"])),
     db: AsyncSession = Depends(get_db),
     numero: Optional[int] = None,
     operacion: Optional[str] = None,
     limit: int = 50,
     offset: int = 0
 ):
-    """API para consultar el historial de movimientos del master virtuales."""
+    """API para consultar el historial de movimientos del master virtuales. Solo administradores."""
     from app.db.models import MasterUnificadoVirtualOperacion
     operacion_enum = None
     if operacion:
@@ -5887,10 +5890,10 @@ async def actualizar_pais_origen(
 @app.get("/api/paises-origen/historial")
 async def api_paises_origen_historial(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(["admin"])),
     db: AsyncSession = Depends(get_db)
 ):
-    """Devuelve los últimos 15 movimientos del historial de países de origen."""
+    """Devuelve los últimos 15 movimientos del historial de países de origen. Solo administradores."""
     historial = await crud.list_pais_origen_material_historial(
         db,
         limit=15,

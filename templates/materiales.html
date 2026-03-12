@@ -243,7 +243,8 @@
     </div>
   </div>
 
-  <!-- Historial de movimientos (últimos 10) -->
+  {% if current_user and current_user.rol == 'admin' %}
+  <!-- Historial de movimientos (solo administradores) -->
   <div class="rounded-lg bg-white shadow-sm">
     <div class="px-6 py-4 border-b border-gray-200">
       <h2 class="text-lg font-medium text-gray-900">Últimos Movimientos</h2>
@@ -336,6 +337,7 @@
       {% endif %}
     </div>
   </div>
+  {% endif %}
 </div>
 
 <!-- Datos ocultos del backend -->
