@@ -2234,9 +2234,10 @@ async def api_actualizar_bom_parte(
         )
 
     try:
+        # Una sola parte: cerrar SAP al terminar
         result = await asyncio.to_thread(
             subprocess.run,
-            ["cscript", "//nologo", str(vbs_path), numero_parte, export_dir],
+            ["cscript", "//nologo", str(vbs_path), numero_parte, export_dir, "1"],
             capture_output=True,
             timeout=timeout_sec,
             cwd=str(vbs_path.parent),
@@ -2368,14 +2369,18 @@ async def api_ejecutar_actualizacion_boms(
     sin_cambios = 0
     errores = 0
     detalle = []
-    for numero_parte in part_numbers:
+    for idx_parte, numero_parte in enumerate(part_numbers):
         estado = "error"
         mensaje = ""
+        es_ultima_parte = (idx_parte == len(part_numbers) - 1)
+        args_bom = ["cscript", "//nologo", str(vbs_path), numero_parte, export_dir]
+        if es_ultima_parte:
+            args_bom.append("1")  # cerrar SAP al final del ultimo numero de parte
         try:
             # 1) Exportar desde SAP: ejecutar bom.vbs para este numero de parte (genera .txt)
             result = await asyncio.to_thread(
                 subprocess.run,
-                ["cscript", "//nologo", str(vbs_path), numero_parte, export_dir],
+                args_bom,
                 capture_output=True,
                 timeout=timeout_sec,
                 cwd=str(vbs_path.parent),
@@ -2539,16 +2544,20 @@ async def api_ejecutar_actualizacion_boms_stream(
         errores = 0
         detalle = []
         yield json.dumps({"tipo": "inicio", "total": total}) + "\n"
-        for numero_parte in part_numbers:
+        for idx_parte, numero_parte in enumerate(part_numbers):
             estado = "error"
             mensaje = ""
             items_insertados = None
+            es_ultima_parte = (idx_parte == len(part_numbers) - 1)
+            args_bom = ["cscript", "//nologo", str(vbs_path), numero_parte, export_dir]
+            if es_ultima_parte:
+                args_bom.append("1")  # cerrar SAP al final del ultimo numero de parte
             try:
                 logger.info("BOM parte inicio: %s", numero_parte)
                 yield json.dumps({"tipo": "parte_inicio", "parte_no": numero_parte}) + "\n"
                 result = await asyncio.to_thread(
                     subprocess.run,
-                    ["cscript", "//nologo", str(vbs_path), numero_parte, export_dir],
+                    args_bom,
                     capture_output=True,
                     timeout=timeout_sec,
                     cwd=str(vbs_path.parent),
@@ -3921,12 +3930,16 @@ async def api_actualizar_cross_reference_desde_sap(
     errores = []
     procesados_ok = 0
 
-    for codigo_cliente in clientes:
+    for idx_cliente, codigo_cliente in enumerate(clientes):
+        es_ultimo_cliente = (idx_cliente == len(clientes) - 1)
+        args_vbs = ["cscript", "//nologo", str(vbs_path), codigo_cliente, export_dir]
+        if es_ultimo_cliente:
+            args_vbs.append("1")  # cerrar SAP al final del ultimo cliente
         try:
             logger.info("[cross_reference] Cliente %s: inicio procesamiento", codigo_cliente)
             result = await asyncio.to_thread(
                 subprocess.run,
-                ["cscript", "//nologo", str(vbs_path), codigo_cliente, export_dir],
+                args_vbs,
                 capture_output=True,
                 timeout=timeout_sec,
                 cwd=str(vbs_path.parent),

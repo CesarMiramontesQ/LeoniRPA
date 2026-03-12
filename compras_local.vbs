@@ -318,4 +318,15 @@ GuardarExportacionExcel carpetaSalida, "historial_compras_" & fechaInicio & "_" 
 Esperar 2
 MatarExcelPorProceso
 
+' --- Cerrar SAP al final del proceso ---
+Sub CerrarSAP()
+   On Error Resume Next
+   If Not connection Is Nothing Then connection.Close
+   Set session = Nothing
+   Set connection = Nothing
+   Set application = Nothing
+   On Error GoTo 0
+End Sub
+CerrarSAP
+
 ' Sin MsgBox final: el resultado se muestra en la plataforma web

@@ -253,3 +253,14 @@ session.findById("wnd[1]/tbar[0]/btn[0]").press
 Esperar 2
 DeleteIfExists outFile
 SaveLatestExcelAs outFile
+
+' --- Cerrar SAP al final del proceso ---
+Sub CerrarSAP()
+   On Error Resume Next
+   If Not connection Is Nothing Then connection.Close
+   Set session = Nothing
+   Set connection = Nothing
+   Set application = Nothing
+   On Error GoTo 0
+End Sub
+CerrarSAP
