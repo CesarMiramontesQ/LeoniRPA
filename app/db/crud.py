@@ -3422,13 +3422,13 @@ async def sincronizar_paises_origen_desde_compras(
             if row[0] and row[1]
         }
         
-        # 2b. Índice de materiales por número normalizado (para encontrar aunque estén guardados en notación científica)
-        query_materiales = select(Material)
+        # 2b. Índice numero_material (FK) por número normalizado; solo escalares para evitar MissingGreenlet tras commit
+        query_materiales = select(Material.numero_material)
         result_materiales = await db.execute(query_materiales)
-        material_by_normalized: Dict[str, Material] = {}
-        for m in result_materiales.scalars().all():
-            if m.numero_material:
-                material_by_normalized[_normalizar_numero_material(m.numero_material)] = m
+        material_numero_by_normalized: Dict[str, str] = {}
+        for row in result_materiales.all():
+            if row[0]:
+                material_numero_by_normalized[_normalizar_numero_material(row[0])] = row[0]
         
         # 3. Para cada par, verificar si existe y crear si no
         for codigo_proveedor, numero_material_raw in pares_en_compras:
@@ -3445,12 +3445,13 @@ async def sincronizar_paises_origen_desde_compras(
                 continue
             
             # La FK exige que el material exista: buscar por número normalizado o crearlo desde compras
-            material_existente = material_by_normalized.get(numero_material)
-            if not material_existente:
+            numero_material_fk = material_numero_by_normalized.get(numero_material)
+            if not numero_material_fk:
                 material_existente = await get_material_by_numero(db, numero_material)
                 if material_existente:
-                    material_by_normalized[numero_material] = material_existente
-            if not material_existente:
+                    numero_material_fk = material_existente.numero_material
+                    material_numero_by_normalized[numero_material] = numero_material_fk
+            if not numero_material_fk:
                 # Obtener descripción desde compras (puede estar como raw o normalizado)
                 descripcion = None
                 try:
@@ -3471,10 +3472,11 @@ async def sincronizar_paises_origen_desde_compras(
                     if row_desc:
                         descripcion = row_desc
                 try:
-                    material_nuevo = await create_material(
+                    await create_material(
                         db, numero_material, descripcion_material=descripcion, user_id=user_id
                     )
-                    material_by_normalized[numero_material] = material_nuevo
+                    material_numero_by_normalized[numero_material] = numero_material
+                    numero_material_fk = numero_material
                 except Exception as e_crear:
                     try:
                         await db.rollback()
@@ -3483,7 +3485,8 @@ async def sincronizar_paises_origen_desde_compras(
                     # Por si ya existía (race condition)
                     material_existente = await get_material_by_numero(db, numero_material)
                     if material_existente:
-                        material_by_normalized[numero_material] = material_existente
+                        numero_material_fk = material_existente.numero_material
+                        material_numero_by_normalized[numero_material] = numero_material_fk
                     else:
                         errores.append(
                             f"Material {numero_material} (proveedor {codigo_proveedor}) no pudo crearse: {e_crear}"
@@ -3491,8 +3494,8 @@ async def sincronizar_paises_origen_desde_compras(
                         continue
             
             # Usar el numero_material tal como está en la tabla materiales (FK exige coincidencia exacta)
-            mat = material_by_normalized.get(numero_material)
-            numero_material_fk = mat.numero_material if mat else numero_material
+            if not numero_material_fk:
+                numero_material_fk = material_numero_by_normalized.get(numero_material, numero_material)
             
             # Verificar nuevamente en la BD antes de crear (por si acaso)
             existente = await get_pais_origen_material_by_proveedor_material(
@@ -3513,22 +3516,29 @@ async def sincronizar_paises_origen_desde_compras(
                 )
                 db.add(pais_origen_material)
                 await db.flush()
-                await db.refresh(pais_origen_material)
-                
-                # Registrar en historial si se proporciona user_id
+                pais_origen_id = pais_origen_material.id
+                datos_despues = {
+                    "id": pais_origen_id,
+                    "codigo_proveedor": codigo_int,
+                    "numero_material": numero_material_fk,
+                    "pais_origen": "Pendiente",
+                    "porcentaje_compra": None,
+                    "comentario": None,
+                    "created_at": None,
+                    "updated_at": None,
+                }
                 if user_id is not None:
                     historial = PaisOrigenMaterialHistorial(
-                        pais_origen_id=pais_origen_material.id,
+                        pais_origen_id=pais_origen_id,
                         codigo_proveedor=codigo_int,
                         numero_material=numero_material_fk,
                         operacion=PaisOrigenMaterialOperacion.CREATE,
                         user_id=user_id,
                         datos_antes=None,
-                        datos_despues=_pais_origen_material_to_dict(pais_origen_material),
+                        datos_despues=datos_despues,
                         campos_modificados=None
                     )
                     db.add(historial)
-                
                 await db.commit()
                 nuevos_creados += 1
                 existentes.add((codigo_proveedor, numero_material))
@@ -3564,16 +3574,16 @@ async def sincronizar_paises_origen_desde_compras(
                             )
                             db.add(pais_origen_material)
                             await db.flush()
-                            await db.refresh(pais_origen_material)
+                            po_id = pais_origen_material.id
                             if user_id is not None:
                                 historial = PaisOrigenMaterialHistorial(
-                                    pais_origen_id=pais_origen_material.id,
+                                    pais_origen_id=po_id,
                                     codigo_proveedor=codigo_int,
                                     numero_material=numero_material_fk,
                                     operacion=PaisOrigenMaterialOperacion.CREATE,
                                     user_id=user_id,
                                     datos_antes=None,
-                                    datos_despues=_pais_origen_material_to_dict(pais_origen_material),
+                                    datos_despues={"id": po_id, "codigo_proveedor": codigo_int, "numero_material": numero_material_fk, "pais_origen": "Pendiente", "porcentaje_compra": None, "comentario": None, "created_at": None, "updated_at": None},
                                     campos_modificados=None
                                 )
                                 db.add(historial)
@@ -3612,22 +3622,19 @@ async def sincronizar_paises_origen_desde_compras(
                             )
                             db.add(pais_origen_material)
                             await db.flush()
-                            await db.refresh(pais_origen_material)
-                            
-                            # Registrar en historial si se proporciona user_id
+                            po_id = pais_origen_material.id
                             if user_id is not None:
                                 historial = PaisOrigenMaterialHistorial(
-                                    pais_origen_id=pais_origen_material.id,
+                                    pais_origen_id=po_id,
                                     codigo_proveedor=codigo_int,
                                     numero_material=numero_material_fk,
                                     operacion=PaisOrigenMaterialOperacion.CREATE,
                                     user_id=user_id,
                                     datos_antes=None,
-                                    datos_despues=_pais_origen_material_to_dict(pais_origen_material),
+                                    datos_despues={"id": po_id, "codigo_proveedor": codigo_int, "numero_material": numero_material_fk, "pais_origen": "Pendiente", "porcentaje_compra": None, "comentario": None, "created_at": None, "updated_at": None},
                                     campos_modificados=None
                                 )
                                 db.add(historial)
-                            
                             await db.commit()
                             nuevos_creados += 1
                             existentes.add((codigo_proveedor, numero_material))
@@ -3717,9 +3724,10 @@ async def create_precio_material(
     country_origin: Optional[str] = None,
     Porcentaje_Compra: Optional[Decimal] = None,
     Comentario: Optional[str] = None,
-    user_id: Optional[int] = None
+    user_id: Optional[int] = None,
+    _commit: bool = True,
 ) -> PrecioMaterial:
-    """Crea un nuevo precio de material."""
+    """Crea un nuevo precio de material. Si _commit=False (p. ej. desde sincronización masiva), no hace commit."""
     precio_material = PrecioMaterial(
         codigo_proveedor=codigo_proveedor,
         numero_material=numero_material,
@@ -3747,7 +3755,8 @@ async def create_precio_material(
         )
         db.add(historial)
     
-    await db.commit()
+    if _commit:
+        await db.commit()
     return precio_material
 
 
@@ -3759,9 +3768,10 @@ async def update_precio_material(
     country_origin: Optional[str] = None,
     Porcentaje_Compra: Optional[Decimal] = None,
     Comentario: Optional[str] = None,
-    user_id: Optional[int] = None
+    user_id: Optional[int] = None,
+    _commit: bool = True,
 ) -> Optional[PrecioMaterial]:
-    """Actualiza un precio de material."""
+    """Actualiza un precio de material. Si _commit=False (p. ej. desde sincronización masiva), no hace commit."""
     precio_material = await get_precio_material_by_id(db, precio_id)
     if not precio_material:
         return None
@@ -3804,8 +3814,9 @@ async def update_precio_material(
         )
         db.add(historial)
     
-    await db.commit()
-    await db.refresh(precio_material)
+    if _commit:
+        await db.commit()
+        await db.refresh(precio_material)
     return precio_material
 
 
@@ -4034,16 +4045,20 @@ async def sincronizar_precios_materiales_desde_compras(
                     codigo_proveedor,
                     numero_material
                 )
+                # Capturar id y precio como escalares de inmediato (evita MissingGreenlet al tocar el objeto tras commit)
+                precio_id_val = precio_existente.id if precio_existente else None
+                precio_actual_val = float(precio_existente.precio) if (precio_existente and precio_existente.precio is not None) else None
                 
-                if precio_existente:
-                    # Actualizar solo si el precio es diferente (precio de la última compra)
-                    if precio_existente.precio != precio_valor:
+                if precio_id_val is not None:
+                    # Actualizar solo si el precio es diferente (precio de la última compra; incluye cuando actual es None)
+                    if precio_actual_val is None or precio_actual_val != float(precio_valor):
                         await update_precio_material(
                             db,
-                            precio_id=precio_existente.id,
+                            precio_id=precio_id_val,
                             precio=precio_valor,
                             currency_uom=currency_uom,
-                            user_id=user_id
+                            user_id=user_id,
+                            _commit=False,
                         )
                         actualizados += 1
                 else:
@@ -4054,7 +4069,8 @@ async def sincronizar_precios_materiales_desde_compras(
                         numero_material=numero_material,
                         precio=precio_valor,
                         currency_uom=currency_uom,
-                        user_id=user_id
+                        user_id=user_id,
+                        _commit=False,
                     )
                     nuevos_creados += 1
                     
@@ -4069,6 +4085,12 @@ async def sincronizar_precios_materiales_desde_compras(
                 errores.append(error_msg)
                 continue
         
+        # Un solo commit al final (evita MissingGreenlet por acceder objetos tras commit en el bucle)
+        try:
+            await db.commit()
+        except Exception as e_commit:
+            await db.rollback()
+            errores.append(f"Error al confirmar cambios: {str(e_commit)}")
         return {
             "total_encontrados": total_encontrados,
             "nuevos_creados": nuevos_creados,
