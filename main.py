@@ -1851,8 +1851,11 @@ templates.env.filters['to_iso'] = to_iso_filter
 @app.get("/compras")
 async def compras(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Página de compras - requiere autenticación."""
-    # Obtener el historial de ejecuciones para mostrar en la tabla (últimos 5)
-    executions = await crud.list_executions(db, user_id=current_user.id, limit=5)
+    # Admin ve ejecuciones de todos; operador solo las propias
+    if current_user.rol == "admin":
+        executions = await crud.list_executions(db, limit=5)
+    else:
+        executions = await crud.list_executions(db, user_id=current_user.id, limit=5)
     
     return templates.TemplateResponse(
         "compras.html",
@@ -4831,8 +4834,13 @@ async def virtuales(request: Request, current_user: User = Depends(get_current_u
     # Valores distintos de tipo_exportacion para el filtro (desde toda la tabla)
     tipo_exportacion_opciones = await crud.get_tipo_exportacion_distintos_master_virtuales(db)
 
-    # Historial de movimientos solo para administradores
-    historial_reciente = await crud.list_master_unificado_virtuales_historial(db, limit=10, offset=0) if current_user.rol == "admin" else []
+    # Historial: administrador ve todos los movimientos; operador solo los suyos
+    if current_user.rol == "admin":
+        historial_reciente = await crud.list_master_unificado_virtuales_historial(db, limit=10, offset=0)
+    elif current_user.rol == "operador":
+        historial_reciente = await crud.list_master_unificado_virtuales_historial(db, user_id=current_user.id, limit=10, offset=0)
+    else:
+        historial_reciente = []
 
     # Años para el selector de descarga Excel (actual y 5 anteriores)
     año_actual = datetime.now().year
@@ -5287,14 +5295,14 @@ async def actualizar_master_virtuales(
 @app.get("/api/virtuales/historial")
 async def api_virtuales_historial(
     request: Request,
-    current_user: User = Depends(require_roles(["admin"])),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     numero: Optional[int] = None,
     operacion: Optional[str] = None,
     limit: int = 50,
     offset: int = 0
 ):
-    """API para consultar el historial de movimientos del master virtuales. Solo administradores."""
+    """API para consultar el historial de movimientos del master virtuales. Admin ve todos; operador solo los suyos."""
     from app.db.models import MasterUnificadoVirtualOperacion
     operacion_enum = None
     if operacion:
@@ -5302,11 +5310,13 @@ async def api_virtuales_historial(
             operacion_enum = MasterUnificadoVirtualOperacion(operacion.upper())
         except ValueError:
             pass
+    # Administrador ve todos los movimientos; operador solo los propios
+    user_id_filter = None if current_user.rol == "admin" else current_user.id
     historial = await crud.list_master_unificado_virtuales_historial(
-        db, numero=numero, operacion=operacion_enum, limit=limit, offset=offset
+        db, numero=numero, operacion=operacion_enum, user_id=user_id_filter, limit=limit, offset=offset
     )
     total = await crud.count_master_unificado_virtuales_historial(
-        db, numero=numero, operacion=operacion_enum
+        db, numero=numero, operacion=operacion_enum, user_id=user_id_filter
     )
     items = []
     for h in historial:
@@ -6489,27 +6499,6 @@ async def iniciar_descarga(
                             break
                         except Exception:
                             await asyncio.sleep(2)
-                # Sincronizar proveedores, materiales, precios de compra y países de origen antes de marcar como terminado
-                try:
-                    r_prov = await crud.sincronizar_proveedores_desde_compras(db, user_id=current_user.id)
-                    detalles_str += f" Proveedores: {r_prov.get('nuevos_creados', 0)} nuevo(s)."
-                except Exception as e_prov:
-                    detalles_str += f" Proveedores (error): {str(e_prov)[:80]}."
-                try:
-                    r_mat = await crud.sincronizar_materiales_desde_compras(db, user_id=current_user.id)
-                    detalles_str += f" Materiales: {r_mat.get('nuevos_creados', 0)} nuevo(s)."
-                except Exception as e_mat:
-                    detalles_str += f" Materiales (error): {str(e_mat)[:80]}."
-                try:
-                    r_precios = await crud.sincronizar_precios_materiales_desde_compras(db, user_id=current_user.id)
-                    detalles_str += f" Precios compra: {r_precios.get('nuevos_creados', 0)} nuevo(s), {r_precios.get('actualizados', 0)} actualizado(s)."
-                except Exception as e_pre:
-                    detalles_str += f" Precios compra (error): {str(e_pre)[:80]}."
-                try:
-                    r_paises = await crud.sincronizar_paises_origen_desde_compras(db, user_id=current_user.id)
-                    detalles_str += f" Países origen: {r_paises.get('nuevos_creados', 0)} nuevo(s)."
-                except Exception as e_pai:
-                    detalles_str += f" Países origen (error): {str(e_pai)[:80]}."
             else:
                 detalles_str = f"Procesamiento automático falló: {resultado_proc.get('error', 'Error desconocido')}"
 

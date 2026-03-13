@@ -373,12 +373,12 @@
     </div>
   </div>
 
-  {% if current_user and current_user.rol == 'admin' %}
-  <!-- Historial de movimientos (solo administradores) -->
+  {% if current_user %}
+  <!-- Historial de movimientos: admin ve todos, operador solo los suyos -->
   <div class="rounded-lg bg-white shadow-sm">
     <div class="px-6 py-4 border-b border-gray-200">
       <h2 class="text-lg font-medium text-gray-900">Últimos 10 Movimientos</h2>
-      <p class="mt-1 text-sm text-gray-500">Historial reciente de cambios en virtuales</p>
+      <p class="mt-1 text-sm text-gray-500">{% if current_user.rol == 'admin' %}Historial reciente de todos los usuarios.{% else %}Tu historial reciente de cambios en virtuales.{% endif %}</p>
     </div>
     <div class="px-6 py-4">
       {% if historial_reciente %}
