@@ -179,6 +179,78 @@ end tell
         except Exception:
             pass
 
+
+def _convert_docx_to_pdf_with_word_win(docx_path: Path, pdf_path: Path) -> bool:
+    """Convierte el docx a PDF usando Microsoft Word (solo Windows). Devuelve True si tuvo éxito."""
+    if platform.system() != "Windows":
+        return False
+    try:
+        import win32com.client
+        wd_format_pdf = 17  # wdFormatPDF
+        word = win32com.client.DispatchEx("Word.Application")
+        word.Visible = False
+        word.DisplayAlerts = 0  # wdAlertsNone
+        doc = word.Documents.Open(str(docx_path.resolve()))
+        try:
+            doc.SaveAs(str(pdf_path.resolve()), FileFormat=wd_format_pdf)
+        finally:
+            doc.Close(SaveChanges=False)
+        word.Quit()
+        return pdf_path.exists()
+    except Exception:
+        return False
+
+
+def _convert_docx_to_pdf_with_word_mac(docx_path: Path, pdf_path: Path) -> tuple[bool, str]:
+    """Convierte el docx a PDF usando Microsoft Word en macOS (AppleScript). Devuelve (True, '') o (False, error)."""
+    if platform.system() != "Darwin":
+        return False, ""
+    docx_posix = str(docx_path.resolve())
+    pdf_posix = str(pdf_path.resolve())
+    import tempfile
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".scpt", delete=False, encoding="utf-8") as f:
+        script_path = Path(f.name)
+    try:
+        docx_esc = docx_posix.replace("\\", "\\\\").replace('"', '\\"')
+        pdf_esc = pdf_posix.replace("\\", "\\\\").replace('"', '\\"')
+        script_content = f'''set docxPath to "{docx_esc}"
+set pdfPath to "{pdf_esc}"
+set docxFile to POSIX file docxPath
+set pdfFile to POSIX file pdfPath
+tell application "Microsoft Word"
+    open docxFile
+    set theDoc to active document
+    save as theDoc file name (pdfFile as text) file format format PDF
+    close theDoc saving no
+end tell
+'''
+        for app_name in ("Microsoft Word", "Word"):
+            try:
+                script_text = script_content.replace(
+                    'tell application "Microsoft Word"', f'tell application "{app_name}"'
+                )
+                script_path.write_text(script_text, encoding="utf-8")
+                result = subprocess.run(
+                    ["osascript", str(script_path)],
+                    capture_output=True,
+                    timeout=90,
+                    text=True,
+                )
+                if result.returncode == 0 and pdf_path.exists():
+                    return True, ""
+                if result.returncode != 0:
+                    err = (result.stderr or result.stdout or "").strip() or f"Exit code {result.returncode}"
+                    logger.warning("Word Mac (%s): %s", app_name, err[:300])
+            except (subprocess.TimeoutExpired, Exception) as e:
+                logger.warning("Word Mac (%s): %s", app_name, e)
+        return False, "No se pudo generar el PDF con Word."
+    finally:
+        try:
+            script_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
 # Para manejo de zonas horarias
 try:
     from zoneinfo import ZoneInfo
@@ -600,19 +672,41 @@ def _render_certificado_co_xlsx(context: dict) -> bytes:
 
 def _render_certificado_co_pdf(context: dict) -> bytes:
     """
-    Genera el PDF del certificado C.O.: primero genera el Excel con _render_certificado_co_xlsx
-    y luego lo convierte a PDF con LibreOffice o Microsoft Excel.
+    Genera el PDF del certificado C.O.: primero intenta Excel -> PDF con LibreOffice o
+    Microsoft Excel; si no está disponible o falla, usa ReportLab (sin instalar nada extra).
     """
     import tempfile
     xlsx_bytes = _render_certificado_co_xlsx(context)
     libreoffice = _find_libreoffice()
     use_excel_win = platform.system() == "Windows"
     use_excel_mac = platform.system() == "Darwin"
-    if not libreoffice and not use_excel_win and not use_excel_mac:
-        raise RuntimeError(
-            "Para generar el PDF instale LibreOffice o use Windows/Mac con Microsoft Excel."
-        )
+    has_office = libreoffice or use_excel_win or use_excel_mac
 
+    if has_office:
+        try:
+            return _render_certificado_co_pdf_via_office(context, xlsx_bytes, libreoffice, use_excel_win, use_excel_mac)
+        except Exception:
+            pass  # Fallback a ReportLab si Office/LibreOffice fallan
+
+    # Sin Office o falló: generar PDF con ReportLab (no requiere LibreOffice ni Excel)
+    if _REPORTLAB_AVAILABLE:
+        return _render_certificado_co_pdf_reportlab(context)
+    if has_office:
+        raise RuntimeError(
+            "No se pudo convertir el Excel a PDF con LibreOffice/Excel. "
+            "Instale reportlab como respaldo: pip install reportlab"
+        )
+    raise RuntimeError(
+        "Para generar el PDF instale LibreOffice, use Windows/Mac con Microsoft Excel, "
+        "o instale reportlab: pip install reportlab"
+    )
+
+
+def _render_certificado_co_pdf_via_office(
+    context: dict, xlsx_bytes: bytes, libreoffice: Optional[str], use_excel_win: bool, use_excel_mac: bool
+) -> bytes:
+    """Convierte el Excel del certificado a PDF usando LibreOffice o Microsoft Excel."""
+    import tempfile
     with tempfile.TemporaryDirectory(prefix="cert_co_") as tmpdir:
         tmpdir_path = Path(tmpdir)
         tmp_xlsx = tmpdir_path / "certificado_co.xlsx"
@@ -772,32 +866,44 @@ def _render_no_calificados_docx(context: dict) -> bytes:
 
 
 def _render_no_calificados_pdf(context: dict) -> bytes:
-    """Genera el PDF de la declaración no calificados: docx rellenado y conversión con LibreOffice."""
+    """Genera el PDF de la declaración no calificados: docx rellenado y conversión con Word o LibreOffice."""
     import tempfile
     docx_bytes = _render_no_calificados_docx(context)
-    libreoffice = _find_libreoffice()
-    if not libreoffice:
-        _mac = " (en Mac: brew install --cask libreoffice o descarga desde libreoffice.org). " if platform.system() == "Darwin" else " "
-        raise RuntimeError(
-            "Para generar el PDF hace falta LibreOffice (soffice)."
-            + _mac
-            + "Si está en otra ruta, defina la variable de entorno LIBREOFFICE_PATH. "
-            "La descarga del .docx está disponible sin PDF."
-        )
     with tempfile.TemporaryDirectory(prefix="no_calificados_") as tmpdir:
         tmpdir_path = Path(tmpdir)
         tmp_docx = tmpdir_path / "no_calificados.docx"
         tmp_docx.write_bytes(docx_bytes)
         pdf_path = tmpdir_path / "no_calificados.pdf"
-        subprocess.run(
-            [libreoffice, "--headless", "--convert-to", "pdf", "--outdir", str(tmpdir_path), str(tmp_docx)],
-            capture_output=True,
-            timeout=60,
-            cwd=str(tmpdir_path),
+
+        # 1) Intentar con Microsoft Word (Windows)
+        if platform.system() == "Windows" and _convert_docx_to_pdf_with_word_win(tmp_docx, pdf_path):
+            return pdf_path.read_bytes()
+
+        # 2) Intentar con Microsoft Word (Mac)
+        if platform.system() == "Darwin":
+            ok, _ = _convert_docx_to_pdf_with_word_mac(tmp_docx, pdf_path)
+            if ok:
+                return pdf_path.read_bytes()
+
+        # 3) Intentar con LibreOffice
+        libreoffice = _find_libreoffice()
+        if libreoffice:
+            subprocess.run(
+                [libreoffice, "--headless", "--convert-to", "pdf", "--outdir", str(tmpdir_path), str(tmp_docx)],
+                capture_output=True,
+                timeout=60,
+                cwd=str(tmpdir_path),
+            )
+            if pdf_path.exists():
+                return pdf_path.read_bytes()
+
+        # Ningún método disponible o todos fallaron
+        _mac = " (en Mac: brew install --cask libreoffice). " if platform.system() == "Darwin" else " "
+        raise RuntimeError(
+            "Para generar el PDF de no calificados hace falta Microsoft Word (abierto/instalado en el servidor) "
+            "o LibreOffice (soffice)." + _mac
+            + "Si usa LibreOffice en otra ruta, defina LIBREOFFICE_PATH. La descarga del .docx está disponible sin PDF."
         )
-        if not pdf_path.exists():
-            raise RuntimeError("LibreOffice no generó el PDF. Compruebe la plantilla e instalación.")
-        return pdf_path.read_bytes()
 
 
 @app.get("/api/analisis-icr/certificado-pdf")
