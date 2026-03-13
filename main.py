@@ -7551,8 +7551,14 @@ async def _procesar_compras_historial_desde_rutas(db: AsyncSession, path_compras
         if pd.isna(val) or val == '' or val is None:
             return None
         try:
-            return Decimal(str(val))
-        except (ValueError, TypeError):
+            # Omitir infinitos y NaN para no fallar en BD
+            if isinstance(val, (int, float)) and not math.isfinite(val):
+                return None
+            d = Decimal(str(val))
+            if d in (Decimal('Infinity'), Decimal('-Infinity'), Decimal('NaN')):
+                return None
+            return d
+        except (ValueError, TypeError, InvalidOperation):
             return None
 
     def safe_str(val):
@@ -7600,7 +7606,7 @@ async def _procesar_compras_historial_desde_rutas(db: AsyncSession, path_compras
             'plant': safe_str(row[col_plant]) if col_plant else None,
             'descripcion_material': safe_str(row[col_desc]) if col_desc else None,
             'nombre_proveedor': safe_str(row[col_nom_prov]) if col_nom_prov else None,
-            'codigo_proveedor': safe_str(row[col_cod_prov]) if col_cod_prov and pd.notna(row[col_cod_prov]) else None,
+            'codigo_proveedor': safe_int(row[col_cod_prov]) if col_cod_prov else None,
             'price': safe_decimal(row[col_price]) if col_price else None,
         }
         # Evitar notación científica en numero_material (ej. Excel 3.42E+11 -> 342000000000)

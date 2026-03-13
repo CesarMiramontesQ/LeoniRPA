@@ -1,5 +1,6 @@
 """Operaciones CRUD para usuarios, ejecuciones y BOM."""
 import json
+import math
 from sqlalchemy import select, desc, func, or_, and_, String, text, delete, update, cast
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -4528,8 +4529,42 @@ async def bulk_create_or_update_compras(
     duplicados = 0
     errores = []
     
+    # Columnas enteras/númericas de Compra: omitir inf/-inf/NaN para evitar "cannot convert float infinity to integer"
+    _compra_int_keys = (
+        'purchasing_document', 'item', 'material_doc_year', 'material_document',
+        'material_doc_item', 'quantity', 'quantity_in_opun', 'codigo_proveedor',
+    )
+    _compra_numeric_keys = ('amount_in_lc', 'amount', 'gr_ir_clearing_value_lc', 'invoice_value', 'price')
+
+    def _sanitize_compra_row(data: Dict[str, Any]) -> Dict[str, Any]:
+        out = dict(data)
+        for k in _compra_int_keys:
+            v = out.get(k)
+            if v is None:
+                continue
+            try:
+                if isinstance(v, float) and not math.isfinite(v):
+                    out[k] = None
+                elif isinstance(v, float) and (v != v):  # NaN
+                    out[k] = None
+            except (TypeError, ValueError):
+                pass
+        for k in _compra_numeric_keys:
+            v = out.get(k)
+            if v is None:
+                continue
+            try:
+                if isinstance(v, float) and not math.isfinite(v):
+                    out[k] = None
+                elif isinstance(v, Decimal) and v in (Decimal('Infinity'), Decimal('-Infinity'), Decimal('NaN')):
+                    out[k] = None
+            except (TypeError, ValueError):
+                pass
+        return out
+
     for idx, compra_data in enumerate(compras_data, start=1):
         try:
+            compra_data = _sanitize_compra_row(compra_data)
             # Normalizar numero_material para no guardar notación científica
             raw_num = compra_data.get('numero_material')
             if raw_num is not None:
