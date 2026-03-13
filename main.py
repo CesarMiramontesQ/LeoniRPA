@@ -7025,13 +7025,15 @@ async def procesar_archivos(
                         if isinstance(valor, int):
                             return valor
                         elif isinstance(valor, float):
-                            # Si es float, convertir a int (puede manejar valores grandes)
+                            # Rechazar infinito para evitar "cannot convert float infinity to integer"
+                            if valor in (float('inf'), float('-inf')):
+                                return None
                             return int(valor)
                         else:
                             # Para strings u otros tipos, convertir directamente
                             # Usar pd.to_numeric para manejar mejor los valores grandes
                             valor_numerico = pd.to_numeric(valor, errors='coerce')
-                            if pd.notna(valor_numerico):
+                            if pd.notna(valor_numerico) and valor_numerico not in (float('inf'), float('-inf')):
                                 return int(valor_numerico)
                             return None
                     elif tipo == 'float':
@@ -7442,6 +7444,7 @@ async def _procesar_compras_historial_desde_rutas(db: AsyncSession, path_compras
     Procesa los dos Excel de compras e historial desde rutas en disco (Path o str).
     Retorna dict: {success, insertados?, duplicados?, errores?, message?} o {success: False, error}.
     """
+    import math
     from pathlib import Path
     import pandas as pd
     path_compras = Path(path_compras)
@@ -7478,8 +7481,11 @@ async def _procesar_compras_historial_desde_rutas(db: AsyncSession, path_compras
         if pd.isna(v) or v == '' or v is None:
             return pd.NA
         try:
-            return int(pd.to_numeric(v, errors='raise'))
-        except (ValueError, TypeError):
+            n = pd.to_numeric(v, errors='raise')
+            if not math.isfinite(n):
+                return pd.NA
+            return int(n)
+        except (ValueError, TypeError, OverflowError):
             return pd.NA
 
     mapa = {}
@@ -7534,8 +7540,11 @@ async def _procesar_compras_historial_desde_rutas(db: AsyncSession, path_compras
         if pd.isna(val) or val == '' or val is None:
             return None
         try:
-            return int(pd.to_numeric(val, errors='raise'))
-        except (ValueError, TypeError):
+            n = pd.to_numeric(val, errors='raise')
+            if not math.isfinite(n):
+                return None
+            return int(n)
+        except (ValueError, TypeError, OverflowError):
             return None
 
     def safe_decimal(val):
