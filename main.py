@@ -328,7 +328,6 @@ async def dashboard(
         "total_clientes": await crud.count_clientes(db),
         "total_proveedores": await crud.count_proveedores(db),
         "total_materiales": await crud.count_materiales(db),
-        "total_precios_compra": await crud.count_precios_materiales(db),
     }
     # Materiales con país de origen pendiente
     r_pend = await db.execute(
@@ -390,6 +389,73 @@ async def ventas_registros(request: Request, current_user: User = Depends(get_cu
             "total_ventas": total_ventas
         }
     )
+
+
+@app.get("/fracciones-arancelarias")
+async def fracciones_arancelarias(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    q: Optional[str] = None,
+    con_fraccion: Optional[str] = None,
+    limit: int = 2000,
+    offset: int = 0,
+):
+    """Página de fracciones arancelarias: números de parte únicos en registros de ventas con su fracción."""
+    solo_con_fraccion = con_fraccion in ("1", "true", "yes", "on")
+    filas = await crud.list_fracciones_arancelarias_ventas(db, search=q, solo_con_fraccion=solo_con_fraccion, limit=limit, offset=offset)
+    total = await crud.count_fracciones_arancelarias_ventas(db, search=q, solo_con_fraccion=solo_con_fraccion)
+    return templates.TemplateResponse(
+        "fracciones_arancelarias.html",
+        {
+            "request": request,
+            "active_page": "fracciones_arancelarias",
+            "current_user": current_user,
+            "filas": filas,
+            "total": total,
+            "search": q or "",
+            "solo_con_fraccion": solo_con_fraccion,
+        }
+    )
+
+
+@app.post("/api/fracciones-arancelarias/actualizar")
+async def api_actualizar_fraccion_arancelaria(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Actualiza solo la fracción arancelaria de una parte (por numero_parte). Crea la parte si no existe."""
+    try:
+        payload = await request.json()
+        numero_parte = payload.get("numero_parte")
+        fraccion = payload.get("fraccion")
+        if not numero_parte or not str(numero_parte).strip():
+            return JSONResponse(
+                status_code=400,
+                content={"ok": False, "mensaje": "numero_parte es requerido."},
+            )
+        parte = await crud.update_fraccion_parte(
+            db=db,
+            numero_parte=str(numero_parte).strip(),
+            fraccion=str(fraccion).strip() if fraccion is not None else None,
+        )
+        return JSONResponse({
+            "ok": True,
+            "mensaje": "Fracción arancelaria actualizada correctamente.",
+            "numero_parte": parte.numero_parte,
+            "fraccion": (parte.fraccion or "").strip() or "—",
+        })
+    except ValueError as e:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "mensaje": str(e)},
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "mensaje": f"Error al actualizar: {str(e)}"},
+        )
 
 
 @app.get("/analisis-icr")
@@ -4281,224 +4347,6 @@ async def api_cross_reference_movimientos(
         for row in rows_db
     ]
     return {"ok": True, "rows": rows}
-
-
-@app.get("/precios-compra")
-async def precios_compra(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    """Página de precios de compra - requiere autenticación."""
-    # Cargar los precios de materiales desde la base de datos con relaciones
-    precios_data = await crud.list_precios_materiales(db, limit=1000)
-    
-    # Calcular estadísticas
-    total_precios = await crud.count_precios_materiales(db)
-    
-    # Historial de movimientos solo para administradores
-    historial_reciente = await crud.list_precio_material_historial(db, limit=10, offset=0) if current_user.rol == "admin" else []
-    
-    return templates.TemplateResponse(
-        "precios_compra.html",
-        {
-            "request": request,
-            "active_page": "precios_compra",
-            "current_user": current_user,
-            "precios": precios_data,
-            "total_precios": total_precios,
-            "historial_reciente": historial_reciente
-        }
-    )
-
-
-@app.post("/api/precios-compra/actualizar")
-async def actualizar_precios_compra_desde_compras(
-    request: Request,
-    current_user: User = Depends(require_roles(["admin"])),
-    db: AsyncSession = Depends(get_db)
-):
-    """Sincroniza precios de materiales desde la tabla compras.
-    
-    Busca todas las compras con numero_material, codigo_proveedor y price válidos
-    y crea o actualiza los precios en precios_materiales.
-    """
-    try:
-        resultado = await crud.sincronizar_precios_materiales_desde_compras(
-            db=db,
-            user_id=current_user.id
-        )
-        
-        # Determinar el mensaje según el resultado
-        if resultado["nuevos_creados"] > 0 or resultado["actualizados"] > 0:
-            mensaje = (
-                f"✓ Sincronización completada. Se crearon {resultado['nuevos_creados']} "
-                f"precio(s) nuevo(s) y se actualizaron {resultado['actualizados']} precio(s) "
-                f"de {resultado['total_encontrados']} encontrados en compras."
-            )
-        elif resultado["total_encontrados"] > 0:
-            mensaje = (
-                f"✓ Sincronización completada. Todos los precios "
-                f"({resultado['total_encontrados']}) ya están actualizados."
-            )
-        else:
-            mensaje = "✓ Sincronización completada. No se encontraron datos válidos en compras."
-        
-        if resultado["errores"]:
-            mensaje += f" Se encontraron {len(resultado['errores'])} error(es)."
-        
-        # Considerar exitoso si no hay errores críticos
-        success = len(resultado["errores"]) == 0 or resultado["nuevos_creados"] > 0 or resultado["actualizados"] > 0
-        
-        return JSONResponse({
-            "success": success,
-            "total_encontrados": resultado["total_encontrados"],
-            "nuevos_creados": resultado["nuevos_creados"],
-            "actualizados": resultado["actualizados"],
-            "errores": resultado["errores"],
-            "mensaje": mensaje
-        })
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return JSONResponse(
-            status_code=500,
-            content={
-                "success": False,
-                "error": str(e),
-                "mensaje": f"Error al sincronizar precios desde compras: {str(e)}"
-            }
-        )
-
-
-@app.get("/api/precios-compra/{precio_id}/ultimas-compras")
-async def api_precio_ultimas_compras(
-    precio_id: int,
-    request: Request,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Devuelve las últimas compras para el material+proveedor de ese precio."""
-    from sqlalchemy import select, desc
-    from app.db.models import Compra, PrecioMaterial
-
-    precio = await crud.get_precio_material_by_id(db, precio_id)
-    if not precio:
-        return JSONResponse({"compras": [], "error": "Precio no encontrado"}, status_code=404)
-
-    q = (
-        select(
-            Compra.posting_date,
-            Compra.purchasing_document,
-            Compra.numero_material,
-            Compra.nombre_proveedor,
-            Compra.price,
-        )
-        .where(
-            Compra.codigo_proveedor == precio.codigo_proveedor,
-            Compra.numero_material == precio.numero_material,
-        )
-        .order_by(desc(Compra.posting_date), desc(Compra.id))
-        .limit(100)
-    )
-    result = await db.execute(q)
-    rows = result.all()
-
-    items = []
-    for r in rows:
-        items.append({
-            "fecha": r.posting_date.isoformat() if r.posting_date else None,
-            "orden_compra": r.purchasing_document,
-            "material": r.numero_material,
-            "proveedor": r.nombre_proveedor,
-            "precio": float(r.price) if r.price is not None else None,
-        })
-    return JSONResponse({"compras": items})
-
-
-@app.get("/api/precios-compra/historial")
-async def api_precios_compra_historial(
-    request: Request,
-    current_user: User = Depends(require_roles(["admin"])),
-    db: AsyncSession = Depends(get_db)
-):
-    """Devuelve los últimos 15 movimientos del historial de precios de materiales. Solo administradores."""
-    historial = await crud.list_precio_material_historial(
-        db,
-        limit=15,
-        offset=0
-    )
-    items = []
-    for h in historial:
-        items.append({
-            "id": h.id,
-            "precio_material_id": h.precio_material_id,
-            "codigo_proveedor": h.codigo_proveedor,
-            "numero_material": h.numero_material,
-            "operacion": h.operacion.value,
-            "user_email": h.user.email if h.user else None,
-            "user_nombre": h.user.nombre if h.user else None,
-            "datos_antes": h.datos_antes,
-            "datos_despues": h.datos_despues,
-            "campos_modificados": h.campos_modificados,
-            "created_at": h.created_at.isoformat() if h.created_at else None,
-        })
-    return JSONResponse({"movimientos": items})
-
-
-@app.post("/api/precios-compra/actualizar-pais-origen")
-async def actualizar_pais_origen_precios(
-    request: Request,
-    current_user: User = Depends(require_roles(["admin"])),
-    db: AsyncSession = Depends(get_db)
-):
-    """Actualiza el país de origen en precios_materiales usando datos de pais_origen_material.
-    
-    Busca todos los registros en precios_materiales donde country_origin esté vacío o sea null,
-    y para cada uno busca en pais_origen_material usando codigo_proveedor y numero_material
-    para obtener el pais_origen correspondiente.
-    """
-    try:
-        resultado = await crud.actualizar_pais_origen_en_precios_materiales(
-            db=db,
-            user_id=current_user.id
-        )
-        
-        # Determinar el mensaje según el resultado
-        if resultado["actualizados"] > 0:
-            mensaje = (
-                f"✓ Actualización completada. Se actualizaron {resultado['actualizados']} "
-                f"país(es) de origen de {resultado['total_procesados']} registros procesados."
-            )
-            if resultado["no_encontrados"] > 0:
-                mensaje += f" {resultado['no_encontrados']} registro(s) no tienen país de origen definido en la tabla de países."
-        elif resultado["total_procesados"] > 0:
-            mensaje = (
-                f"✓ Actualización completada. No se requirieron cambios en los "
-                f"{resultado['total_procesados']} registros procesados."
-            )
-            if resultado["no_encontrados"] > 0:
-                mensaje += f" {resultado['no_encontrados']} registro(s) no tienen país de origen definido en la tabla de países."
-        else:
-            mensaje = "✓ No hay registros sin país de origen para actualizar."
-        
-        if resultado["errores"]:
-            mensaje += f" Se encontraron {len(resultado['errores'])} error(es)."
-        
-        return JSONResponse({
-            "success": resultado["exitoso"],
-            "mensaje": mensaje,
-            "total_procesados": resultado["total_procesados"],
-            "actualizados": resultado["actualizados"],
-            "no_encontrados": resultado["no_encontrados"],
-            "errores": resultado["errores"][:10] if resultado["errores"] else []
-        })
-        
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={
-                "success": False,
-                "error": str(e),
-                "mensaje": f"Error al actualizar países de origen: {str(e)}"
-            }
-        )
 
 
 @app.get("/paises-origen")

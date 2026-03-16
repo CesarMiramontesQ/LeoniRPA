@@ -479,6 +479,38 @@ async def get_parte_by_numero(db: AsyncSession, numero_parte: str) -> Optional[P
     return result.scalar_one_or_none()
 
 
+async def update_fraccion_parte(
+    db: AsyncSession,
+    numero_parte: str,
+    fraccion: Optional[str],
+) -> Parte:
+    """
+    Actualiza la fracción arancelaria de una parte por numero_parte.
+    Si la parte no existe, crea un registro en partes con numero_parte y fraccion.
+    """
+    numero_parte = (numero_parte or "").strip()
+    if not numero_parte:
+        raise ValueError("numero_parte es requerido")
+    parte = await get_parte_by_numero(db, numero_parte)
+    if parte:
+        parte.fraccion = (fraccion or "").strip() or None
+        await db.commit()
+        await db.refresh(parte)
+        return parte
+    # Crear parte nueva con solo numero_parte y fraccion
+    nueva = Parte(
+        numero_parte=numero_parte,
+        descripcion=None,
+        fraccion=(fraccion or "").strip() or None,
+        valido=True,
+        qty_total=Decimal("0"),
+    )
+    db.add(nueva)
+    await db.commit()
+    await db.refresh(nueva)
+    return nueva
+
+
 async def list_partes_numeros(db: AsyncSession, limit: Optional[int] = None) -> List[str]:
     """Lista numero_parte activos para actualización BOM: valido=True y con revisiones existentes."""
     revision_exists = (
@@ -5644,6 +5676,93 @@ async def count_ventas(
     if planta:
         query = query.where(Venta.planta.ilike(f"%{planta}%"))
     
+    result = await db.execute(query)
+    return result.scalar() or 0
+
+
+async def list_fracciones_arancelarias_ventas(
+    db: AsyncSession,
+    search: Optional[str] = None,
+    solo_con_fraccion: bool = False,
+    limit: Optional[int] = None,
+    offset: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Lista números de parte únicos que aparecen en registros de ventas (producto_condensado)
+    con su fracción arancelaria desde la tabla partes. Sin duplicados por número de parte.
+    Si solo_con_fraccion=True, solo incluye registros que tienen fracción no nula ni vacía.
+    """
+    # Subconsulta o query: distinct producto_condensado de ventas + fraccion de partes (LEFT JOIN)
+    query = (
+        select(Venta.producto_condensado, Parte.fraccion)
+        .select_from(Venta)
+        .outerjoin(Parte, Venta.producto_condensado == Parte.numero_parte)
+        .where(
+            Venta.producto_condensado.isnot(None),
+            Venta.producto_condensado != "",
+        )
+        .distinct()
+        .order_by(Venta.producto_condensado)
+    )
+    if solo_con_fraccion:
+        query = query.where(
+            Parte.fraccion.isnot(None),
+            Parte.fraccion != "",
+        )
+    if search and search.strip():
+        search_pattern = f"%{search.strip()}%"
+        query = query.where(
+            or_(
+                Venta.producto_condensado.ilike(search_pattern),
+                Parte.fraccion.ilike(search_pattern),
+            )
+        )
+    if limit is not None:
+        query = query.limit(limit)
+    if offset is not None:
+        query = query.offset(offset)
+    result = await db.execute(query)
+    rows = result.all()
+    return [
+        {
+            "numero_parte": (r[0] and str(r[0]).strip()) or "",
+            "fraccion": (r[1] and str(r[1]).strip()) or "—",
+        }
+        for r in rows
+        if r[0]
+    ]
+
+
+async def count_fracciones_arancelarias_ventas(
+    db: AsyncSession,
+    search: Optional[str] = None,
+    solo_con_fraccion: bool = False,
+) -> int:
+    """Cuenta números de parte únicos en ventas (para paginación)."""
+    subq = (
+        select(Venta.producto_condensado, Parte.fraccion)
+        .select_from(Venta)
+        .outerjoin(Parte, Venta.producto_condensado == Parte.numero_parte)
+        .where(
+            Venta.producto_condensado.isnot(None),
+            Venta.producto_condensado != "",
+        )
+        .distinct()
+    )
+    if solo_con_fraccion:
+        subq = subq.where(
+            Parte.fraccion.isnot(None),
+            Parte.fraccion != "",
+        )
+    if search and search.strip():
+        search_pattern = f"%{search.strip()}%"
+        subq = subq.where(
+            or_(
+                Venta.producto_condensado.ilike(search_pattern),
+                Parte.fraccion.ilike(search_pattern),
+            )
+        )
+    query = select(func.count()).select_from(subq.subquery())
     result = await db.execute(query)
     return result.scalar() or 0
 

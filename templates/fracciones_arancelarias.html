@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="space-y-6">
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold text-gray-900">Fracciones Arancelarias</h1>
+      <p class="mt-1 text-sm text-gray-600">
+        Números de parte que aparecen en registros de ventas (sin duplicados) y su fracción arancelaria
+      </p>
+    </div>
+  </div>
+
+  <!-- Estadística y búsqueda -->
+  <div class="rounded-lg bg-white p-6 shadow-sm">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <p class="text-sm text-gray-600">
+        Total: <span class="font-semibold text-gray-900">{{ "{:,}".format(total) }}</span> número(s) de parte
+      </p>
+      <form method="get" action="/fracciones-arancelarias" class="flex flex-wrap items-center gap-3">
+        <input
+          type="text"
+          name="q"
+          value="{{ search }}"
+          placeholder="Buscar por número de parte o fracción..."
+          class="block w-full min-w-[200px] rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:w-auto sm:text-sm/6"
+        />
+        <label class="inline-flex cursor-pointer items-center gap-2">
+          <input
+            type="checkbox"
+            name="con_fraccion"
+            value="1"
+            {% if solo_con_fraccion %}checked{% endif %}
+            class="h-4 w-4 rounded border-gray-300 text-[#003D89] focus:ring-[#003D89]"
+          />
+          <span class="text-sm text-gray-700">Solo con fracción</span>
+        </label>
+        <button
+          type="submit"
+          class="inline-flex items-center rounded-md bg-[#003D89] px-3 py-1.5 text-sm font-semibold text-white shadow-sm hover:bg-[#003070] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#003D89]"
+        >
+          Buscar
+        </button>
+        {% if search or solo_con_fraccion %}
+        <a
+          href="/fracciones-arancelarias"
+          class="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+        >
+          Limpiar
+        </a>
+        {% endif %}
+      </form>
+    </div>
+  </div>
+
+  <!-- Tabla -->
+  <div class="rounded-lg bg-white shadow-sm">
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Número de parte
+            </th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Fracción arancelaria
+            </th>
+            <th scope="col" class="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
+              Acciones
+            </th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200 bg-white">
+          {% if filas %}
+            {% for f in filas %}
+            <tr class="hover:bg-gray-50/50" data-numero-parte="{{ f.numero_parte }}" data-fraccion="{{ f.fraccion }}">
+              <td class="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900">
+                {{ f.numero_parte }}
+              </td>
+              <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600 celda-fraccion">
+                {{ f.fraccion }}
+              </td>
+              <td class="whitespace-nowrap px-6 py-4 text-sm text-right">
+                <button
+                  type="button"
+                  class="editar-fraccion-btn inline-flex items-center rounded-md bg-[#003D89] px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-[#003070]"
+                  data-numero-parte="{{ f.numero_parte }}"
+                  data-fraccion="{{ f.fraccion }}"
+                >
+                  Editar
+                </button>
+              </td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr>
+              <td colspan="3" class="px-6 py-8 text-center text-sm text-gray-500">
+                No hay números de parte en registros de ventas{% if search %} que coincidan con la búsqueda{% endif %}.
+              </td>
+            </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Editar fracción -->
+<div id="modal-editar-fraccion" class="relative z-50 hidden" aria-labelledby="modal-editar-fraccion-title" role="dialog" aria-modal="true">
+  <div class="fixed inset-0 bg-gray-900/80 transition-opacity" id="modal-editar-fraccion-backdrop"></div>
+  <div class="fixed inset-0 z-10 w-screen overflow-y-auto">
+    <div class="flex min-h-full items-center justify-center p-4">
+      <div class="relative w-full max-w-md transform overflow-hidden rounded-lg bg-white shadow-xl transition-all">
+        <div class="bg-white px-4 pb-4 pt-5 sm:p-6 sm:pb-4">
+          <h3 class="text-base font-semibold text-gray-900" id="modal-editar-fraccion-title">Editar fracción arancelaria</h3>
+          <div class="mt-4 space-y-4">
+            <div>
+              <label for="modal-numero-parte" class="block text-sm font-medium text-gray-700">Número de parte</label>
+              <input type="text" id="modal-numero-parte" readonly class="mt-1 block w-full rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-600 read-only:border-gray-200" />
+            </div>
+            <div>
+              <label for="modal-fraccion" class="block text-sm font-medium text-gray-700">Fracción arancelaria</label>
+              <input type="text" id="modal-fraccion" placeholder="Ej. 8544.49" class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89]" />
+            </div>
+            <p id="modal-editar-fraccion-error" class="hidden text-sm text-red-600"></p>
+          </div>
+        </div>
+        <div class="bg-gray-50 px-4 py-3 sm:flex sm:flex-row-reverse sm:px-6 gap-2">
+          <button type="button" id="modal-editar-fraccion-guardar" class="inline-flex w-full justify-center rounded-md bg-[#003D89] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#003070] sm:w-auto">
+            Guardar
+          </button>
+          <button type="button" id="modal-editar-fraccion-cerrar" class="mt-3 inline-flex w-full justify-center rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 sm:mt-0 sm:w-auto">
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const modal = document.getElementById('modal-editar-fraccion');
+  const backdrop = document.getElementById('modal-editar-fraccion-backdrop');
+  const inputNumero = document.getElementById('modal-numero-parte');
+  const inputFraccion = document.getElementById('modal-fraccion');
+  const btnGuardar = document.getElementById('modal-editar-fraccion-guardar');
+  const btnCerrar = document.getElementById('modal-editar-fraccion-cerrar');
+  const errorEl = document.getElementById('modal-editar-fraccion-error');
+
+  function abrirModal(numeroParte, fraccionActual) {
+    inputNumero.value = numeroParte || '';
+    inputFraccion.value = (fraccionActual && fraccionActual !== '—') ? fraccionActual : '';
+    errorEl.classList.add('hidden');
+    errorEl.textContent = '';
+    modal.classList.remove('hidden');
+    inputFraccion.focus();
+  }
+
+  function cerrarModal() {
+    modal.classList.add('hidden');
+  }
+
+  document.querySelectorAll('.editar-fraccion-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      abrirModal(btn.dataset.numeroParte || '', btn.dataset.fraccion || '');
+    });
+  });
+
+  btnCerrar.addEventListener('click', cerrarModal);
+  backdrop.addEventListener('click', cerrarModal);
+
+  btnGuardar.addEventListener('click', async function() {
+    const numeroParte = (inputNumero.value || '').trim();
+    const fraccion = (inputFraccion.value || '').trim();
+    if (!numeroParte) return;
+    errorEl.classList.add('hidden');
+    errorEl.textContent = '';
+    btnGuardar.disabled = true;
+    try {
+      const res = await fetch('/api/fracciones-arancelarias/actualizar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ numero_parte: numeroParte, fraccion: fraccion || null })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        var row = Array.prototype.find.call(document.querySelectorAll('tbody tr[data-numero-parte]'), function(tr) { return tr.dataset.numeroParte === numeroParte; });
+        if (row) {
+          var celda = row.querySelector('.celda-fraccion');
+          if (celda) celda.textContent = data.fraccion || '—';
+          row.dataset.fraccion = data.fraccion || '—';
+          var editBtn = row.querySelector('.editar-fraccion-btn');
+          if (editBtn) editBtn.dataset.fraccion = data.fraccion || '—';
+        }
+        cerrarModal();
+      } else {
+        errorEl.textContent = data.mensaje || 'Error al actualizar';
+        errorEl.classList.remove('hidden');
+      }
+    } catch (e) {
+      errorEl.textContent = e.message || 'Error de conexión';
+      errorEl.classList.remove('hidden');
+    }
+    btnGuardar.disabled = false;
+  });
+})();
+</script>
+{% endblock %}
