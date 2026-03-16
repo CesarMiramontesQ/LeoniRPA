@@ -1,0 +1,760 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="space-y-6">
+  <div class="flex flex-wrap items-center justify-between gap-4">
+    <div>
+      <h1 class="text-2xl font-semibold text-gray-900">Material / Número de parte</h1>
+    </div>
+  </div>
+
+  <!-- Datos del material (Unit, Tariff, F.O.B, Markup) -->
+  <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="overflow-hidden rounded-lg border-l-4 border-blue-500 bg-white px-4 py-5 shadow-sm sm:p-6">
+      <dt class="truncate text-sm font-medium text-gray-500">Unit measure</dt>
+      <dd class="mt-1 text-2xl font-semibold tracking-tight text-blue-600">KM</dd>
+    </div>
+    <div class="overflow-hidden rounded-lg border-l-4 border-amber-500 bg-white px-4 py-5 shadow-sm sm:p-6">
+      <dt class="truncate text-sm font-medium text-gray-500">Custom tariff</dt>
+      <dd id="card-fraccion" class="mt-1 text-2xl font-semibold tracking-tight text-amber-600">{% if parte_info is defined and parte_info %}{{ parte_info.fraccion or '—' }}{% else %}—{% endif %}</dd>
+    </div>
+    <div class="overflow-hidden rounded-lg border-l-4 border-green-500 bg-white px-4 py-5 shadow-sm sm:p-6">
+      <dt class="truncate text-sm font-medium text-gray-500">F.O.B USD value</dt>
+      <dd class="mt-1">
+        <input type="number" id="input-fob" step="any" min="0" placeholder="Ingrese F.O.B" class="w-full max-w-[12rem] rounded border border-gray-300 px-3 py-2 text-2xl font-semibold tracking-tight text-green-600 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500" />
+      </dd>
+    </div>
+    <div class="overflow-hidden rounded-lg border-l-4 border-purple-500 bg-white px-4 py-5 shadow-sm sm:p-6">
+      <dt class="truncate text-sm font-medium text-gray-500">Markup</dt>
+      <dd id="card-markup" class="mt-1 text-2xl font-semibold tracking-tight text-purple-600">—</dd>
+    </div>
+  </div>
+
+  <!-- Tabla: Ítems del BOM de este número de parte -->
+  <div class="rounded-lg bg-white shadow-sm">
+    <div class="border-b border-gray-200 px-6 py-4">
+      <h2 class="text-lg font-semibold text-gray-900">Ítems del BOM</h2>
+      <p id="bom-subtitle" class="mt-1 text-sm text-gray-500">Materiales agregados</p>
+      <div class="mt-4 flex flex-wrap items-center gap-3">
+        <label for="input-numero-parte" class="text-sm font-medium text-gray-700">Número de materia</label>
+        <input
+          type="text"
+          id="input-numero-parte"
+          placeholder="Ej. 310004003"
+          class="rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+        />
+        <label class="inline-flex cursor-pointer items-center gap-2">
+          <input type="checkbox" id="check-solo-bom" class="h-4 w-4 rounded border-gray-300 text-[#003D89] focus:ring-[#003D89]" />
+          <span class="text-sm text-gray-700">Solo ítems BOM</span>
+        </label>
+        <button
+          type="button"
+          id="btn-agregar-parte"
+          class="inline-flex items-center rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#002d66] focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
+        >
+          Agregar
+        </button>
+        <span id="simulacion-error" class="text-sm text-red-600 hidden"></span>
+      </div>
+      <p class="mt-2 text-xs text-gray-500">Puedes arrastrar ítems entre &quot;Breakdown of Originating Supplies&quot; y &quot;Breakdown of Non-Originating Supplies&quot; para simular otro origen sin cambiar datos en BD. Con &quot;Solo ítems BOM&quot; solo se agregan filas (cantidad editable), sin sumar a totales.</p>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">#</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Nº Parte</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Descripción</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Cantidad</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Medida</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Código</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Origen</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Proveedores / % compra</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Tipo</th>
+            <th scope="col" class="w-20 px-2 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500" title="Quitar de la simulación"></th>
+          </tr>
+        </thead>
+        <tbody id="tbody-bom" class="divide-y divide-gray-200 bg-white">
+          {% for item in items_bom %}
+          <tr class="hover:bg-gray-50">
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">{{ loop.index }}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900">{{ item.numero_parte or '—' }}</td>
+            <td class="max-w-xs truncate px-6 py-4 text-sm text-gray-600" title="{{ item.descripcion or '' }}">{{ item.descripcion or '—' }}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{{ item.qty|default('—', true) }}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{{ item.measure or '—' }}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{{ item.comm_code or '—' }}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{{ item.origin }}</td>
+            <td class="px-6 py-4 text-sm text-gray-600">
+              {% if item.proveedores %}
+                {% for p in item.proveedores %}
+                  <span class="block">{{ p.nombre_proveedor }}{% if p.porcentaje_compra is not none %} ({{ (p.porcentaje_compra|round(2)) ~ '%' }}){% endif %}{% if not loop.last %}<br>{% endif %}</span>
+                {% endfor %}
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td class="whitespace-nowrap px-6 py-4">
+              {% if item.tipo == 'Originating' %}
+              <span class="inline-flex rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">Originating</span>
+              {% else %}
+              <span class="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">Non-Originating</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not items_bom %}
+          <tr>
+            <td colspan="10" class="px-6 py-8 text-center text-sm text-gray-500">No hay ítems del BOM para este número de parte.</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Breakdown of Originating Supplies -->
+  <div class="rounded-lg bg-white shadow-sm">
+    <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+      <h2 class="flex items-center gap-2 text-lg font-semibold text-gray-900">
+        <span class="flex h-8 w-8 items-center justify-center rounded-full bg-green-100 text-green-600">
+          <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+        </span>
+        Breakdown of Originating Supplies
+      </h2>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th scope="col" class="w-10 px-2 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400" title="Arrastrar para mover entre tablas"></th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Material / Nº Parte</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Proveedor</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">% compra</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Qty / Kg</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">PU / Kg</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Origin</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Value (USD)</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-originating" class="divide-y divide-gray-200 bg-white" data-drop-list="originating">
+          {% for item in items_originating %}
+            {% if item.proveedores %}
+              {% for p in item.proveedores %}
+          <tr class="hover:bg-gray-50">
+            <td class="max-w-xs truncate px-6 py-4 text-sm text-gray-900" title="{{ item.name }}">{{ item.name }}</td>
+            <td class="max-w-xs truncate px-6 py-4 text-sm text-gray-700" title="{{ p.nombre_proveedor }}">{{ p.nombre_proveedor }}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.porcentaje_compra is not none %}{{ (p.porcentaje_compra|round(2)) ~ '%' }}{% else %}—{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100)|round(2) }}{% else %}{{ item.qty|default('—', true) }}{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.precio_compra is not none %}{{ (p.precio_compra|round(4)) }}{% if p.currency_uom %} {{ p.currency_uom }}{% endif %}{% else %}—{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{{ p.pais_origen or item.origin }}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none and p.precio_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100 * p.precio_compra)|round(3) }}{% else %}—{% endif %}</td>
+          </tr>
+              {% endfor %}
+            {% else %}
+          <tr class="hover:bg-gray-50">
+            <td class="max-w-xs truncate px-6 py-4 text-sm text-gray-900" title="{{ item.name }}">{{ item.name }}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">—</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">—</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{{ item.qty|default('—', true) }}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">—</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{{ item.origin }}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">—</td>
+          </tr>
+            {% endif %}
+          {% endfor %}
+          {% if not items_originating %}
+          <tr>
+            <td colspan="8" class="px-6 py-8 text-center text-sm text-gray-500">No hay ítems de suministros originarios. Arrastra ítems desde Non-Originating para simular.</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+    <div id="footer-originating" class="border-t border-gray-200 bg-green-50/50 px-6 py-2 {% if not items_originating %}hidden{% endif %}">
+      <p class="text-sm font-semibold text-green-700">Total Originating Supplies: <span id="total-originating-value">{% if total_originating_value is defined and total_originating_value is not none %}{{ total_originating_value|round(3) }}{% else %}—{% endif %}</span></p>
+    </div>
+  </div>
+
+  <!-- Breakdown of Non-Originating Supplies -->
+  <div class="rounded-lg bg-white shadow-sm">
+    <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+      <h2 class="flex items-center gap-2 text-lg font-semibold text-gray-900">
+        <span class="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+          <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+        </span>
+        Breakdown of Non-Originating Supplies
+      </h2>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th scope="col" class="w-10 px-2 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400" title="Arrastrar para mover entre tablas"></th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Material / Nº Parte</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Proveedor</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">% compra</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Qty / Kg</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">PU / Kg</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Origin</th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Value (USD)</th>
+          </tr>
+        </thead>
+        <tbody id="tbody-non-originating" class="divide-y divide-gray-200 bg-white" data-drop-list="non_originating">
+          {% for item in items_non_originating %}
+            {% if item.proveedores %}
+              {% for p in item.proveedores %}
+          <tr class="hover:bg-gray-50">
+            <td class="max-w-xs truncate px-6 py-4 text-sm text-gray-900" title="{{ item.name }}">{{ item.name }}</td>
+            <td class="max-w-xs truncate px-6 py-4 text-sm text-gray-700" title="{{ p.nombre_proveedor }}">{{ p.nombre_proveedor }}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.porcentaje_compra is not none %}{{ (p.porcentaje_compra|round(2)) ~ '%' }}{% else %}—{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100)|round(2) }}{% else %}{{ item.qty|default('—', true) }}{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.precio_compra is not none %}{{ (p.precio_compra|round(4)) }}{% if p.currency_uom %} {{ p.currency_uom }}{% endif %}{% else %}—{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{{ p.pais_origen or item.origin }}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none and p.precio_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100 * p.precio_compra)|round(3) }}{% else %}—{% endif %}</td>
+          </tr>
+              {% endfor %}
+            {% else %}
+          <tr class="hover:bg-gray-50">
+            <td class="max-w-xs truncate px-6 py-4 text-sm text-gray-900" title="{{ item.name }}">{{ item.name }}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">—</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">—</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{{ item.qty|default('—', true) }}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">—</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{{ item.origin }}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">—</td>
+          </tr>
+            {% endif %}
+          {% endfor %}
+          {% if not items_non_originating %}
+          <tr>
+            <td colspan="8" class="px-6 py-8 text-center text-sm text-gray-500">No hay ítems de suministros no originarios. Arrastra ítems desde Originating para simular.</td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+    <div id="footer-non-originating" class="border-t border-gray-200 bg-amber-50/50 px-6 py-2 {% if not items_non_originating %}hidden{% endif %}">
+      <p class="text-sm font-semibold text-amber-700">Total Non-Originating Supplies: <span id="total-non-originating-value">{% if total_non_originating_value is defined and total_non_originating_value is not none %}{{ total_non_originating_value|round(3) }}{% else %}—{% endif %}</span></p>
+    </div>
+  </div>
+
+  <!-- Regional Content Index (ICR) -->
+  <div>
+    <div class="relative overflow-hidden rounded-lg bg-gradient-to-br from-[#003D89] via-[#00408c] to-[#1e5a9e] p-6 text-white shadow-sm">
+      <div class="flex items-start justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <span class="flex h-10 w-10 items-center justify-center rounded-lg bg-white/15">
+            <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" /></svg>
+          </span>
+          <div>
+            <h3 class="text-xl font-bold text-white">Regional Content Index (ICR)</h3>
+            <p class="mt-0.5 text-sm text-white/70">Simulacion Producto</p>
+          </div>
+        </div>
+        <span class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white/20 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white">
+          —
+        </span>
+      </div>
+
+      <div class="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2">
+        <div class="rounded-lg bg-white/10 p-4 backdrop-blur-sm">
+          <p class="text-xs font-medium uppercase tracking-widest text-white/60">Calculation method</p>
+          <p class="mt-2 text-base font-bold leading-tight text-white">(Sum of Originating Supplies + Markup) × 100</p>
+          <hr class="my-2 border-white/30" />
+          <p class="text-sm font-normal text-white/95">Commercial Value of Goods (F.O.B)</p>
+        </div>
+
+        <div class="relative flex flex-col items-end justify-center rounded-lg bg-white/10 p-4 backdrop-blur-sm">
+          <div class="pointer-events-none absolute inset-0 overflow-hidden rounded-lg opacity-40">
+            <div class="absolute -right-4 -top-4 h-24 w-24 rounded-full bg-white/10"></div>
+            <div class="absolute bottom-0 right-1/3 h-20 w-20 rotate-45 rounded-lg bg-white/5"></div>
+            <div class="absolute right-8 top-1/2 h-16 w-16 -rotate-12 rounded-full bg-white/5"></div>
+          </div>
+          <p class="relative text-xs font-medium uppercase tracking-widest text-white/60">Regional index</p>
+          <p class="relative mt-1 text-5xl font-bold tracking-tight text-white"><span id="card-regional-index">—</span><span id="card-regional-pct" class="ml-0.5 text-2xl font-semibold align-baseline" style="display:none">%</span></p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  var inputNumeroParte = document.getElementById('input-numero-parte');
+  var btnAgregar = document.getElementById('btn-agregar-parte');
+  var elError = document.getElementById('simulacion-error');
+  var bomSubtitle = document.getElementById('bom-subtitle');
+  var cardFraccion = document.getElementById('card-fraccion');
+  var tbodyBom = document.getElementById('tbody-bom');
+  var tbodyOriginating = document.getElementById('tbody-originating');
+  var tbodyNonOriginating = document.getElementById('tbody-non-originating');
+  var footerOriginating = document.getElementById('footer-originating');
+  var footerNonOriginating = document.getElementById('footer-non-originating');
+  var totalOriginatingValue = document.getElementById('total-originating-value');
+  var totalNonOriginatingValue = document.getElementById('total-non-originating-value');
+  var inputFob = document.getElementById('input-fob');
+  var cardMarkup = document.getElementById('card-markup');
+  var cardRegionalIndex = document.getElementById('card-regional-index');
+  var cardRegionalPct = document.getElementById('card-regional-pct');
+
+  var fobValueUsuario = null;
+
+  // Estado acumulativo: cada "Agregar" suma a estas listas y totales
+  var materialesAgregados = [];
+  var itemsBomAcum = [];
+  var itemsOriginatingAcum = [];
+  var itemsNonOriginatingAcum = [];
+  var totalOriginatingAcum = 0;
+  var totalNonOriginatingAcum = 0;
+
+  function esc(text) {
+    if (text == null || text === undefined) return '—';
+    return String(text);
+  }
+  function numVal(v) {
+    if (v == null || v === undefined) return null;
+    var n = Number(v);
+    return isNaN(n) ? null : n;
+  }
+
+  function recalcTotalsFromItems() {
+    var o = 0;
+    itemsOriginatingAcum.forEach(function(item) {
+      var qty = numVal(item.qty);
+      (item.proveedores || []).forEach(function(p) {
+        if (qty != null && p.porcentaje_compra != null && p.precio_compra != null)
+          o += qty * p.porcentaje_compra / 100 * p.precio_compra;
+      });
+    });
+    var n = 0;
+    itemsNonOriginatingAcum.forEach(function(item) {
+      var qty = numVal(item.qty);
+      (item.proveedores || []).forEach(function(p) {
+        if (qty != null && p.porcentaje_compra != null && p.precio_compra != null)
+          n += qty * p.porcentaje_compra / 100 * p.precio_compra;
+      });
+    });
+    totalOriginatingAcum = Math.round(o * 1000) / 1000;
+    totalNonOriginatingAcum = Math.round(n * 1000) / 1000;
+    if (totalOriginatingValue) totalOriginatingValue.textContent = totalOriginatingAcum > 0 ? totalOriginatingAcum.toFixed(3) : '—';
+    if (totalNonOriginatingValue) totalNonOriginatingValue.textContent = totalNonOriginatingAcum > 0 ? totalNonOriginatingAcum.toFixed(3) : '—';
+    updateMarkupAndRegional();
+  }
+
+  function updateMarkupAndRegional() {
+    if (!cardMarkup || !cardRegionalIndex) return;
+    if (fobValueUsuario != null && !isNaN(fobValueUsuario) && fobValueUsuario > 0) {
+      var markup = fobValueUsuario - totalOriginatingAcum - totalNonOriginatingAcum;
+      markup = Math.round(markup * 1000) / 1000;
+      var regionalIndex = (totalOriginatingAcum + markup) / fobValueUsuario * 100;
+      regionalIndex = Math.round(regionalIndex * 100) / 100;
+      cardMarkup.textContent = markup.toFixed(3);
+      cardRegionalIndex.textContent = regionalIndex.toFixed(2);
+      if (cardRegionalPct) cardRegionalPct.style.display = '';
+    } else {
+      cardMarkup.textContent = '—';
+      cardRegionalIndex.textContent = '—';
+      if (cardRegionalPct) cardRegionalPct.style.display = 'none';
+    }
+  }
+
+  function bomIndexToOrigIndex(bomIdx) {
+    var c = 0;
+    for (var i = 0; i < bomIdx; i++) if (itemsBomAcum[i].tipo === 'Originating' && !itemsBomAcum[i].soloBom) c++;
+    return c;
+  }
+  function bomIndexToNonOrigIndex(bomIdx) {
+    var c = 0;
+    for (var i = 0; i < bomIdx; i++) if (itemsBomAcum[i].tipo === 'Non-Originating' && !itemsBomAcum[i].soloBom) c++;
+    return c;
+  }
+
+  function onBomQtyChange(bomIdx, newVal) {
+    var item = itemsBomAcum[bomIdx];
+    if (!item) return;
+    item.qty = newVal;
+    if (item.soloBom) {
+      renderBomRows(itemsBomAcum);
+      return;
+    }
+    if (item.tipo === 'Originating') {
+      var oi = bomIndexToOrigIndex(bomIdx);
+      if (itemsOriginatingAcum[oi]) itemsOriginatingAcum[oi].qty = newVal;
+    } else {
+      var ni = bomIndexToNonOrigIndex(bomIdx);
+      if (itemsNonOriginatingAcum[ni]) itemsNonOriginatingAcum[ni].qty = newVal;
+    }
+    recalcTotalsFromItems();
+    renderOriginatingRows(itemsOriginatingAcum);
+    renderNonOriginatingRows(itemsNonOriginatingAcum);
+  }
+
+  function renderBomRows(items) {
+    tbodyBom.innerHTML = '';
+    if (!items || items.length === 0) {
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td colspan="10" class="px-6 py-8 text-center text-sm text-gray-500">No hay ítems del BOM para este número de parte.</td>';
+      tbodyBom.appendChild(tr);
+      return;
+    }
+    items.forEach(function(item, idx) {
+      var tr = document.createElement('tr');
+      tr.className = 'hover:bg-gray-50';
+      var proveedoresHtml = '—';
+      if (item.proveedores && item.proveedores.length) {
+        proveedoresHtml = item.proveedores.map(function(p) {
+          var t = esc(p.nombre_proveedor);
+          if (p.porcentaje_compra != null) t += ' (' + Number(p.porcentaje_compra).toFixed(2) + '%)';
+          return t;
+        }).join('<br>');
+      }
+      var tipoBadge;
+      if (item.soloBom) {
+        tipoBadge = '<span class="inline-flex rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600">Solo BOM</span>';
+      } else {
+        var inO = hasMaterialInOrig(item.numero_parte || '');
+        var inN = hasMaterialInNonOrig(item.numero_parte || '');
+        if (inO && inN) {
+          tipoBadge = '<span class="inline-flex rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">Mixto</span>';
+        } else if (inO) {
+          tipoBadge = '<span class="inline-flex rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">Originating</span>';
+        } else {
+          tipoBadge = '<span class="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">Non-Originating</span>';
+        }
+      }
+      var qtyVal = item.qty != null ? Number(item.qty) : '';
+      var qtyInput = '<input type="number" step="any" min="0" data-bom-idx="' + idx + '" value="' + esc(qtyVal) + '" class="w-24 rounded border border-gray-300 px-2 py-1 text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]" />';
+      var btnQuitar = '<button type="button" data-bom-remove-idx="' + idx + '" class="inline-flex items-center rounded border border-gray-300 bg-white px-2 py-1.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-1" title="Quitar de la simulación">Quitar</button>';
+      tr.innerHTML =
+        '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">' + (idx + 1) + '</td>' +
+        '<td class="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900">' + esc(item.numero_parte) + '</td>' +
+        '<td class="max-w-xs truncate px-6 py-4 text-sm text-gray-600" title="' + esc(item.descripcion) + '">' + esc(item.descripcion) + '</td>' +
+        '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + qtyInput + '</td>' +
+        '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + esc(item.measure) + '</td>' +
+        '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + esc(item.comm_code) + '</td>' +
+        '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + esc(item.origin) + '</td>' +
+        '<td class="px-6 py-4 text-sm text-gray-600">' + proveedoresHtml + '</td>' +
+        '<td class="whitespace-nowrap px-6 py-4">' + tipoBadge + '</td>' +
+        '<td class="whitespace-nowrap px-2 py-4 text-center">' + btnQuitar + '</td>';
+      tbodyBom.appendChild(tr);
+    });
+    tbodyBom.querySelectorAll('input[data-bom-idx]').forEach(function(inp) {
+      inp.addEventListener('change', function() {
+        var idx = parseInt(inp.getAttribute('data-bom-idx'), 10);
+        var raw = inp.value.trim();
+        var newVal = raw === '' ? null : (isNaN(parseFloat(raw)) ? null : parseFloat(raw));
+        if (newVal !== null && newVal < 0) newVal = 0;
+        onBomQtyChange(idx, newVal);
+      });
+    });
+    tbodyBom.querySelectorAll('button[data-bom-remove-idx]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var idx = parseInt(btn.getAttribute('data-bom-remove-idx'), 10);
+        if (isNaN(idx) || idx < 0) return;
+        removeBomItem(idx);
+      });
+    });
+  }
+
+  function removeBomItem(bomIdx) {
+    var item = itemsBomAcum[bomIdx];
+    if (!item) return;
+    var numeroParte = String(item.numero_parte != null ? item.numero_parte : '');
+    itemsBomAcum.splice(bomIdx, 1);
+    if (!item.soloBom) {
+      // Los ítems en breakdown tienen "numero_parte" (y "name" = numero_parte + descripción). Filtramos por numero_parte.
+      itemsOriginatingAcum = itemsOriginatingAcum.filter(function(it) { return String(it.numero_parte != null ? it.numero_parte : '') !== numeroParte; });
+      itemsNonOriginatingAcum = itemsNonOriginatingAcum.filter(function(it) { return String(it.numero_parte != null ? it.numero_parte : '') !== numeroParte; });
+    }
+    recalcTotalsFromItems();
+    renderBomRows(itemsBomAcum);
+    renderOriginatingRows(itemsOriginatingAcum);
+    renderNonOriginatingRows(itemsNonOriginatingAcum);
+    updateMarkupAndRegional();
+    if (itemsOriginatingAcum.length === 0) footerOriginating.classList.add('hidden'); else footerOriginating.classList.remove('hidden');
+    if (itemsNonOriginatingAcum.length === 0) footerNonOriginating.classList.add('hidden'); else footerNonOriginating.classList.remove('hidden');
+  }
+
+  var gripSvg = '<svg class="h-4 w-4 text-gray-400 cursor-grab active:cursor-grabbing" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16" /></svg>';
+
+  function hasMaterialInOrig(numeroParte) {
+    return itemsOriginatingAcum.some(function(it) { return String(it.numero_parte != null ? it.numero_parte : '') === String(numeroParte); });
+  }
+  function hasMaterialInNonOrig(numeroParte) {
+    return itemsNonOriginatingAcum.some(function(it) { return String(it.numero_parte != null ? it.numero_parte : '') === String(numeroParte); });
+  }
+
+  function moveRowBetweenLists(itemName, proveedorIndex, fromOriginating) {
+    var listSource = fromOriginating ? itemsOriginatingAcum : itemsNonOriginatingAcum;
+    var listTarget = fromOriginating ? itemsNonOriginatingAcum : itemsOriginatingAcum;
+    var idx = listSource.findIndex(function(it) { return (it.name || '') === itemName; });
+    if (idx === -1) return;
+    var item = listSource[idx];
+    var provs = item.proveedores || [];
+    var moveWhole = proveedorIndex === -1 || provs.length <= 1;
+
+    if (moveWhole) {
+      listSource.splice(idx, 1);
+      listTarget.push(item);
+    } else {
+      var pi = parseInt(proveedorIndex, 10);
+      if (isNaN(pi) || pi < 0 || pi >= provs.length) return;
+      var prov = provs[pi];
+      var newItem = { name: item.name, numero_parte: item.numero_parte, qty: item.qty, origin: item.origin, proveedores: [prov] };
+      listTarget.push(newItem);
+      provs.splice(pi, 1);
+      if (provs.length === 0) listSource.splice(idx, 1);
+    }
+
+    recalcTotalsFromItems();
+    renderBomRows(itemsBomAcum);
+    renderOriginatingRows(itemsOriginatingAcum);
+    renderNonOriginatingRows(itemsNonOriginatingAcum);
+    updateMarkupAndRegional();
+    if (itemsOriginatingAcum.length === 0) footerOriginating.classList.add('hidden'); else footerOriginating.classList.remove('hidden');
+    if (itemsNonOriginatingAcum.length === 0) footerNonOriginating.classList.add('hidden'); else footerNonOriginating.classList.remove('hidden');
+  }
+
+  function renderOriginatingRows(items) {
+    tbodyOriginating.innerHTML = '';
+    if (!items || items.length === 0) {
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td colspan="8" class="px-6 py-8 text-center text-sm text-gray-500">No hay ítems de suministros originarios. Arrastra ítems desde Non-Originating para simular.</td>';
+      tbodyOriginating.appendChild(tr);
+      footerOriginating.classList.add('hidden');
+      return;
+    }
+    items.forEach(function(item) {
+      var name = esc(item.name);
+      var itemNameRaw = item.name || '';
+      var qty = numVal(item.qty);
+      var origin = esc(item.origin);
+      if (item.proveedores && item.proveedores.length) {
+        item.proveedores.forEach(function(p, provIdx) {
+          var pct = p.porcentaje_compra != null ? Number(p.porcentaje_compra).toFixed(2) + '%' : '—';
+          var qtyKg = (qty != null && p.porcentaje_compra != null) ? (qty * p.porcentaje_compra / 100).toFixed(2) : (qty != null ? qty : '—');
+          var puKg = p.precio_compra != null ? Number(p.precio_compra).toFixed(4) + (p.currency_uom ? ' ' + p.currency_uom : '') : '—';
+          var originVal = esc(p.pais_origen || item.origin);
+          var value = (qty != null && p.porcentaje_compra != null && p.precio_compra != null)
+            ? (qty * p.porcentaje_compra / 100 * p.precio_compra).toFixed(3) : '—';
+          var tr = document.createElement('tr');
+          tr.className = 'hover:bg-gray-50';
+          tr.draggable = true;
+          tr.dataset.itemName = itemNameRaw;
+          tr.dataset.proveedorIndex = String(provIdx);
+          tr.innerHTML =
+            '<td class="w-10 px-2 py-4 text-center text-gray-400" title="Arrastrar esta línea a Non-Originating">' + gripSvg + '</td>' +
+            '<td class="max-w-xs truncate px-6 py-4 text-sm text-gray-900" title="' + name + '">' + name + '</td>' +
+            '<td class="max-w-xs truncate px-6 py-4 text-sm text-gray-700" title="' + esc(p.nombre_proveedor) + '">' + esc(p.nombre_proveedor) + '</td>' +
+            '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + pct + '</td>' +
+            '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + qtyKg + '</td>' +
+            '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + puKg + '</td>' +
+            '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + originVal + '</td>' +
+            '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + value + '</td>';
+          tbodyOriginating.appendChild(tr);
+        });
+      } else {
+        var tr = document.createElement('tr');
+        tr.className = 'hover:bg-gray-50';
+        tr.draggable = true;
+        tr.dataset.itemName = itemNameRaw;
+        tr.dataset.proveedorIndex = '-1';
+        tr.innerHTML =
+          '<td class="w-10 px-2 py-4 text-center text-gray-400" title="Arrastrar a Non-Originating">' + gripSvg + '</td>' +
+          '<td class="max-w-xs truncate px-6 py-4 text-sm text-gray-900">' + name + '</td>' +
+          '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">—</td>' +
+          '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">—</td>' +
+          '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + (qty != null ? qty : '—') + '</td>' +
+          '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">—</td>' +
+          '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + origin + '</td>' +
+          '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">—</td>';
+        tbodyOriginating.appendChild(tr);
+      }
+    });
+    footerOriginating.classList.remove('hidden');
+  }
+
+  function renderNonOriginatingRows(items) {
+    tbodyNonOriginating.innerHTML = '';
+    if (!items || items.length === 0) {
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td colspan="8" class="px-6 py-8 text-center text-sm text-gray-500">No hay ítems de suministros no originarios. Arrastra ítems desde Originating para simular.</td>';
+      tbodyNonOriginating.appendChild(tr);
+      footerNonOriginating.classList.add('hidden');
+      return;
+    }
+    items.forEach(function(item) {
+      var name = esc(item.name);
+      var itemNameRaw = item.name || '';
+      var qty = numVal(item.qty);
+      var origin = esc(item.origin);
+      if (item.proveedores && item.proveedores.length) {
+        item.proveedores.forEach(function(p, provIdx) {
+          var pct = p.porcentaje_compra != null ? Number(p.porcentaje_compra).toFixed(2) + '%' : '—';
+          var qtyKg = (qty != null && p.porcentaje_compra != null) ? (qty * p.porcentaje_compra / 100).toFixed(2) : (qty != null ? qty : '—');
+          var puKg = p.precio_compra != null ? Number(p.precio_compra).toFixed(4) + (p.currency_uom ? ' ' + p.currency_uom : '') : '—';
+          var originVal = esc(p.pais_origen || item.origin);
+          var value = (qty != null && p.porcentaje_compra != null && p.precio_compra != null)
+            ? (qty * p.porcentaje_compra / 100 * p.precio_compra).toFixed(3) : '—';
+          var tr = document.createElement('tr');
+          tr.className = 'hover:bg-gray-50';
+          tr.draggable = true;
+          tr.dataset.itemName = itemNameRaw;
+          tr.dataset.proveedorIndex = String(provIdx);
+          tr.innerHTML =
+            '<td class="w-10 px-2 py-4 text-center text-gray-400" title="Arrastrar esta línea a Originating">' + gripSvg + '</td>' +
+            '<td class="max-w-xs truncate px-6 py-4 text-sm text-gray-900" title="' + name + '">' + name + '</td>' +
+            '<td class="max-w-xs truncate px-6 py-4 text-sm text-gray-700" title="' + esc(p.nombre_proveedor) + '">' + esc(p.nombre_proveedor) + '</td>' +
+            '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + pct + '</td>' +
+            '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + qtyKg + '</td>' +
+            '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + puKg + '</td>' +
+            '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + originVal + '</td>' +
+            '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + value + '</td>';
+          tbodyNonOriginating.appendChild(tr);
+        });
+      } else {
+        var tr = document.createElement('tr');
+        tr.className = 'hover:bg-gray-50';
+        tr.draggable = true;
+        tr.dataset.itemName = itemNameRaw;
+        tr.dataset.proveedorIndex = '-1';
+        tr.innerHTML =
+          '<td class="w-10 px-2 py-4 text-center text-gray-400" title="Arrastrar a Originating">' + gripSvg + '</td>' +
+          '<td class="max-w-xs truncate px-6 py-4 text-sm text-gray-900">' + name + '</td>' +
+          '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">—</td>' +
+          '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">—</td>' +
+          '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + (qty != null ? qty : '—') + '</td>' +
+          '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">—</td>' +
+          '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + origin + '</td>' +
+          '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">—</td>';
+        tbodyNonOriginating.appendChild(tr);
+      }
+    });
+    footerNonOriginating.classList.remove('hidden');
+  }
+
+  function setupDragDrop() {
+    [tbodyOriginating, tbodyNonOriginating].forEach(function(tbody) {
+      if (!tbody) return;
+      var listName = tbody.getAttribute('data-drop-list');
+      tbody.addEventListener('dragstart', function(e) {
+        var tr = e.target.closest('tr[data-item-name]');
+        if (!tr) return;
+        var provIdx = tr.getAttribute('data-proveedor-index');
+        if (provIdx === null || provIdx === undefined) provIdx = '-1';
+        e.dataTransfer.setData('application/json', JSON.stringify({ list: listName, name: tr.getAttribute('data-item-name'), proveedorIndex: provIdx }));
+        e.dataTransfer.effectAllowed = 'move';
+        tr.classList.add('opacity-50');
+      });
+      tbody.addEventListener('dragend', function() {
+        tbody.querySelectorAll('tr.opacity-50').forEach(function(r) { r.classList.remove('opacity-50'); });
+      });
+      tbody.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        var tr = e.target.closest('tbody');
+        if (tr) tr.classList.add('ring-2', 'ring-[#003D89]', 'ring-inset');
+      });
+      tbody.addEventListener('dragleave', function(e) {
+        if (!tbody.contains(e.relatedTarget)) tbody.classList.remove('ring-2', 'ring-[#003D89]', 'ring-inset');
+      });
+      tbody.addEventListener('drop', function(e) {
+        e.preventDefault();
+        tbody.classList.remove('ring-2', 'ring-[#003D89]', 'ring-inset');
+        var raw = e.dataTransfer.getData('application/json');
+        if (!raw) return;
+        var data;
+        try { data = JSON.parse(raw); } catch (err) { return; }
+        if (data.list === listName) return;
+        moveRowBetweenLists(data.name, data.proveedorIndex !== undefined ? data.proveedorIndex : '-1', data.list === 'originating');
+      });
+    });
+  }
+  setupDragDrop();
+
+  if (inputFob) {
+    inputFob.addEventListener('input', function() {
+      var raw = inputFob.value.trim();
+      fobValueUsuario = raw === '' ? null : (isNaN(parseFloat(raw)) ? null : parseFloat(raw));
+      if (fobValueUsuario !== null && fobValueUsuario < 0) fobValueUsuario = 0;
+      updateMarkupAndRegional();
+    });
+    inputFob.addEventListener('change', function() {
+      var raw = inputFob.value.trim();
+      fobValueUsuario = raw === '' ? null : (isNaN(parseFloat(raw)) ? null : parseFloat(raw));
+      if (fobValueUsuario !== null && fobValueUsuario < 0) fobValueUsuario = 0;
+      updateMarkupAndRegional();
+    });
+  }
+
+  btnAgregar.addEventListener('click', function() {
+    var numeroParte = (inputNumeroParte && inputNumeroParte.value) ? inputNumeroParte.value.trim() : '';
+    elError.textContent = '';
+    elError.classList.add('hidden');
+    if (!numeroParte) {
+      elError.textContent = 'Ingrese un número de materia.';
+      elError.classList.remove('hidden');
+      return;
+    }
+    btnAgregar.disabled = true;
+    fetch('/api/simulacion-producto/bom?numero_parte=' + encodeURIComponent(numeroParte), {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' }
+    }).then(function(res) {
+      return res.json().then(function(data) {
+        if (!res.ok) {
+          throw new Error(data.error || 'Error al obtener el BOM');
+        }
+        return data;
+      });
+    }).then(function(data) {
+      var newBom = data.items_bom || [];
+      var newOrig = data.items_originating || [];
+      var newNon = data.items_non_originating || [];
+      var addOrig = (data.total_originating_value != null) ? Number(data.total_originating_value) : 0;
+      var addNon = (data.total_non_originating_value != null) ? Number(data.total_non_originating_value) : 0;
+
+      var checkSoloBom = document.getElementById('check-solo-bom');
+      var soloBom = checkSoloBom && checkSoloBom.checked;
+
+      materialesAgregados.push(data.numero_parte || '');
+
+      if (soloBom) {
+        var soloBomItems = newBom.map(function(it) { var c = {}; for (var k in it) c[k] = it[k]; c.soloBom = true; return c; });
+        itemsBomAcum = itemsBomAcum.concat(soloBomItems);
+        if (cardFraccion) cardFraccion.textContent = (data.parte_info && data.parte_info.fraccion) ? data.parte_info.fraccion : '—';
+        if (bomSubtitle) bomSubtitle.textContent = 'Materiales agregados: ' + materialesAgregados.join(', ');
+        renderBomRows(itemsBomAcum);
+      } else {
+        itemsBomAcum = itemsBomAcum.concat(newBom);
+        itemsOriginatingAcum = itemsOriginatingAcum.concat(newOrig);
+        itemsNonOriginatingAcum = itemsNonOriginatingAcum.concat(newNon);
+        totalOriginatingAcum += addOrig;
+        totalNonOriginatingAcum += addNon;
+        if (cardFraccion) cardFraccion.textContent = (data.parte_info && data.parte_info.fraccion) ? data.parte_info.fraccion : '—';
+        if (bomSubtitle) bomSubtitle.textContent = 'Materiales agregados: ' + materialesAgregados.join(', ');
+        renderBomRows(itemsBomAcum);
+        renderOriginatingRows(itemsOriginatingAcum);
+        if (totalOriginatingValue) totalOriginatingValue.textContent = totalOriginatingAcum > 0 ? totalOriginatingAcum.toFixed(3) : '—';
+        renderNonOriginatingRows(itemsNonOriginatingAcum);
+        if (totalNonOriginatingValue) totalNonOriginatingValue.textContent = totalNonOriginatingAcum > 0 ? totalNonOriginatingAcum.toFixed(3) : '—';
+        if (!itemsOriginatingAcum.length) footerOriginating.classList.add('hidden'); else footerOriginating.classList.remove('hidden');
+        if (!itemsNonOriginatingAcum.length) footerNonOriginating.classList.add('hidden'); else footerNonOriginating.classList.remove('hidden');
+        if (data.ultimo_precio_venta != null && inputFob && (inputFob.value.trim() === '' || fobValueUsuario == null)) {
+          var fobVal = Number(data.ultimo_precio_venta);
+          if (!isNaN(fobVal)) {
+            inputFob.value = fobVal.toFixed(3);
+            fobValueUsuario = fobVal;
+          }
+        }
+      }
+      updateMarkupAndRegional();
+    }).catch(function(err) {
+      elError.textContent = err.message || 'Error al cargar el BOM';
+      elError.classList.remove('hidden');
+    }).finally(function() {
+      btnAgregar.disabled = false;
+    });
+  });
+})();
+</script>
+{% endblock %}

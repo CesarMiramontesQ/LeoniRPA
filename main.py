@@ -405,6 +405,90 @@ async def analisis_icr(request: Request, current_user: User = Depends(get_curren
     )
 
 
+@app.get("/simulacion-producto")
+async def simulacion_producto(request: Request, current_user: User = Depends(get_current_user)):
+    """Página Simulacion Producto - requiere autenticación. Misma estructura que análisis material ICR, sin datos."""
+    parte_info = {"numero_parte": None, "descripcion": None, "fraccion": None}
+    return templates.TemplateResponse(
+        "simulacion_producto.html",
+        {
+            "request": request,
+            "active_page": "simulacion_producto",
+            "current_user": current_user,
+            "numero_parte": None,
+            "parte_info": parte_info,
+            "fob_total_value": None,
+            "markup_value": None,
+            "items_bom": [],
+            "items_originating": [],
+            "items_non_originating": [],
+            "total_originating_value": None,
+            "total_non_originating_value": None,
+            "regional_index": None,
+        }
+    )
+
+
+@app.get("/api/simulacion-producto/bom")
+async def api_simulacion_producto_bom(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    numero_parte: Optional[str] = None,
+):
+    """
+    Obtiene BOM de un número de parte con precios y país de origen (mismo cálculo que análisis ICR material).
+    Usado al agregar un número de materia en Simulacion Producto.
+    """
+    numero_parte = (numero_parte or "").strip()
+    if not numero_parte:
+        return JSONResponse(
+            {"error": "Falta el parámetro numero_parte (número de materia)."},
+            status_code=400,
+        )
+    bom_data = await crud.get_bom_items_for_parte(db, numero_parte)
+    parte_info = bom_data.get("parte")
+    if not parte_info:
+        return JSONResponse(
+            {"error": f"No se encontró número de materia '{numero_parte}'."},
+            status_code=404,
+        )
+    items_orig = bom_data.get("items_originating") or []
+    items_non_orig = bom_data.get("items_non_originating") or []
+
+    def _sum_value(items):
+        total = 0.0
+        for item in items:
+            for p in (item.get("proveedores") or []):
+                qty = item.get("qty")
+                pct = p.get("porcentaje_compra")
+                precio = p.get("precio_compra")
+                if qty is not None and pct is not None and precio is not None:
+                    total += float(qty) * float(pct) / 100 * float(precio)
+        return round(total, 3)
+
+    total_originating_value = _sum_value(items_orig)
+    total_non_originating_value = _sum_value(items_non_orig)
+    items_bom = [dict(item, tipo="Originating") for item in items_orig] + [
+        dict(item, tipo="Non-Originating") for item in items_non_orig
+    ]
+
+    ultimo_precio_venta = await crud.get_ultimo_precio_venta_parte(db, numero_parte)
+    if ultimo_precio_venta is not None:
+        ultimo_precio_venta = round(ultimo_precio_venta, 3)
+
+    return JSONResponse({
+        "numero_parte": numero_parte,
+        "parte_info": parte_info,
+        "items_bom": items_bom,
+        "items_originating": items_orig,
+        "items_non_originating": items_non_orig,
+        "total_originating_value": total_originating_value,
+        "total_non_originating_value": total_non_originating_value,
+        "ultimo_precio_venta": ultimo_precio_venta,
+    })
+
+
 @app.get("/api/analisis-icr/partes")
 async def api_analisis_icr_partes(
     request: Request,

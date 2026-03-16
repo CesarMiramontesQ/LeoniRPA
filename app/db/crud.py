@@ -1045,37 +1045,40 @@ async def get_bom_items_for_parte(
     if not parte:
         return {"parte": None, "items_originating": [], "items_non_originating": []}
 
-    # Cualquier BOM de esta parte (primer registro)
+    parte_info = {
+        "numero_parte": parte.numero_parte,
+        "descripcion": parte.descripcion,
+        "fraccion": parte.fraccion,
+    }
+    rows: List[Any] = []
+    bom = None
+    rev = None
+
+    # Cualquier BOM de esta parte (primer registro). Si no hay BOM, se trata como ítem único (número de materia).
     result_bom = await db.execute(
         select(Bom).where(Bom.parte_id == parte.id).limit(1)
     )
     bom = result_bom.scalar_one_or_none()
-    if not bom:
-        return {
-            "parte": {"numero_parte": parte.numero_parte, "descripcion": parte.descripcion, "fraccion": parte.fraccion},
-            "items_originating": [],
-            "items_non_originating": [],
-        }
+    if bom:
+        rev = await get_current_bom_revision(db, bom.id)
+        if rev:
+            result_items = await db.execute(
+                select(BomItem, Parte)
+                .join(Parte, BomItem.componente_id == Parte.id)
+                .where(BomItem.bom_revision_id == rev.id)
+                .order_by(BomItem.item_no, BomItem.id)
+            )
+            rows = result_items.all()
 
-    rev = await get_current_bom_revision(db, bom.id)
-    if not rev:
-        return {
-            "parte": {"numero_parte": parte.numero_parte, "descripcion": parte.descripcion, "fraccion": parte.fraccion},
-            "items_originating": [],
-            "items_non_originating": [],
-        }
-
-    result_items = await db.execute(
-        select(BomItem, Parte)
-        .join(Parte, BomItem.componente_id == Parte.id)
-        .where(BomItem.bom_revision_id == rev.id)
-        .order_by(BomItem.item_no, BomItem.id)
+    # Si no hay ítems de BOM (material sin BOM o sin revisión), usamos el número de materia como único ítem.
+    numeros_parte = (
+        list({str((comp.numero_parte or "").strip()) for _, comp in rows if (comp.numero_parte or "").strip()})
+        if rows
+        else ([str(parte.numero_parte).strip()] if (parte.numero_parte and str(parte.numero_parte).strip()) else [])
     )
-    rows = result_items.all()
 
     # Proveedores, porcentaje de compra, país de origen y comentario desde pais_origen_material (solo con % > 0).
     # PU/Kg (precio_compra) desde el último registro de compras (columna price) por (numero_material, codigo_proveedor).
-    numeros_parte = list({str((comp.numero_parte or "").strip()) for _, comp in rows if (comp.numero_parte or "").strip()})
     proveedores_by_material: Dict[str, List[Dict[str, Any]]] = {}
     if numeros_parte:
         result_pais = await db.execute(
@@ -1284,12 +1287,42 @@ async def get_bom_items_for_parte(
         else:
             non_originating.append(item_dict)
 
-    return {
-        "parte": {
+    # Si no hay filas de BOM pero sí número de materia (ítem único), construir un ítem con proveedores y origen.
+    if not rows and numeros_parte:
+        numero_comp = str((parte.numero_parte or "").strip())
+        proveedores_raw = (proveedores_by_material.get(numero_comp) or []) if numero_comp else []
+        proveedores = [p for p in proveedores_raw if (p.get("porcentaje_compra") or 0) > 0]
+        if proveedores:
+            sorted_prov = sorted(
+                proveedores,
+                key=lambda p: (p["porcentaje_compra"] or 0),
+                reverse=True,
+            )
+            pais_origen = (sorted_prov[0].get("pais_origen") or "").strip() or ""
+            origin_display = pais_origen or "—"
+            is_originating = _is_originating_pais(pais_origen) if pais_origen else False
+        else:
+            origin_display = "—"
+            is_originating = False
+        name = (parte.numero_parte or "") + (" " + (parte.descripcion or "") if parte.descripcion else "")
+        name = name.strip() or "—"
+        item_dict = {
+            "name": name,
             "numero_parte": parte.numero_parte,
             "descripcion": parte.descripcion,
-            "fraccion": parte.fraccion,
-        },
+            "qty": None,
+            "measure": None,
+            "comm_code": None,
+            "origin": origin_display,
+            "proveedores": proveedores,
+        }
+        if is_originating:
+            originating.append(item_dict)
+        else:
+            non_originating.append(item_dict)
+
+    return {
+        "parte": parte_info,
         "items_originating": originating,
         "items_non_originating": non_originating,
     }
@@ -2586,6 +2619,32 @@ async def get_ultimo_precio_venta_cliente_parte(
         select(Venta.precio_full_metal_km)
         .where(
             Venta.codigo_cliente == int(codigo_cliente),
+            Venta.producto_condensado == numero_parte,
+            _venta_precio_icr_filters(),
+        )
+        .order_by(desc(Venta.id))
+        .limit(1)
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        return None
+    return float(row)
+
+
+async def get_ultimo_precio_venta_parte(
+    db: AsyncSession,
+    numero_parte: str,
+) -> Optional[float]:
+    """
+    Obtiene el último precio de venta (precio_full_metal_km) para un número de parte,
+    sin filtrar por cliente. Útil para Simulacion Producto.
+    """
+    numero_parte = str(numero_parte).strip()
+    if not numero_parte:
+        return None
+    result = await db.execute(
+        select(Venta.precio_full_metal_km)
+        .where(
             Venta.producto_condensado == numero_parte,
             _venta_precio_icr_filters(),
         )
