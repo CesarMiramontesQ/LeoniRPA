@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta, timezone, date
 from decimal import Decimal
-from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaProveedoresNacional, CargaProveedoresNacionalHistorial, CargaCliente, MasterUnificadoVirtuales, MasterUnificadoVirtualHistorial, MasterUnificadoVirtualOperacion, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente, Parte, Bom, BomRevision, BomItem, BomHistorial, PesoNeto, PesoNetoHistorial, CrossReference, CrossReferenceHistorial, PrecioVenta, PrecioVentaHistorial
+from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaProveedoresNacional, CargaProveedoresNacionalHistorial, CargaCliente, MasterUnificadoVirtuales, MasterUnificadoVirtualHistorial, MasterUnificadoVirtualOperacion, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente, Parte, Bom, BomRevision, BomItem, BomHistorial, PesoNeto, PesoNetoHistorial, CrossReference, CrossReferenceHistorial, PrecioVenta, PrecioVentaHistorial, FraccionArancelariaHistorial
 from app.core.security import hash_password
 
 
@@ -87,6 +87,21 @@ async def update_user(
     if password:
         user.password_hash = hash_password(password)
     
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+async def update_user_password(
+    db: AsyncSession,
+    user_id: int,
+    new_password: str,
+) -> Optional[User]:
+    """Actualiza solo la contraseña de un usuario (para cambio por el propio usuario)."""
+    user = await get_user_by_id(db, user_id)
+    if not user:
+        return None
+    user.password_hash = hash_password(new_password)
     await db.commit()
     await db.refresh(user)
     return user
@@ -509,6 +524,46 @@ async def update_fraccion_parte(
     await db.commit()
     await db.refresh(nueva)
     return nueva
+
+
+async def create_fraccion_arancelaria_historial(
+    db: AsyncSession,
+    user_id: int,
+    numero_parte: str,
+    fraccion_anterior: Optional[str],
+    fraccion_nueva: Optional[str],
+) -> FraccionArancelariaHistorial:
+    """Registra un movimiento en el historial de fracciones arancelarias."""
+    item = FraccionArancelariaHistorial(
+        user_id=user_id,
+        numero_parte=(numero_parte or "").strip(),
+        fraccion_anterior=(fraccion_anterior or "").strip() or None,
+        fraccion_nueva=(fraccion_nueva or "").strip() or None,
+    )
+    db.add(item)
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+async def list_fraccion_arancelaria_historial(
+    db: AsyncSession,
+    user_id: Optional[int] = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> List[FraccionArancelariaHistorial]:
+    """Lista movimientos del historial de fracciones arancelarias. Si user_id no se pasa, lista todos (admin)."""
+    query = (
+        select(FraccionArancelariaHistorial)
+        .options(selectinload(FraccionArancelariaHistorial.user))
+        .order_by(desc(FraccionArancelariaHistorial.created_at))
+        .limit(limit)
+        .offset(offset)
+    )
+    if user_id is not None:
+        query = query.where(FraccionArancelariaHistorial.user_id == user_id)
+    result = await db.execute(query)
+    return list(result.scalars().all())
 
 
 async def list_partes_numeros(db: AsyncSession, limit: Optional[int] = None) -> List[str]:
@@ -2352,10 +2407,11 @@ async def create_peso_neto_historial(
 
 async def list_peso_neto_historial(
     db: AsyncSession,
+    user_id: Optional[int] = None,
     limit: int = 5,
     offset: int = 0,
 ) -> List[PesoNetoHistorial]:
-    """Lista historial de pesos netos más reciente."""
+    """Lista historial de pesos netos más reciente. Si user_id se pasa, solo movimientos de ese usuario."""
     query = (
         select(PesoNetoHistorial)
         .options(selectinload(PesoNetoHistorial.user))
@@ -2363,6 +2419,8 @@ async def list_peso_neto_historial(
         .limit(limit)
         .offset(offset)
     )
+    if user_id is not None:
+        query = query.where(PesoNetoHistorial.user_id == user_id)
     result = await db.execute(query)
     return list(result.scalars().all())
 
@@ -2479,10 +2537,11 @@ async def create_cross_reference_historial(
 
 async def list_cross_reference_historial(
     db: AsyncSession,
+    user_id: Optional[int] = None,
     limit: int = 20,
     offset: int = 0,
 ) -> List[CrossReferenceHistorial]:
-    """Lista el historial de movimientos de Cross Reference más reciente."""
+    """Lista el historial de movimientos de Cross Reference. Si user_id se pasa, solo movimientos de ese usuario."""
     query = (
         select(CrossReferenceHistorial)
         .options(selectinload(CrossReferenceHistorial.user))
@@ -2490,6 +2549,8 @@ async def list_cross_reference_historial(
         .limit(limit)
         .offset(offset)
     )
+    if user_id is not None:
+        query = query.where(CrossReferenceHistorial.user_id == user_id)
     result = await db.execute(query)
     return list(result.scalars().all())
 
@@ -2528,10 +2589,11 @@ async def create_bom_historial(
 
 async def list_bom_historial(
     db: AsyncSession,
+    user_id: Optional[int] = None,
     limit: int = 20,
     offset: int = 0,
 ) -> List[BomHistorial]:
-    """Lista el historial de movimientos de actualización de BOMs más reciente."""
+    """Lista el historial de movimientos de actualización de BOMs. Si user_id se pasa, solo movimientos de ese usuario."""
     query = (
         select(BomHistorial)
         .options(selectinload(BomHistorial.user))
@@ -2539,6 +2601,8 @@ async def list_bom_historial(
         .limit(limit)
         .offset(offset)
     )
+    if user_id is not None:
+        query = query.where(BomHistorial.user_id == user_id)
     result = await db.execute(query)
     return list(result.scalars().all())
 
@@ -2978,10 +3042,11 @@ async def sincronizar_precios_venta_desde_ventas(
 
 async def list_precio_venta_historial(
     db: AsyncSession,
+    user_id: Optional[int] = None,
     limit: int = 5,
     offset: int = 0,
 ) -> List[PrecioVentaHistorial]:
-    """Lista historial reciente de cambios en precios_venta."""
+    """Lista historial reciente de cambios en precios_venta. Si user_id se pasa, solo movimientos de ese usuario."""
     await _ensure_precios_venta_historial_detalle_column(db)
 
     query = (
@@ -2991,6 +3056,8 @@ async def list_precio_venta_historial(
         .limit(limit)
         .offset(offset)
     )
+    if user_id is not None:
+        query = query.where(PrecioVentaHistorial.user_id == user_id)
     result = await db.execute(query)
     return list(result.scalars().all())
 
@@ -6774,13 +6841,13 @@ async def list_carga_proveedor_historial(
 ) -> List[CargaProveedorHistorial]:
     """Lista el historial de cambios en carga_proveedores con filtros opcionales."""
     query = select(CargaProveedorHistorial)
-    
+
     if codigo_proveedor:
         query = query.where(CargaProveedorHistorial.codigo_proveedor.cast(String).ilike(f"%{codigo_proveedor}%"))
-    
+
     if operacion:
         query = query.where(CargaProveedorHistorial.operacion == operacion)
-    
+
     query = query.order_by(desc(CargaProveedorHistorial.created_at)).limit(limit).offset(offset)
     
     result = await db.execute(query)
@@ -6794,10 +6861,10 @@ async def count_carga_proveedor_historial(
 ) -> int:
     """Cuenta el total de registros en el historial con filtros opcionales."""
     query = select(func.count(CargaProveedorHistorial.id))
-    
+
     if codigo_proveedor:
         query = query.where(CargaProveedorHistorial.codigo_proveedor.cast(String).ilike(f"%{codigo_proveedor}%"))
-    
+
     if operacion:
         query = query.where(CargaProveedorHistorial.operacion == operacion)
     

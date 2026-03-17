@@ -186,3 +186,58 @@ async def get_current_user_info(current_user: User = Depends(get_current_user)):
     """Obtiene información del usuario actual."""
     return UserResponse.model_validate(current_user)
 
+
+@router.get("/cambiar-contrasena", response_class=HTMLResponse)
+async def cambiar_contrasena_page(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """Página para que el usuario cambie su contraseña."""
+    return templates.TemplateResponse(
+        "cambiar_contrasena.html",
+        {
+            "request": request,
+            "current_user": current_user,
+        },
+    )
+
+
+@router.post("/cambiar-contrasena", response_class=HTMLResponse)
+async def cambiar_contrasena(
+    request: Request,
+    password_actual: str = Form(..., alias="password_actual"),
+    password_nuevo: str = Form(..., alias="password_nuevo"),
+    password_nuevo_confirm: str = Form(..., alias="password_nuevo_confirm"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cambia la contraseña del usuario actual. Requiere contraseña actual correcta."""
+    errores = []
+    if not password_actual or not password_actual.strip():
+        errores.append("La contraseña actual es requerida.")
+    if not password_nuevo or len(password_nuevo.strip()) < 8:
+        errores.append("La nueva contraseña debe tener al menos 8 caracteres.")
+    if password_nuevo != password_nuevo_confirm:
+        errores.append("La nueva contraseña y la confirmación no coinciden.")
+    if not errores and not verify_password(password_actual.strip(), current_user.password_hash):
+        errores.append("La contraseña actual no es correcta.")
+    if errores:
+        return templates.TemplateResponse(
+            "cambiar_contrasena.html",
+            {
+                "request": request,
+                "current_user": current_user,
+                "errores": errores,
+            },
+            status_code=400,
+        )
+    await crud.update_user_password(db, current_user.id, password_nuevo.strip())
+    return templates.TemplateResponse(
+        "cambiar_contrasena.html",
+        {
+            "request": request,
+            "current_user": current_user,
+            "exito": True,
+        },
+    )
+

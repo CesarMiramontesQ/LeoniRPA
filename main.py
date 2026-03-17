@@ -18,6 +18,7 @@ from app.bom.service import load_bom
 from app.bom.schemas import LoadBomInput, LoadBomResponse
 from app.bom.parse_sap_export import parse_sap_bom_txt
 from app.core.config import settings
+from urllib.parse import quote_plus
 import threading
 import asyncio
 import subprocess
@@ -336,9 +337,13 @@ async def dashboard(
         )
     )
     materiales_pendientes = r_pend.scalar() or 0
-    # Últimas ejecuciones de compras y ventas
-    ejecuciones_compras = await crud.list_executions(db, limit=5)
-    ejecuciones_ventas = await crud.list_sales_executions(db, limit=5)
+    # Actividad reciente: admin ve todas las ejecuciones; operador solo las suyas
+    if current_user.rol == "admin":
+        ejecuciones_compras = await crud.list_executions(db, limit=5)
+        ejecuciones_ventas = await crud.list_sales_executions(db, limit=5)
+    else:
+        ejecuciones_compras = await crud.list_executions(db, user_id=current_user.id, limit=5)
+        ejecuciones_ventas = await crud.list_sales_executions(db, user_id=current_user.id, limit=5)
 
     año_actual = datetime.now().year
     años_disponibles = list(range(año_actual, año_actual - 6, -1))
@@ -361,8 +366,11 @@ async def dashboard(
 @app.get("/ventas")
 async def ventas(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Página de ventas - requiere autenticación."""
-    # Obtener el historial de ejecuciones para mostrar en la tabla
-    executions = await crud.list_sales_executions(db, user_id=current_user.id, limit=50)
+    # Registro de actividad: últimos 5 movimientos; admin ve todos, operador solo los suyos
+    if current_user.rol == "admin":
+        executions = await crud.list_sales_executions(db, limit=5)
+    else:
+        executions = await crud.list_sales_executions(db, user_id=current_user.id, limit=5)
     
     return templates.TemplateResponse(
         "ventas.html",
@@ -391,6 +399,9 @@ async def ventas_registros(request: Request, current_user: User = Depends(get_cu
     )
 
 
+PER_PAGE_FRACCIONES = 10
+
+
 @app.get("/fracciones-arancelarias")
 async def fracciones_arancelarias(
     request: Request,
@@ -398,13 +409,23 @@ async def fracciones_arancelarias(
     db: AsyncSession = Depends(get_db),
     q: Optional[str] = None,
     con_fraccion: Optional[str] = None,
-    limit: int = 2000,
-    offset: int = 0,
+    page: int = 1,
 ):
-    """Página de fracciones arancelarias: números de parte únicos en registros de ventas con su fracción."""
+    """Página de fracciones arancelarias: números de parte únicos en registros de ventas con su fracción. 10 registros por página con paginación."""
     solo_con_fraccion = con_fraccion in ("1", "true", "yes", "on")
-    filas = await crud.list_fracciones_arancelarias_ventas(db, search=q, solo_con_fraccion=solo_con_fraccion, limit=limit, offset=offset)
     total = await crud.count_fracciones_arancelarias_ventas(db, search=q, solo_con_fraccion=solo_con_fraccion)
+    total_pages = max(1, (total + PER_PAGE_FRACCIONES - 1) // PER_PAGE_FRACCIONES)
+    page = max(1, min(page, total_pages))
+    offset = (page - 1) * PER_PAGE_FRACCIONES
+    filas = await crud.list_fracciones_arancelarias_ventas(
+        db, search=q, solo_con_fraccion=solo_con_fraccion, limit=PER_PAGE_FRACCIONES, offset=offset
+    )
+    # Movimientos: admin ve todos, operador solo los suyos
+    if current_user.rol == "admin":
+        movimientos = await crud.list_fraccion_arancelaria_historial(db, limit=20)
+    else:
+        movimientos = await crud.list_fraccion_arancelaria_historial(db, user_id=current_user.id, limit=20)
+    search_safe = (q or "").strip()
     return templates.TemplateResponse(
         "fracciones_arancelarias.html",
         {
@@ -413,8 +434,13 @@ async def fracciones_arancelarias(
             "current_user": current_user,
             "filas": filas,
             "total": total,
-            "search": q or "",
+            "search": search_safe,
+            "search_query": ("&q=" + quote_plus(search_safe)) if search_safe else "",
             "solo_con_fraccion": solo_con_fraccion,
+            "page": page,
+            "total_pages": total_pages,
+            "per_page": PER_PAGE_FRACCIONES,
+            "movimientos": movimientos,
         }
     )
 
@@ -435,10 +461,21 @@ async def api_actualizar_fraccion_arancelaria(
                 status_code=400,
                 content={"ok": False, "mensaje": "numero_parte es requerido."},
             )
+        numero_parte_str = str(numero_parte).strip()
+        fraccion_nueva = str(fraccion).strip() if fraccion is not None else None
+        parte_antes = await crud.get_parte_by_numero(db, numero_parte_str)
+        fraccion_anterior = (parte_antes.fraccion or "").strip() or None if parte_antes else None
         parte = await crud.update_fraccion_parte(
             db=db,
-            numero_parte=str(numero_parte).strip(),
-            fraccion=str(fraccion).strip() if fraccion is not None else None,
+            numero_parte=numero_parte_str,
+            fraccion=fraccion_nueva,
+        )
+        await crud.create_fraccion_arancelaria_historial(
+            db=db,
+            user_id=current_user.id,
+            numero_parte=numero_parte_str,
+            fraccion_anterior=fraccion_anterior,
+            fraccion_nueva=parte.fraccion,
         )
         return JSONResponse({
             "ok": True,
@@ -1875,11 +1912,14 @@ async def api_actualizar_precios_venta_desde_ventas(
 @app.get("/api/precios-venta/historial")
 async def api_precios_venta_historial(
     request: Request,
-    current_user: User = Depends(require_roles(["admin"])),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Devuelve los últimos movimientos del historial de precios de venta. Solo administradores."""
-    historial = await crud.list_precio_venta_historial(db, limit=5, offset=0)
+    """Devuelve los últimos movimientos del historial de precios de venta. Admin ve todos; operador solo los suyos."""
+    if current_user.rol == "admin":
+        historial = await crud.list_precio_venta_historial(db, limit=5, offset=0)
+    else:
+        historial = await crud.list_precio_venta_historial(db, user_id=current_user.id, limit=5, offset=0)
     items = []
     for h in historial:
         items.append(
@@ -2949,13 +2989,15 @@ async def api_ejecutar_actualizacion_boms_stream(
 @app.get("/api/actualizar-boms/movimientos")
 async def api_actualizar_boms_movimientos(
     limit: int = 5,
-    current_user: User = Depends(require_roles(["admin"])),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """API para listar movimientos recientes de actualización de BOMs. Solo administradores."""
-    _ = current_user
+    """API para listar movimientos recientes de actualización de BOMs. Admin ve todos; operador solo los suyos."""
     limit = max(1, min(limit, 20))
-    rows_db = await crud.list_bom_historial(db, limit=limit, offset=0)
+    if current_user.rol == "admin":
+        rows_db = await crud.list_bom_historial(db, limit=limit, offset=0)
+    else:
+        rows_db = await crud.list_bom_historial(db, user_id=current_user.id, limit=limit, offset=0)
     rows = [
         {
             "id": row.id,
@@ -3443,9 +3485,12 @@ async def proveedores(request: Request, current_user: User = Depends(get_current
     proveedores_activos = await crud.count_proveedores(db, estatus=True)
     proveedores_inactivos = await crud.count_proveedores(db, estatus=False)
     
-    # Historial de movimientos solo para administradores
-    historial_reciente = await crud.list_proveedor_historial(db, limit=10, offset=0) if current_user.rol == "admin" else []
-    
+    # Historial de movimientos: admin ve todos; operador solo los suyos
+    if current_user.rol == "admin":
+        historial_reciente = await crud.list_proveedor_historial(db, limit=10, offset=0)
+    else:
+        historial_reciente = await crud.list_proveedor_historial(db, user_id=current_user.id, limit=10, offset=0)
+
     return templates.TemplateResponse(
         "proveedores.html",
         {
@@ -3469,10 +3514,13 @@ async def materiales(request: Request, current_user: User = Depends(get_current_
     
     # Calcular estadísticas
     total_materiales = await crud.count_materiales(db)
-    
-    # Historial de movimientos solo para administradores
-    historial_reciente = await crud.list_material_historial(db, limit=10, offset=0) if current_user.rol == "admin" else []
-    
+
+    # Historial de movimientos: admin ve todos; operador solo los suyos
+    if current_user.rol == "admin":
+        historial_reciente = await crud.list_material_historial(db, limit=10, offset=0)
+    else:
+        historial_reciente = await crud.list_material_historial(db, user_id=current_user.id, limit=10, offset=0)
+
     return templates.TemplateResponse(
         "materiales.html",
         {
@@ -3543,13 +3591,15 @@ async def api_pesos_netos(
 @app.get("/api/pesos-netos/movimientos")
 async def api_pesos_netos_movimientos(
     limit: int = 5,
-    current_user: User = Depends(require_roles(["admin"])),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """API para listar movimientos recientes de actualización de pesos netos. Solo administradores."""
-    _ = current_user
+    """API para listar movimientos recientes de actualización de pesos netos. Admin ve todos; operador solo los suyos."""
     limit = max(1, min(limit, 20))
-    rows_db = await crud.list_peso_neto_historial(db, limit=limit, offset=0)
+    if current_user.rol == "admin":
+        rows_db = await crud.list_peso_neto_historial(db, limit=limit, offset=0)
+    else:
+        rows_db = await crud.list_peso_neto_historial(db, user_id=current_user.id, limit=limit, offset=0)
     rows = [
         {
             "id": row.id,
@@ -4324,13 +4374,15 @@ async def api_cross_reference(
 @app.get("/api/cross-reference/movimientos")
 async def api_cross_reference_movimientos(
     limit: int = 5,
-    current_user: User = Depends(require_roles(["admin"])),
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """API para listar movimientos recientes de actualización de Cross Reference. Solo administradores."""
-    _ = current_user
+    """API para listar movimientos recientes de actualización de Cross Reference. Admin ve todos; operador solo los suyos."""
     limit = max(1, min(limit, 20))
-    rows_db = await crud.list_cross_reference_historial(db, limit=limit, offset=0)
+    if current_user.rol == "admin":
+        rows_db = await crud.list_cross_reference_historial(db, limit=limit, offset=0)
+    else:
+        rows_db = await crud.list_cross_reference_historial(db, user_id=current_user.id, limit=limit, offset=0)
     rows = [
         {
             "id": row.id,
@@ -4375,8 +4427,11 @@ async def paises_origen(request: Request, current_user: User = Depends(get_curre
     )
     materiales_pendientes = result_pendientes.scalar() or 0
     
-    # Historial de movimientos solo para administradores
-    historial_reciente = await crud.list_pais_origen_material_historial(db, limit=10, offset=0) if current_user.rol == "admin" else []
+    # Historial de movimientos: admin ve todos; operador solo los suyos
+    if current_user.rol == "admin":
+        historial_reciente = await crud.list_pais_origen_material_historial(db, limit=10, offset=0)
+    else:
+        historial_reciente = await crud.list_pais_origen_material_historial(db, user_id=current_user.id, limit=10, offset=0)
     
     return templates.TemplateResponse(
         "paises_origen.html",
@@ -4421,7 +4476,7 @@ async def carga_proveedor(
     )
     
     total_pages = (total_proveedores + limit - 1) // limit
-    
+
     # Historial de movimientos solo para administradores
     if current_user.rol == "admin":
         historial = await crud.list_carga_proveedor_historial(db, limit=20)
@@ -4429,7 +4484,7 @@ async def carga_proveedor(
     else:
         historial = []
         total_historial = 0
-    
+
     # Obtener conteos por estatus para las tarjetas
     count_alta = await crud.count_carga_proveedores(db, estatus="Alta")
     count_baja = await crud.count_carga_proveedores(db, estatus="Baja")

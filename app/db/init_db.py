@@ -12,6 +12,7 @@ from app.db.models import (
     User,
     ExecutionHistory,
     SalesExecutionHistory,
+    FraccionArancelariaHistorial,
     Material,
     PrecioMaterial,
     Compra,

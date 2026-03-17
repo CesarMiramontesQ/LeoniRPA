@@ -284,6 +284,22 @@ class SalesExecutionHistory(Base):
         return f"<SalesExecutionHistory(id={self.id}, user_id={self.user_id}, estado={self.estado.value}, created_at={self.created_at})>"
 
 
+class FraccionArancelariaHistorial(Base):
+    """Historial de cambios en fracciones arancelarias (ediciones desde la página Fracciones Arancelarias)."""
+    __tablename__ = "fracciones_arancelarias_historial"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user = relationship("User", backref="fracciones_arancelarias_historial")
+    numero_parte = Column(Text, nullable=False, index=True)
+    fraccion_anterior = Column(Text, nullable=True)
+    fraccion_nueva = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    def __repr__(self):
+        return f"<FraccionArancelariaHistorial(id={self.id}, numero_parte={self.numero_parte}, created_at={self.created_at})>"
+
+
 class PartRole(PyEnum):
     """Roles posibles de una parte."""
     FG = "FG"  # Finished Good (producto terminado)
