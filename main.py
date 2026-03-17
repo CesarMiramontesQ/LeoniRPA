@@ -572,9 +572,8 @@ async def api_simulacion_producto_bom(
 
     total_originating_value = _sum_value(items_orig)
     total_non_originating_value = _sum_value(items_non_orig)
-    items_bom = [dict(item, tipo="Originating") for item in items_orig] + [
-        dict(item, tipo="Non-Originating") for item in items_non_orig
-    ]
+    # Una fila por número de parte con todos los proveedores (viene del CRUD)
+    items_bom = bom_data.get("items_bom") or []
 
     ultimo_precio_venta = await crud.get_ultimo_precio_venta_parte(db, numero_parte)
     if ultimo_precio_venta is not None:
@@ -1613,8 +1612,8 @@ async def analisis_icr_material(
 
     items_orig = bom_data.get("items_originating") or []
     items_non_orig = bom_data.get("items_non_originating") or []
-    # Lista unificada de ítems del BOM para la tabla resumen (cada uno con clave "tipo")
-    items_bom = [dict(item, tipo="Originating") for item in items_orig] + [dict(item, tipo="Non-Originating") for item in items_non_orig]
+    # Una fila por número de parte con todos los proveedores (viene del CRUD)
+    items_bom = bom_data.get("items_bom") or []
 
     # Totales Value por breakdown (suma de columna Value de cada tabla)
     def _sum_value(items):
@@ -6334,6 +6333,46 @@ async def actualizar_paises_origen_desde_compras(
                 "success": False,
                 "error": str(e),
                 "mensaje": f"Error al sincronizar países de origen desde compras: {str(e)}"
+            }
+        )
+
+
+@app.post("/api/paises-origen/actualizar-porcentaje-compra")
+async def actualizar_porcentaje_compra_ultimos_5_anios_api(
+    request: Request,
+    current_user: User = Depends(require_roles(["admin"])),
+    db: AsyncSession = Depends(get_db)
+):
+    """Calcula y actualiza % de compra en pais_origen_material con compras de los últimos 5 años (excl. año actual)."""
+    try:
+        resultado = await crud.actualizar_porcentaje_compra_ultimos_5_anios(
+            db=db,
+            user_id=current_user.id
+        )
+        mensaje = (
+            f"✓ Se actualizaron {resultado['actualizados']} registro(s) con el % de compra "
+            f"(últimos 5 años, sin año actual). "
+        )
+        if resultado.get("sin_compras_en_periodo", 0) > 0:
+            mensaje += f"{resultado['sin_compras_en_periodo']} registro(s) sin compras en el periodo."
+        if resultado.get("errores"):
+            mensaje += f" Errores: {len(resultado['errores'])}."
+        return JSONResponse({
+            "success": len(resultado.get("errores", [])) == 0,
+            "actualizados": resultado["actualizados"],
+            "sin_compras_en_periodo": resultado.get("sin_compras_en_periodo", 0),
+            "errores": resultado.get("errores", []),
+            "mensaje": mensaje
+        })
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "mensaje": f"Error al actualizar % de compra: {str(e)}"
             }
         )
 

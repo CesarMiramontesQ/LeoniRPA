@@ -57,7 +57,7 @@
       </p>
     </div>
     {% if current_user.rol == 'admin' %}
-    <div>
+    <div class="flex items-center gap-2">
       <button
         id="btn-actualizar-paises"
         type="button"
@@ -70,6 +70,21 @@
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
           Actualizando...
+        </span>
+      </button>
+      <button
+        id="btn-actualizar-porcentaje-compra"
+        type="button"
+        class="rounded-md border border-[#003D89] bg-white px-4 py-2 text-sm font-medium text-[#003D89] hover:bg-[#003D89] hover:text-white focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+        title="Calcular % de compra con compras de los últimos 5 años (sin año actual)"
+      >
+        <span id="btn-porcentaje-texto">Actualizar % compra (5 años)</span>
+        <span id="btn-porcentaje-spinner" class="hidden">
+          <svg class="animate-spin -ml-1 mr-2 h-4 w-4 inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          Calculando...
         </span>
       </button>
     </div>
@@ -675,6 +690,10 @@
     if (btnActualizar) {
       btnActualizar.addEventListener('click', actualizarPaisesOrigenDesdeCompras);
     }
+    const btnPorcentaje = document.getElementById('btn-actualizar-porcentaje-compra');
+    if (btnPorcentaje) {
+      btnPorcentaje.addEventListener('click', actualizarPorcentajeCompraUltimos5Anios);
+    }
 
     // Botón guardar en modal de edición
     const btnGuardar = document.getElementById('btn-guardar-pais');
@@ -1017,6 +1036,42 @@
     }
   }
 
+  async function actualizarPorcentajeCompraUltimos5Anios() {
+    const btn = document.getElementById('btn-actualizar-porcentaje-compra');
+    const texto = document.getElementById('btn-porcentaje-texto');
+    const spinner = document.getElementById('btn-porcentaje-spinner');
+    if (!btn || !texto || !spinner) return;
+    btn.disabled = true;
+    texto.classList.add('hidden');
+    spinner.classList.remove('hidden');
+    try {
+      const response = await fetch('/api/paises-origen/actualizar-porcentaje-compra', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.mensaje || data.error || `Error ${response.status}`);
+      }
+      document.getElementById('modal-title').textContent = 'Resultado: % de compra (últimos 5 años)';
+      mostrarModalResultados(data);
+      if (data.actualizados > 0) {
+        setTimeout(() => { window.location.reload(); }, 2500);
+      }
+    } catch (error) {
+      console.error('Error al actualizar % de compra:', error);
+      mostrarModalResultados({
+        success: false,
+        mensaje: error.message || 'Error de conexión',
+        errores: [error.message]
+      });
+    } finally {
+      btn.disabled = false;
+      texto.classList.remove('hidden');
+      spinner.classList.add('hidden');
+    }
+  }
+
   function mostrarModalResultados(data) {
     const modal = document.getElementById('modal-resultados');
     const modalOverlay = document.getElementById('modal-overlay');
@@ -1029,7 +1084,7 @@
     
     let icono, colorClase, tipoResultado;
     
-    if (data.nuevos_creados > 0) {
+    if ((data.nuevos_creados > 0 || data.actualizados > 0 || data.success) && (!data.errores || data.errores.length === 0)) {
       tipoResultado = 'success';
       colorClase = 'bg-green-100';
       icono = `
@@ -1061,20 +1116,35 @@
     modalMensaje.textContent = data.mensaje || 'Sincronización completada';
     modalMensaje.className = `text-sm ${tipoResultado === 'error' ? 'text-red-600' : tipoResultado === 'success' ? 'text-green-600' : 'text-blue-600'}`;
     
-    if (data.total_encontrados !== undefined || data.nuevos_creados !== undefined) {
+    if (data.actualizados !== undefined || data.total_encontrados !== undefined || data.nuevos_creados !== undefined) {
       modalDetalles.classList.remove('hidden');
-      modalDetalles.innerHTML = `
-        <div class="grid grid-cols-2 gap-4 text-sm">
-          <div class="bg-gray-50 p-3 rounded-md">
-            <p class="text-gray-500 text-xs">Registros encontrados</p>
-            <p class="text-lg font-semibold text-gray-900 mt-1">${data.total_encontrados || 0}</p>
+      if (data.actualizados !== undefined) {
+        modalDetalles.innerHTML = `
+          <div class="grid grid-cols-2 gap-4 text-sm">
+            <div class="bg-gray-50 p-3 rounded-md">
+              <p class="text-gray-500 text-xs">Registros actualizados</p>
+              <p class="text-lg font-semibold text-gray-900 mt-1">${data.actualizados || 0}</p>
+            </div>
+            <div class="bg-gray-50 p-3 rounded-md">
+              <p class="text-gray-500 text-xs">Sin compras en periodo</p>
+              <p class="text-lg font-semibold text-gray-900 mt-1">${data.sin_compras_en_periodo || 0}</p>
+            </div>
           </div>
-          <div class="bg-gray-50 p-3 rounded-md">
-            <p class="text-gray-500 text-xs">Nuevos creados</p>
-            <p class="text-lg font-semibold ${data.nuevos_creados > 0 ? 'text-green-600' : 'text-gray-900'} mt-1">${data.nuevos_creados || 0}</p>
+        `;
+      } else {
+        modalDetalles.innerHTML = `
+          <div class="grid grid-cols-2 gap-4 text-sm">
+            <div class="bg-gray-50 p-3 rounded-md">
+              <p class="text-gray-500 text-xs">Registros encontrados</p>
+              <p class="text-lg font-semibold text-gray-900 mt-1">${data.total_encontrados || 0}</p>
+            </div>
+            <div class="bg-gray-50 p-3 rounded-md">
+              <p class="text-gray-500 text-xs">Nuevos creados</p>
+              <p class="text-lg font-semibold ${data.nuevos_creados > 0 ? 'text-green-600' : 'text-gray-900'} mt-1">${data.nuevos_creados || 0}</p>
+            </div>
           </div>
-        </div>
-      `;
+        `;
+      }
     } else {
       modalDetalles.classList.add('hidden');
     }

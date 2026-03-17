@@ -207,9 +207,9 @@
             <td class="max-w-xs truncate px-6 py-4 text-sm text-gray-700" title="{{ p.nombre_proveedor }}">{{ p.nombre_proveedor }}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.porcentaje_compra is not none %}{{ (p.porcentaje_compra|round(2)) ~ '%' }}{% else %}—{% endif %}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100)|round(2) }}{% else %}{{ item.qty|default('—', true) }}{% endif %}</td>
-            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.precio_compra is not none %}{{ (p.precio_compra|round(4)) }}{% if p.currency_uom %} {{ p.currency_uom }}{% endif %}{% else %}—{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.precio_compra is not none %}{{ (p.precio_compra|round(4)) }} USD{% else %}—{% endif %}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{{ p.pais_origen or item.origin }}</td>
-            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none and p.precio_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100 * p.precio_compra)|round(3) }}{% else %}—{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none and p.precio_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100 * p.precio_compra)|round(3) }} USD{% else %}—{% endif %}</td>
           </tr>
               {% endfor %}
             {% else %}
@@ -233,7 +233,7 @@
       </table>
     </div>
     <div id="footer-non-originating" class="border-t border-gray-200 bg-amber-50/50 px-6 py-2 {% if not items_non_originating %}hidden{% endif %}">
-      <p class="text-sm font-semibold text-amber-700">Total Non-Originating Supplies: <span id="total-non-originating-value">{% if total_non_originating_value is defined and total_non_originating_value is not none %}{{ total_non_originating_value|round(3) }}{% else %}—{% endif %}</span></p>
+      <p class="text-sm font-semibold text-amber-700">Total Non-Originating Supplies: <span id="total-non-originating-value">{% if total_non_originating_value is defined and total_non_originating_value is not none %}{{ total_non_originating_value|round(3) }} USD{% else %}—{% endif %}</span></p>
     </div>
   </div>
 
@@ -336,7 +336,7 @@
     totalOriginatingAcum = Math.round(o * 1000) / 1000;
     totalNonOriginatingAcum = Math.round(n * 1000) / 1000;
     if (totalOriginatingValue) totalOriginatingValue.textContent = totalOriginatingAcum > 0 ? totalOriginatingAcum.toFixed(3) : '—';
-    if (totalNonOriginatingValue) totalNonOriginatingValue.textContent = totalNonOriginatingAcum > 0 ? totalNonOriginatingAcum.toFixed(3) : '—';
+    if (totalNonOriginatingValue) totalNonOriginatingValue.textContent = totalNonOriginatingAcum > 0 ? totalNonOriginatingAcum.toFixed(3) + ' USD' : '—';
     updateMarkupAndRegional();
   }
 
@@ -376,16 +376,19 @@
       renderBomRows(itemsBomAcum);
       return;
     }
-    if (item.tipo === 'Originating') {
-      var oi = bomIndexToOrigIndex(bomIdx);
-      if (itemsOriginatingAcum[oi]) itemsOriginatingAcum[oi].qty = newVal;
-    } else {
-      var ni = bomIndexToNonOrigIndex(bomIdx);
-      if (itemsNonOriginatingAcum[ni]) itemsNonOriginatingAcum[ni].qty = newVal;
-    }
+    // Actualizar cantidad en todos los ítems de abajo con el mismo numero_parte (Mixto puede estar en ambas listas)
+    var numeroParte = String(item.numero_parte != null ? item.numero_parte : '');
+    itemsOriginatingAcum.forEach(function(it) {
+      if (String(it.numero_parte != null ? it.numero_parte : '') === numeroParte) it.qty = newVal;
+    });
+    itemsNonOriginatingAcum.forEach(function(it) {
+      if (String(it.numero_parte != null ? it.numero_parte : '') === numeroParte) it.qty = newVal;
+    });
     recalcTotalsFromItems();
+    renderBomRows(itemsBomAcum);
     renderOriginatingRows(itemsOriginatingAcum);
     renderNonOriginatingRows(itemsNonOriginatingAcum);
+    updateMarkupAndRegional();
   }
 
   function renderBomRows(items) {
@@ -591,10 +594,10 @@
         item.proveedores.forEach(function(p, provIdx) {
           var pct = p.porcentaje_compra != null ? Number(p.porcentaje_compra).toFixed(2) + '%' : '—';
           var qtyKg = (qty != null && p.porcentaje_compra != null) ? (qty * p.porcentaje_compra / 100).toFixed(2) : (qty != null ? qty : '—');
-          var puKg = p.precio_compra != null ? Number(p.precio_compra).toFixed(4) + (p.currency_uom ? ' ' + p.currency_uom : '') : '—';
+          var puKg = p.precio_compra != null ? Number(p.precio_compra).toFixed(4) + ' USD' : '—';
           var originVal = esc(p.pais_origen || item.origin);
           var value = (qty != null && p.porcentaje_compra != null && p.precio_compra != null)
-            ? (qty * p.porcentaje_compra / 100 * p.precio_compra).toFixed(3) : '—';
+            ? (qty * p.porcentaje_compra / 100 * p.precio_compra).toFixed(3) + ' USD' : '—';
           var tr = document.createElement('tr');
           tr.className = 'hover:bg-gray-50';
           tr.draggable = true;
@@ -686,8 +689,23 @@
     });
   }
 
+  // Convertir número de material a mayúsculas al escribir (para que la búsqueda encuentre aunque escriban en minúscula)
+  if (inputNumeroParte) {
+    inputNumeroParte.addEventListener('input', function() {
+      var raw = this.value || '';
+      var upper = raw.toUpperCase();
+      if (raw !== upper) {
+        this.value = upper;
+      }
+    });
+    inputNumeroParte.addEventListener('blur', function() {
+      this.value = (this.value || '').toUpperCase();
+    });
+  }
+
   btnAgregar.addEventListener('click', function() {
-    var numeroParte = (inputNumeroParte && inputNumeroParte.value) ? inputNumeroParte.value.trim() : '';
+    var numeroParte = (inputNumeroParte && inputNumeroParte.value) ? inputNumeroParte.value.trim().toUpperCase() : '';
+    if (inputNumeroParte && numeroParte) inputNumeroParte.value = numeroParte;
     elError.textContent = '';
     elError.classList.add('hidden');
     if (!numeroParte) {
@@ -736,7 +754,7 @@
         renderOriginatingRows(itemsOriginatingAcum);
         if (totalOriginatingValue) totalOriginatingValue.textContent = totalOriginatingAcum > 0 ? totalOriginatingAcum.toFixed(3) : '—';
         renderNonOriginatingRows(itemsNonOriginatingAcum);
-        if (totalNonOriginatingValue) totalNonOriginatingValue.textContent = totalNonOriginatingAcum > 0 ? totalNonOriginatingAcum.toFixed(3) : '—';
+        if (totalNonOriginatingValue) totalNonOriginatingValue.textContent = totalNonOriginatingAcum > 0 ? totalNonOriginatingAcum.toFixed(3) + ' USD' : '—';
         if (!itemsOriginatingAcum.length) footerOriginating.classList.add('hidden'); else footerOriginating.classList.remove('hidden');
         if (!itemsNonOriginatingAcum.length) footerNonOriginating.classList.add('hidden'); else footerNonOriginating.classList.remove('hidden');
         if (data.ultimo_precio_venta != null && inputFob && (inputFob.value.trim() === '' || fobValueUsuario == null)) {
