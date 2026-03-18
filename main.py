@@ -6702,9 +6702,9 @@ async def iniciar_descarga(
             resultado_proc = await _procesar_compras_historial_desde_rutas(db, path_compras_xlsx, path_historial_xlsx)
             if resultado_proc.get("success"):
                 ins = resultado_proc.get("insertados", 0)
-                dup = resultado_proc.get("duplicados", 0)
+                act = resultado_proc.get("actualizados", 0)
                 errs = resultado_proc.get("errores", [])
-                detalles_str = f"Procesamiento automático: {ins} insertados, {dup} duplicados (ya existían)."
+                detalles_str = f"Procesamiento automático: {ins} insertados, {act} actualizados."
                 if errs:
                     detalles_str += f" {len(errs)} error(es)."
                 # El cierre de Excel se hace al final de compras_local.vbs (igual que ventas.vbs). Aquí solo eliminamos los archivos tras procesarlos.
@@ -6738,6 +6738,7 @@ async def iniciar_descarga(
         if detalles_str and "falló" not in detalles_str and resultado_proc:
             content_response["message"] = detalles_str
             content_response["insertados"] = resultado_proc.get("insertados", 0)
+            content_response["actualizados"] = resultado_proc.get("actualizados", 0)
             content_response["duplicados"] = resultado_proc.get("duplicados", 0)
             content_response["errores"] = resultado_proc.get("errores", [])
         elif detalles_str:
@@ -7732,15 +7733,16 @@ async def _procesar_compras_historial_desde_rutas(db: AsyncSession, path_compras
 
     resultado = await crud.bulk_create_or_update_compras(db, compras_data)
     ins = resultado['insertados']
-    dup = resultado['duplicados']
+    act = resultado.get('actualizados', 0)
     errs = resultado.get('errores', [])
-    msg = f"Procesamiento completado: {ins} insertados, {dup} duplicados (ya existían, no se insertaron)."
+    msg = f"Procesamiento completado: {ins} insertados, {act} actualizados (registros existentes actualizados con los nuevos datos)."
     if errs:
         msg += f" {len(errs)} error(es) al procesar algunos registros."
     return {
         "success": True,
         "insertados": ins,
-        "duplicados": dup,
+        "actualizados": act,
+        "duplicados": resultado.get("duplicados", 0),
         "errores": errs,
         "message": msg,
     }
@@ -7814,7 +7816,8 @@ async def procesar_compras_historial(
                     "success": True,
                     "message": message,
                     "insertados": resultado["insertados"],
-                    "duplicados": resultado["duplicados"],
+                    "actualizados": resultado.get("actualizados", 0),
+                    "duplicados": resultado.get("duplicados", 0),
                     "errores": resultado.get("errores", []),
                 }
             )

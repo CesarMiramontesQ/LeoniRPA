@@ -1140,6 +1140,7 @@ async def get_bom_items_for_parte(
     rows: List[Any] = []
     bom = None
     rev = None
+    alguna_compra_antigua = False
 
     # Cualquier BOM de esta parte (primer registro). Si no hay BOM, se trata como ítem único (número de materia).
     result_bom = await db.execute(
@@ -1200,7 +1201,11 @@ async def get_bom_items_for_parte(
                 "porcentaje_compra": pct,
                 "comentario": (r[4] or "").strip() if r[4] else None,
             }
-        # Último PU/Kg por (numero_material, codigo_proveedor): PU/Kg = amount_in_lc / quantity_in_opun (desde compras)
+        # Último PU/Kg por (numero_material, codigo_proveedor): PU/Kg = amount_in_lc / quantity_in_opun (desde compras).
+        # Si la última compra es anterior a 2 años calendario al actual, no usar precio (0) y marcar para ICR 0%.
+        año_actual_bom = datetime.now().year
+        limite_fecha_compra = date(año_actual_bom - 2, 1, 1)  # compras antes de esta fecha se consideran obsoletas
+        alguna_compra_antigua = False
         ultimo_precio_by_key: Dict[tuple, Dict[str, Any]] = {}
         if pais_data_by_key:
             keys_list = list(pais_data_by_key.keys())
@@ -1213,6 +1218,7 @@ async def get_bom_items_for_parte(
                     Compra.amount_in_lc,
                     Compra.quantity_in_opun,
                     Compra.currency,
+                    Compra.posting_date,
                 )
                 .where(
                     Compra.numero_material.in_(numeros_set),
@@ -1238,8 +1244,13 @@ async def get_bom_items_for_parte(
                     continue
                 amt = row[2]
                 qty = row[3]
+                posting_date_val = row[5]
+                pd_date = posting_date_val.date() if hasattr(posting_date_val, "date") and posting_date_val else None
+                compra_antigua = pd_date is None or pd_date < limite_fecha_compra
+                if compra_antigua:
+                    alguna_compra_antigua = True
                 pu_kg = None
-                if amt is not None and qty is not None and int(qty) != 0:
+                if not compra_antigua and amt is not None and qty is not None and int(qty) != 0:
                     try:
                         pu_kg = float(Decimal(str(amt)) / int(qty))
                     except (ZeroDivisionError, ValueError, InvalidOperation):
@@ -1247,6 +1258,7 @@ async def get_bom_items_for_parte(
                 ultimo_precio_by_key[key] = {
                     "price": pu_kg,
                     "currency": (row[4] or "").strip() if row[4] else None,
+                    "old_purchase": compra_antigua,
                 }
         # Nombres de proveedor
         codigos_proveedor = list({k[1] for k in pais_data_by_key.keys()})
@@ -1264,12 +1276,14 @@ async def get_bom_items_for_parte(
         if pais_data_by_key:
             for (num, cod), data in pais_data_by_key.items():
                 ultimo = ultimo_precio_by_key.get((num, cod)) or {}
+                # Si la última compra es anterior a 2 años, no poner precio de compra (0)
+                precio_final = 0 if ultimo.get("old_purchase") else ultimo.get("price")
                 prov_entry = {
                     "nombre_proveedor": proveedor_nombres.get(cod) or str(cod),
                     "codigo_proveedor": cod,
                     "pais_origen": data["pais_origen"],
                     "porcentaje_compra": data["porcentaje_compra"],
-                    "precio_compra": ultimo.get("price"),
+                    "precio_compra": precio_final,
                     "currency_uom": ultimo.get("currency"),
                     "comentario": data.get("comentario"),
                 }
@@ -1285,7 +1299,7 @@ async def get_bom_items_for_parte(
             precio_310004000_by_proveedor: Dict[int, float] = {}
             if proveedores_310004003:
                 result_310004000 = await db.execute(
-                    select(Compra.codigo_proveedor, Compra.amount_in_lc, Compra.quantity_in_opun)
+                    select(Compra.codigo_proveedor, Compra.amount_in_lc, Compra.quantity_in_opun, Compra.posting_date)
                     .where(
                         Compra.numero_material == "310004000",
                         Compra.codigo_proveedor.in_(proveedores_310004003),
@@ -1299,6 +1313,12 @@ async def get_bom_items_for_parte(
                     if row[0] is None or int(row[0]) in precio_310004000_by_proveedor:
                         continue
                     amt, qty = row[1], row[2]
+                    pd = row[3]
+                    pd_date = pd.date() if hasattr(pd, "date") and pd else None
+                    if pd_date is None or pd_date < limite_fecha_compra:
+                        alguna_compra_antigua = True
+                        precio_310004000_by_proveedor[int(row[0])] = 0
+                        continue
                     if amt is not None and qty is not None and int(qty) != 0:
                         try:
                             precio_310004000_by_proveedor[int(row[0])] = float(Decimal(str(amt)) / int(qty))
@@ -1318,7 +1338,7 @@ async def get_bom_items_for_parte(
             for p in prov_list
         ):
             res_mas_cobre = await db.execute(
-                select(Compra.amount_in_lc, Compra.quantity_in_opun).where(
+                select(Compra.amount_in_lc, Compra.quantity_in_opun, Compra.posting_date).where(
                     Compra.numero_material == "310004000",
                     Compra.codigo_proveedor == 521348,
                     Compra.amount_in_lc.isnot(None),
@@ -1328,10 +1348,15 @@ async def get_bom_items_for_parte(
             )
             p_row = res_mas_cobre.fetchone()
             if p_row and p_row[0] is not None and p_row[1] is not None and int(p_row[1]) != 0:
-                try:
-                    precio_mas_cobre_fallback = float(Decimal(str(p_row[0])) / int(p_row[1]))
-                except (ZeroDivisionError, ValueError, InvalidOperation):
-                    pass
+                pd = p_row[2] if len(p_row) > 2 else None
+                pd_date = pd.date() if hasattr(pd, "date") and pd else None
+                if pd_date is not None and pd_date >= limite_fecha_compra:
+                    try:
+                        precio_mas_cobre_fallback = float(Decimal(str(p_row[0])) / int(p_row[1]))
+                    except (ZeroDivisionError, ValueError, InvalidOperation):
+                        pass
+                else:
+                    alguna_compra_antigua = True
         if precio_mas_cobre_fallback is not None:
             for prov_list in proveedores_by_material.values():
                 for p in prov_list:
@@ -1343,7 +1368,7 @@ async def get_bom_items_for_parte(
         # Para el material "310905000" usar última compra con PU/Kg = amount_in_lc / quantity_in_opun > 10
         if "310905000" in proveedores_by_material:
             ultima_compra_310905000 = await db.execute(
-                select(Compra.amount_in_lc, Compra.quantity_in_opun).where(
+                select(Compra.amount_in_lc, Compra.quantity_in_opun, Compra.posting_date).where(
                     Compra.numero_material == "310905000",
                     Compra.amount_in_lc.isnot(None),
                     Compra.quantity_in_opun.isnot(None),
@@ -1353,10 +1378,15 @@ async def get_bom_items_for_parte(
             precio_310905000: Optional[float] = None
             for row in ultima_compra_310905000.all():
                 amt, qty = row[0], row[1]
+                pd = row[2] if len(row) > 2 else None
+                pd_date = pd.date() if hasattr(pd, "date") and pd else None
                 if amt is not None and qty is not None and int(qty) != 0:
                     try:
                         pu = float(Decimal(str(amt)) / int(qty))
                         if pu > 10:
+                            if pd_date is None or pd_date < limite_fecha_compra:
+                                alguna_compra_antigua = True
+                                break  # última compra con pu>10 es antigua, no usar precio
                             precio_310905000 = pu
                             break
                     except (ZeroDivisionError, ValueError, InvalidOperation):
@@ -1364,6 +1394,9 @@ async def get_bom_items_for_parte(
             if precio_310905000 is not None:
                 for p in proveedores_by_material["310905000"]:
                     p["precio_compra"] = precio_310905000
+            elif "310905000" in proveedores_by_material:
+                for p in proveedores_by_material["310905000"]:
+                    p["precio_compra"] = 0
 
     originating = []
     non_originating = []
@@ -1505,6 +1538,7 @@ async def get_bom_items_for_parte(
         "items_bom": items_bom,
         "items_originating": originating,
         "items_non_originating": non_originating,
+        "alguna_compra_antigua": alguna_compra_antigua,
     }
 
 
@@ -4747,12 +4781,24 @@ async def get_compra_by_purchasing_and_material(
         return result.scalars().first()
 
 
+# Columnas de Compra que se pueden actualizar (no id ni created_at)
+_COMPRA_UPDATABLE_KEYS = (
+    'purchasing_document', 'item', 'material_doc_year', 'material_document',
+    'material_doc_item', 'movement_type', 'posting_date', 'quantity', 'order_unit',
+    'quantity_in_opun', 'order_price_unit', 'amount_in_lc', 'local_currency',
+    'amount', 'currency', 'gr_ir_clearing_value_lc', 'invoice_value',
+    'numero_material', 'plant', 'descripcion_material', 'nombre_proveedor',
+    'codigo_proveedor', 'price',
+)
+
+
 async def bulk_create_or_update_compras(
     db: AsyncSession,
     compras_data: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
-    """Inserta múltiples registros de compras. No inserta duplicados (no actualiza; los cuenta como duplicados).
-    La tabla no debe tener duplicados: si ya existe el registro, se omite y se cuenta como duplicado.
+    """Inserta o actualiza registros de compras.
+    Si el registro ya existe (por material_document+material_doc_item o purchasing_document+numero_material+item),
+    se actualiza con los nuevos datos. Si no existe, se inserta.
     
     Prioridad de búsqueda para considerar duplicado:
     1. material_document + material_doc_item (más preciso)
@@ -4763,10 +4809,10 @@ async def bulk_create_or_update_compras(
         compras_data: Lista de diccionarios con los datos de las compras
         
     Returns:
-        Diccionario con 'insertados', 'duplicados' y 'errores'
+        Diccionario con 'insertados', 'actualizados', 'duplicados' (por compatibilidad, siempre 0) y 'errores'
     """
     if not compras_data:
-        return {"insertados": 0, "duplicados": 0, "errores": []}
+        return {"insertados": 0, "actualizados": 0, "duplicados": 0, "errores": []}
     
     # Ajustar secuencia de compras.id para que el próximo id sea MAX(id)+1 (evita UniqueViolationError)
     try:
@@ -4777,7 +4823,7 @@ async def bulk_create_or_update_compras(
         pass  # Si falla (ej. tabla sin secuencia), seguir con el insert
     
     insertados = 0
-    duplicados = 0
+    actualizados = 0
     errores = []
     
     # Columnas enteras/númericas de Compra: omitir inf/-inf/NaN para evitar "cannot convert float infinity to integer"
@@ -4840,8 +4886,13 @@ async def bulk_create_or_update_compras(
                 )
             
             if compra_existente:
-                # Ya existe: no insertar ni actualizar (evitar duplicados)
-                duplicados += 1
+                # Ya existe: actualizar con los nuevos datos del archivo
+                datos_insercion = {k: v for k, v in compra_data.items()
+                                  if k in _COMPRA_UPDATABLE_KEYS}
+                for k, v in datos_insercion.items():
+                    setattr(compra_existente, k, v)
+                compra_existente.updated_at = datetime.now(timezone.utc)
+                actualizados += 1
             else:
                 # No pasar id, created_at, updated_at: que la BD los genere (evita violación de PK)
                 datos_insercion = {k: v for k, v in compra_data.items()
@@ -4864,7 +4915,7 @@ async def bulk_create_or_update_compras(
         await db.rollback()
         raise
     
-    return {"insertados": insertados, "duplicados": duplicados, "errores": errores}
+    return {"insertados": insertados, "actualizados": actualizados, "duplicados": 0, "errores": errores}
 
 
 async def bulk_create_compras(
@@ -6162,8 +6213,11 @@ async def get_icr_para_parte(
     Calcula el Regional Index (ICR) para un cliente y número de parte.
     Fórmula: ((Total Originating Supplies + Markup) / F.O.B USD value) * 100.
     Devuelve None si no se puede calcular (sin FOB, sin BOM, etc.).
+    Si la última compra de algún material es anterior a 2 años calendario al actual, devuelve 0.0 (0% ICR).
     """
     bom_data = await get_bom_items_for_parte(db, str(numero_parte).strip())
+    if bom_data and bom_data.get("alguna_compra_antigua"):
+        return 0.0
     items_orig = (bom_data.get("items_originating") or []) if bom_data else []
     items_non_orig = (bom_data.get("items_non_originating") or []) if bom_data else []
     total_originating_value = _sum_value_items(items_orig)
@@ -6204,10 +6258,18 @@ async def get_analisis_icr_detalle(
         )
         cliente_nombre = (venta_nombre.scalar_one_or_none() or "").strip() or str(codigo_cliente)
 
+    # Solo ventas del año pasado y año actual (ej. 2025 y 2026)
+    año_actual = datetime.now().year
+    año_pasado = año_actual - 1
+    inicio_periodo = date(año_pasado, 1, 1)
+    fin_periodo = date(año_actual, 12, 31)
+
     base_filter = and_(
         Venta.codigo_cliente == codigo_cliente,
         Venta.producto_condensado.isnot(None),
         Venta.producto_condensado != "",
+        Venta.periodo >= inicio_periodo,
+        Venta.periodo <= fin_periodo,
         Venta.precio_exmetal_km.isnot(None),
         Venta.precio_exmetal_km != 0,
         Venta.precio_exmetal_m.isnot(None),
