@@ -5245,7 +5245,7 @@ async def actualizar_porcentaje_compra_ultimos_5_anios(
     Calcula y actualiza porcentaje_compra en pais_origen_material usando las compras
     de los últimos 5 años sin incluir el año actual.
     Para cada (codigo_proveedor, numero_material) el porcentaje es:
-    100 * (suma de amount_in_lc de ese proveedor/material en el periodo) / (suma total de amount_in_lc del material en el periodo).
+    100 * (suma de quantity_in_opun de ese proveedor/material en el periodo) / (suma total de quantity_in_opun del material en el periodo).
     Solo se actualizan registros que ya existen en pais_origen_material.
     Returns:
         actualizados: cantidad de registros actualizados
@@ -5263,12 +5263,12 @@ async def actualizar_porcentaje_compra_ultimos_5_anios(
         fecha_inicio = datetime(año_actual - 5, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
         fecha_fin = datetime(año_actual, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
 
-        # 1. Suma de amount_in_lc por (codigo_proveedor, numero_material) en el periodo
+        # 1. Suma de quantity_in_opun por (codigo_proveedor, numero_material) en el periodo
         q = (
             select(
                 Compra.codigo_proveedor,
                 Compra.numero_material,
-                func.coalesce(func.sum(Compra.amount_in_lc), 0).label("total_lc"),
+                func.coalesce(func.sum(Compra.quantity_in_opun), 0).label("total_qty"),
             )
             .where(
                 Compra.posting_date.isnot(None),
@@ -5285,30 +5285,30 @@ async def actualizar_porcentaje_compra_ultimos_5_anios(
 
         # 2. Normalizar numero_material y agregar por (codigo_proveedor, numero_material_normalizado)
         from collections import defaultdict
-        montos: Dict[tuple, float] = defaultdict(lambda: 0.0)
+        cantidades: Dict[tuple, float] = defaultdict(lambda: 0.0)
         for row in filas:
             codigo = row.codigo_proveedor
             num_raw = row.numero_material
-            total_lc = float(row.total_lc) if row.total_lc is not None else 0.0
+            total_qty = float(row.total_qty) if row.total_qty is not None else 0.0
             if codigo is None or not num_raw:
                 continue
             num_norm = _normalizar_numero_material(num_raw)
             if not num_norm:
                 continue
             key = (int(codigo), num_norm)
-            montos[key] += total_lc
+            cantidades[key] += total_qty
 
         # 3. Total por material (suma sobre todos los proveedores)
         total_por_material: Dict[str, float] = defaultdict(lambda: 0.0)
-        for (codigo, num_mat), monto in montos.items():
-            total_por_material[num_mat] += monto
+        for (codigo, num_mat), qty in cantidades.items():
+            total_por_material[num_mat] += qty
 
-        # 4. Porcentaje por (codigo_proveedor, numero_material): 100 * monto / total_material
+        # 4. Porcentaje por (codigo_proveedor, numero_material): 100 * cantidad_proveedor / total_material
         porcentajes: Dict[tuple, float] = {}
-        for (codigo, num_mat), monto in montos.items():
+        for (codigo, num_mat), qty in cantidades.items():
             total_mat = total_por_material.get(num_mat) or 0
             if total_mat > 0:
-                pct = round(100.0 * monto / total_mat, 4)
+                pct = round(100.0 * qty / total_mat, 4)
                 porcentajes[(codigo, num_mat)] = pct
 
         # 5. Obtener todos los registros de pais_origen_material y actualizar

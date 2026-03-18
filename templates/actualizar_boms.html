@@ -9,15 +9,14 @@
       </p>
     </div>
     <div class="flex items-center gap-3">
-      <label class="flex items-center gap-2 text-sm text-gray-600">
-        <span>Límite (opcional):</span>
-        <input type="number" id="bom-limit" min="1" placeholder="Todas" class="rounded-md border border-gray-300 px-2 py-1.5 text-sm w-24" />
-      </label>
       <button type="button" id="btn-actualizar-boms" class="shrink-0 rounded-md bg-[#003D89] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#003D89] disabled:opacity-50">
-        Actualizar
+        Actualizar todos en SAP
       </button>
       <button type="button" id="btn-descargar-reporte" class="shrink-0 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 disabled:opacity-50">
-        Descargar reporte
+        Descargar reporte &lt;0
+      </button>
+      <button type="button" id="btn-descargar-diferencia-gt0" class="shrink-0 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:opacity-50">
+        Descargar reporte &gt;0
       </button>
       <button type="button" id="btn-parar-boms" class="hidden shrink-0 rounded-md border border-red-600 bg-white px-4 py-2 text-sm font-semibold text-red-600 shadow-sm hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600">
         Parar
@@ -124,7 +123,6 @@
           <tr class="border-b text-left text-gray-500">
             <th class="py-2 px-3">Nº parte</th>
             <th class="py-2 px-3">Descripción</th>
-            <th class="py-2 px-3">Válido</th>
             <th class="py-2 px-3">
               <button type="button" id="sort-total-boms" class="inline-flex items-center gap-1 font-medium text-gray-600 hover:text-[#003D89]">
                 BOMs
@@ -137,7 +135,8 @@
                 <span id="sort-total-revisiones-ind" class="text-xs text-gray-400">↕</span>
               </button>
             </th>
-            <th class="py-2 px-3">Qty total</th>
+            <th class="py-2 px-3">Peso BOM</th>
+            <th class="py-2 px-3">Peso Neto</th>
             <th class="py-2 px-3">
               <button type="button" id="sort-diferencia" class="inline-flex items-center gap-1 font-medium text-gray-600 hover:text-[#003D89]">
                 Diferencia
@@ -279,7 +278,6 @@
   const estado = document.getElementById('bom-estado');
   const estadoTexto = document.getElementById('bom-estado-texto');
   const resultado = document.getElementById('bom-resultado');
-  const limitInput = document.getElementById('bom-limit');
   const progresoDiv = document.getElementById('bom-progreso');
   const logDiv = document.getElementById('bom-log');
   const progN = document.getElementById('bom-progreso-n');
@@ -439,17 +437,14 @@
     }
 
     partesBody.innerHTML = rowsToRender.map(function(row) {
-      var badge = row.valido
-        ? '<span class="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700">Sí</span>'
-        : '<span class="inline-flex items-center rounded-full bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">No</span>';
       var diferenciaTexto = row.diferencia === null || row.diferencia === undefined ? 'NA' : row.diferencia;
       return '<tr class="border-b border-gray-100">' +
         '<td class="py-2 px-3 font-mono text-gray-900">' + esc(row.numero_parte) + '</td>' +
         '<td class="py-2 px-3 text-gray-700">' + esc(row.descripcion || '') + '</td>' +
-        '<td class="py-2 px-3">' + badge + '</td>' +
         '<td class="py-2 px-3 text-gray-700">' + esc(row.total_boms) + '</td>' +
         '<td class="py-2 px-3 text-gray-700">' + esc(row.total_revisiones) + '</td>' +
         '<td class="py-2 px-3 text-gray-700">' + esc(row.qty_total ?? 0) + '</td>' +
+        '<td class="py-2 px-3 text-gray-700">' + (row.peso_neto != null && row.peso_neto !== '' ? esc(row.peso_neto) : '—') + '</td>' +
         '<td class="py-2 px-3 text-gray-700">' + esc(diferenciaTexto) + '</td>' +
         '<td class="py-2 px-3"><div class="flex items-center gap-2">' +
           '<button type="button" class="btn-actualizar-parte rounded-md bg-emerald-600 px-3 py-1 text-xs font-semibold text-white hover:bg-emerald-700" data-parte-no="' + esc(row.numero_parte) + '">Actualizar SAP</button>' +
@@ -628,9 +623,7 @@
     estado.classList.add('bg-blue-50');
     estado.classList.remove('bg-red-50');
 
-    const limit = limitInput.value.trim() ? parseInt(limitInput.value, 10) : null;
     const params = new URLSearchParams();
-    if (limit != null && limit > 0) params.set('limit', String(limit));
     if (onlyInvalid) params.set('only_invalid', 'true');
     if (onlyDiffGt0) params.set('only_diff_gt0', 'true');
     const url = '/api/actualizar-boms/ejecutar-actualizacion-stream' + (params.toString() ? ('?' + params.toString()) : '');
@@ -760,6 +753,9 @@
   }
   btnDescargarReporte.addEventListener('click', function() {
     window.location.href = '/api/actualizar-boms/descargar-reporte';
+  });
+  document.getElementById('btn-descargar-diferencia-gt0').addEventListener('click', function() {
+    window.location.href = '/api/actualizar-boms/descargar-diferencia-gt0';
   });
 
   btnParar.addEventListener('click', function() {

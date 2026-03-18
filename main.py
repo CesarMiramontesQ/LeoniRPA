@@ -2412,6 +2412,86 @@ async def api_descargar_reporte_actualizar_boms(
     )
 
 
+@app.get("/api/actualizar-boms/descargar-diferencia-gt0")
+async def api_descargar_diferencia_gt0(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Descarga Excel con números de parte que tienen diferencia > 0 (Peso BOM - Peso Neto)."""
+    import io
+    from sqlalchemy import select, func
+    from app.db.models import Parte, Bom, BomRevision, PesoNeto
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+
+    bom_count_sq = (
+        select(func.count(Bom.id))
+        .where(Bom.parte_id == Parte.id)
+        .correlate(Parte)
+        .scalar_subquery()
+    )
+    rev_count_sq = (
+        select(func.count(BomRevision.id))
+        .select_from(BomRevision)
+        .join(Bom, Bom.id == BomRevision.bom_id)
+        .where(Bom.parte_id == Parte.id)
+        .correlate(Parte)
+        .scalar_subquery()
+    )
+    query = (
+        select(
+            Parte.numero_parte,
+            Parte.descripcion,
+            Parte.qty_total,
+            Parte.diferencia,
+            bom_count_sq.label("total_boms"),
+            rev_count_sq.label("total_revisiones"),
+            PesoNeto.kgm.label("peso_neto_kgm"),
+        )
+        .outerjoin(PesoNeto, PesoNeto.numero_parte == Parte.numero_parte)
+        .where(bom_count_sq > 0, Parte.diferencia.is_not(None), Parte.diferencia > 0)
+        .order_by(Parte.diferencia.desc(), Parte.numero_parte)
+    )
+    result = await db.execute(query)
+    rows_data = result.all()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Diferencia > 0"
+
+    headers = ["Nº parte", "Descripción", "BOMs", "Revisiones", "Peso BOM", "Peso Neto", "Diferencia"]
+    purple_fill = PatternFill(fill_type="solid", start_color="7030A0", end_color="7030A0")
+    header_font = Font(bold=True, color="FFFFFF")
+
+    for col_idx, header in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.font = header_font
+        cell.fill = purple_fill
+        ws.column_dimensions[cell.column_letter].width = max(14, len(header) + 2)
+
+    for row_idx, (numero_parte, descripcion, qty_total, diferencia, total_boms, total_revisiones, peso_neto_kgm) in enumerate(rows_data, start=2):
+        qty_val = float(qty_total or 0)
+        peso_neto_val = float(peso_neto_kgm) if peso_neto_kgm is not None else None
+        diff_val = float(diferencia) if diferencia is not None else None
+        ws.cell(row=row_idx, column=1, value=numero_parte or "")
+        ws.cell(row=row_idx, column=2, value=descripcion or "")
+        ws.cell(row=row_idx, column=3, value=int(total_boms or 0))
+        ws.cell(row=row_idx, column=4, value=int(total_revisiones or 0))
+        ws.cell(row=row_idx, column=5, value=qty_val)
+        ws.cell(row=row_idx, column=6, value=peso_neto_val if peso_neto_val is not None else "")
+        ws.cell(row=row_idx, column=7, value=diff_val if diff_val is not None else "")
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="partes_diferencia_gt0.xlsx"'},
+    )
+
+
 @app.get("/api/actualizar-boms/descargar-tablas")
 async def api_descargar_tablas_actualizar_boms(
     current_user: User = Depends(get_current_user),
@@ -3205,7 +3285,7 @@ async def api_actualizar_boms_partes(
 ):
     """Lista números de parte para vista resumen con contador de BOMs y revisiones."""
     from sqlalchemy import select, func, asc, desc
-    from app.db.models import Parte, Bom, BomRevision
+    from app.db.models import Parte, Bom, BomRevision, PesoNeto
 
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
@@ -3225,15 +3305,19 @@ async def api_actualizar_boms_partes(
         .correlate(Parte)
         .scalar_subquery()
     )
-    query = select(
-        Parte.numero_parte,
-        Parte.descripcion,
-        Parte.valido,
-        Parte.created_at,
-        Parte.qty_total,
-        Parte.diferencia,
-        bom_count_sq.label("total_boms"),
-        rev_count_sq.label("total_revisiones"),
+    query = (
+        select(
+            Parte.numero_parte,
+            Parte.descripcion,
+            Parte.valido,
+            Parte.created_at,
+            Parte.qty_total,
+            Parte.diferencia,
+            bom_count_sq.label("total_boms"),
+            rev_count_sq.label("total_revisiones"),
+            PesoNeto.kgm.label("peso_neto_kgm"),
+        )
+        .outerjoin(PesoNeto, PesoNeto.numero_parte == Parte.numero_parte)
     )
     count_query = select(func.count()).select_from(Parte)
     query = query.where(bom_count_sq > 0)
@@ -3261,7 +3345,7 @@ async def api_actualizar_boms_partes(
     total = total_result.scalar_one()
 
     rows = []
-    for numero_parte, descripcion, valido, created_at, qty_total, diferencia, total_boms, total_revisiones in result.all():
+    for numero_parte, descripcion, valido, created_at, qty_total, diferencia, total_boms, total_revisiones, peso_neto_kgm in result.all():
         qty_total_value = qty_total or 0
         rows.append({
             "numero_parte": numero_parte,
@@ -3269,6 +3353,7 @@ async def api_actualizar_boms_partes(
             "valido": bool(valido),
             "created_at": created_at.isoformat() if created_at else None,
             "qty_total": float(qty_total_value),
+            "peso_neto": None if peso_neto_kgm is None else float(peso_neto_kgm),
             "diferencia": None if diferencia is None else float(diferencia),
             "total_boms": int(total_boms or 0),
             "total_revisiones": int(total_revisiones or 0),

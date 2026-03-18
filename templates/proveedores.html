@@ -72,13 +72,6 @@
           Actualizando...
         </span>
       </button>
-      <button
-        id="btn-actualizar-estatus"
-        type="button"
-        class="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        Actualizar Estatus
-      </button>
     </div>
     {% endif %}
   </div>
@@ -488,9 +481,6 @@
     // Botones actualizar (solo visibles para admin)
     const btnActualizarProv = document.getElementById('btn-actualizar-proveedores');
     if (btnActualizarProv) btnActualizarProv.addEventListener('click', actualizarProveedoresDesdeCompras);
-    const btnActualizarEstatus = document.getElementById('btn-actualizar-estatus');
-    if (btnActualizarEstatus) btnActualizarEstatus.addEventListener('click', actualizarEstatusProveedores);
-    
     // Registros por página
     document.getElementById('registros-por-pagina').addEventListener('change', function() {
       registrosPorPagina = parseInt(this.value);
