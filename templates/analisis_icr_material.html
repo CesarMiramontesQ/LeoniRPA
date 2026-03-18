@@ -281,6 +281,9 @@
           </div>
           <p class="relative text-xs font-medium uppercase tracking-widest text-white/60">Regional index</p>
           <p class="relative mt-1 text-5xl font-bold tracking-tight text-white">{% if is_trading_good %}0{% elif regional_index is defined and regional_index is not none %}{{ regional_index|round(2) }}{% else %}—{% endif %}{% if is_trading_good or (regional_index is defined and regional_index is not none) %}<span class="ml-0.5 text-2xl font-semibold align-baseline">%</span>{% endif %}</p>
+          {% if regional_index is defined and regional_index is not none and regional_index == 0 and icr_zero_reason %}
+          <p class="relative mt-2"><span class="inline-flex rounded-full bg-amber-200 px-2.5 py-1 text-xs font-medium text-amber-900" title="Razón ICR 0%">{{ icr_zero_reason }}</span></p>
+          {% endif %}
         </div>
       </div>
     </div>

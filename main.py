@@ -1675,7 +1675,7 @@ async def api_reportes_partes_no_calificados_icr(
     filas = []
     try:
         for p in pares:
-            icr = await crud.get_icr_para_parte(db, p["codigo_cliente"], p["part_number"])
+            icr, _ = await crud.get_icr_para_parte(db, p["codigo_cliente"], p["part_number"])
             if icr is not None and float(icr) > 60:
                 continue
             filas.append({
@@ -1823,14 +1823,26 @@ async def analisis_icr_material(
     trading_good_row = await crud.get_trading_good_by_numero_parte(db, numero_parte)
     is_trading_good = bool(trading_good_row and trading_good_row.is_trading_good)
 
+    # Misma regla que get_icr_para_parte: si alguna compra del BOM es anterior a 2 años → ICR 0%
+    alguna_compra_antigua = bool(bom_data and bom_data.get("alguna_compra_antigua"))
+
     # Regional index = ((Total Originating Supplies + Markup) / F.O.B USD value) * 100
-    # Reglas: si trading good, markup negativo, o no hay Originating, o hay CABLE/CUERDA en Non-Originating sin 310004003 en Originating → ICR 0%
+    # Reglas: si trading good, compra antigua, markup negativo, o no hay Originating, o hay CABLE/CUERDA en Non-Originating sin 310004003 en Originating → ICR 0%
     regional_index = None
+    icr_zero_reason = None
     if is_trading_good:
         regional_index = 0.0
+        icr_zero_reason = "Trading good"
+    elif alguna_compra_antigua:
+        regional_index = 0.0
+        icr_zero_reason = "Compra antigua (>2 años)"
     elif fob_total_value is not None and fob_total_value != 0 and markup_value is not None:
-        if markup_value < 0 or crud._icr_rules_force_zero(items_orig, items_non_orig):
+        if markup_value < 0:
             regional_index = 0.0
+            icr_zero_reason = "Markup negativo"
+        elif crud._icr_rules_force_zero(items_orig, items_non_orig):
+            regional_index = 0.0
+            icr_zero_reason = crud._icr_rules_force_zero_reason(items_orig, items_non_orig)
         else:
             regional_index = round(
                 (total_originating_value + markup_value) / fob_total_value * 100,
@@ -1856,6 +1868,7 @@ async def analisis_icr_material(
             "markup_value": markup_value,
             "regional_index": regional_index,
             "is_trading_good": is_trading_good,
+            "icr_zero_reason": icr_zero_reason,
         }
     )
     # Evitar caché del navegador para que cambios en porcentaje_compra (pais_origen_material) se vean al recargar

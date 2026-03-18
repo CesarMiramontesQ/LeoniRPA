@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.dialects.postgresql import insert
-from typing import Optional, List, Dict, Any, Set
+from typing import Optional, List, Dict, Any, Set, Tuple
 from datetime import datetime, timedelta, timezone, date
 from decimal import Decimal, InvalidOperation
 from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaProveedoresNacional, CargaProveedoresNacionalHistorial, CargaCliente, MasterUnificadoVirtuales, MasterUnificadoVirtualHistorial, MasterUnificadoVirtualOperacion, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente, Parte, TradingGood, TradingGoodHistorial, Bom, BomRevision, BomItem, BomHistorial, PesoNeto, PesoNetoHistorial, CrossReference, CrossReferenceHistorial, PrecioVenta, PrecioVentaHistorial, FraccionArancelariaHistorial
@@ -6367,17 +6367,24 @@ def _icr_rules_force_zero(
     items_originating: List[Dict[str, Any]],
     items_non_originating: List[Dict[str, Any]],
 ) -> bool:
+    """Devuelve True si alguna regla fuerza ICR 0%. Ver _icr_rules_force_zero_reason para el texto."""
+    return _icr_rules_force_zero_reason(items_originating, items_non_originating) is not None
+
+
+def _icr_rules_force_zero_reason(
+    items_originating: List[Dict[str, Any]],
+    items_non_originating: List[Dict[str, Any]],
+) -> Optional[str]:
     """
-    Reglas de negocio: si se cumple alguna, el ICR debe ser 0%.
-    - Regla 1: En Non-Originating hay algún material con tipo CABLE y no hay 310004003 en Originating.
-    - Regla 2: En Non-Originating hay algún material con tipo CUERDA y no hay 310004003 en Originating.
-    - Regla 3: No hay ningún ítem en Originating.
+    Reglas de negocio: devuelve la razón por la que ICR debe ser 0%, o None si no aplica.
+    - Regla 1: CABLE en Non-Originating sin 310004003 en Originating.
+    - Regla 2: CUERDA en Non-Originating sin 310004003 en Originating.
+    - Regla 3: No hay ítems en Originating.
     """
     orig = items_originating or []
     non_orig = items_non_originating or []
-    # Regla 3: si no hay ítems en Originating, ICR = 0%
     if not orig:
-        return True
+        return "Sin ítems Originating"
     has_310004003_in_orig = any(
         (item.get("numero_parte") or "").strip() == "310004003" for item in orig
     )
@@ -6391,11 +6398,11 @@ def _icr_rules_force_zero(
 
     has_cable_in_non = any(item_has_tipo(item, "CABLE") for item in non_orig)
     if has_cable_in_non and not has_310004003_in_orig:
-        return True
+        return "CABLE sin 310004003 en Originating"
     has_cuerda_in_non = any(item_has_tipo(item, "CUERDA") for item in non_orig)
     if has_cuerda_in_non and not has_310004003_in_orig:
-        return True
-    return False
+        return "CUERDA sin 310004003 en Originating"
+    return None
 
 
 async def get_numero_partes_trading_good_true(db: AsyncSession) -> Set[str]:
@@ -6410,41 +6417,39 @@ async def get_icr_para_parte(
     db: AsyncSession,
     codigo_cliente: int,
     numero_parte: str,
-) -> Optional[float]:
+) -> Tuple[Optional[float], Optional[str]]:
     """
     Calcula el Regional Index (ICR) para un cliente y número de parte.
-    Fórmula: ((Total Originating Supplies + Markup) / F.O.B USD value) * 100.
-    Devuelve None si no se puede calcular (sin FOB, sin BOM, etc.).
-    Si el número de parte está en trading_goods con is_trading_good=True, devuelve 0.0 (0% ICR).
-    Si la última compra de algún material es anterior a 2 años calendario al actual, devuelve 0.0 (0% ICR).
+    Devuelve (icr, icr_zero_reason): icr es el porcentaje o None; icr_zero_reason solo cuando icr == 0.
     """
     numero_parte = str(numero_parte or "").strip()
     tg = await get_trading_good_by_numero_parte(db, numero_parte)
     if tg and tg.is_trading_good:
-        return 0.0
+        return (0.0, "Trading good")
     bom_data = await get_bom_items_for_parte(db, numero_parte)
     if bom_data and bom_data.get("alguna_compra_antigua"):
-        return 0.0
+        return (0.0, "Compra antigua (>2 años)")
     items_orig = (bom_data.get("items_originating") or []) if bom_data else []
     items_non_orig = (bom_data.get("items_non_originating") or []) if bom_data else []
-    if _icr_rules_force_zero(items_orig, items_non_orig):
-        return 0.0
+    rules_reason = _icr_rules_force_zero_reason(items_orig, items_non_orig)
+    if rules_reason is not None:
+        return (0.0, rules_reason)
     total_originating_value = _sum_value_items(items_orig)
     total_non_originating_value = _sum_value_items(items_non_orig)
     fob_total_value = await get_ultimo_precio_venta_cliente_parte(db, int(codigo_cliente), str(numero_parte).strip())
     if fob_total_value is None:
-        return None
+        return (None, None)
     fob_total_value = round(fob_total_value, 3)
     markup_value = round(
         fob_total_value - total_originating_value - total_non_originating_value,
         3,
     )
     if markup_value < 0:
-        return 0.0
+        return (0.0, "Markup negativo")
     if fob_total_value == 0:
-        return None
+        return (None, None)
     regional_index = (total_originating_value + markup_value) / fob_total_value * 100
-    return round(regional_index, 2)
+    return (round(regional_index, 2), None)
 
 
 async def get_analisis_icr_detalle(
@@ -6532,9 +6537,11 @@ async def get_analisis_icr_detalle(
                         p["description"] = descr_parte  # descripción canónica por número de parte
                     break
 
-    # Calcular ICR (Regional index) por parte para mostrarlo en la lista
+    # Calcular ICR (Regional index) por parte para mostrarlo en la lista; incluir razón cuando ICR = 0%
     for p in partes_list:
-        p["icr"] = await get_icr_para_parte(db, codigo_cliente, p["part_number"])
+        icr_val, icr_reason = await get_icr_para_parte(db, codigo_cliente, p["part_number"])
+        p["icr"] = icr_val
+        p["icr_zero_reason"] = icr_reason if (icr_val is not None and float(icr_val) == 0) else None
 
     # Marcar partes que son trading good (ICR 0% y badge)
     trading_good_set = await get_numero_partes_trading_good_true(db)

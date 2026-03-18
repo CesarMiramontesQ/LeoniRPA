@@ -251,8 +251,8 @@
         '<td class="max-w-xs truncate px-6 py-4 text-sm text-gray-600" title="' + escapeHtml(p.description || '') + '">' + escapeHtml(p.description || '—') + '</td>' +
         '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + escapeHtml(p.tariff_schedule || '—') + '</td>' +
         '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' +
-          (p.is_trading_good ? '<span class="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800">Trading good</span> ' : '') +
           (p.icr != null && p.icr !== '' ? (typeof p.icr === 'number' ? p.icr.toFixed(2) + '%' : p.icr) : '—') +
+          (p.icr != null && Number(p.icr) === 0 && p.icr_zero_reason ? ' <span class="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800" title="Razón ICR 0%">' + escapeHtml(p.icr_zero_reason) + '</span>' : '') +
         '</td>' +
         '<td class="whitespace-nowrap px-6 py-4">' + selectCell + '</td>' +
         '<td class="whitespace-nowrap px-6 py-4"><button type="button" class="icr-ver-detalle rounded-md bg-[#003D89] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#003366]">Ver detalle</button></td>' +
