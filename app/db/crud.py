@@ -6,10 +6,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.dialects.postgresql import insert
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Set
 from datetime import datetime, timedelta, timezone, date
 from decimal import Decimal, InvalidOperation
-from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaProveedoresNacional, CargaProveedoresNacionalHistorial, CargaCliente, MasterUnificadoVirtuales, MasterUnificadoVirtualHistorial, MasterUnificadoVirtualOperacion, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente, Parte, Bom, BomRevision, BomItem, BomHistorial, PesoNeto, PesoNetoHistorial, CrossReference, CrossReferenceHistorial, PrecioVenta, PrecioVentaHistorial, FraccionArancelariaHistorial
+from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaProveedoresNacional, CargaProveedoresNacionalHistorial, CargaCliente, MasterUnificadoVirtuales, MasterUnificadoVirtualHistorial, MasterUnificadoVirtualOperacion, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente, Parte, TradingGood, TradingGoodHistorial, Bom, BomRevision, BomItem, BomHistorial, PesoNeto, PesoNetoHistorial, CrossReference, CrossReferenceHistorial, PrecioVenta, PrecioVentaHistorial, FraccionArancelariaHistorial
 from app.core.security import hash_password
 
 
@@ -492,6 +492,105 @@ async def get_parte_by_numero(db: AsyncSession, numero_parte: str) -> Optional[P
     """Obtiene una parte por número de parte."""
     result = await db.execute(select(Parte).where(Parte.numero_parte == numero_parte))
     return result.scalar_one_or_none()
+
+
+async def get_trading_good_by_numero_parte(db: AsyncSession, numero_parte: str):
+    """Obtiene el registro de trading_goods por numero_parte."""
+    result = await db.execute(
+        select(TradingGood).where(TradingGood.numero_parte == (numero_parte or "").strip())
+    )
+    return result.scalar_one_or_none()
+
+
+async def upsert_trading_good(
+    db: AsyncSession,
+    numero_parte: str,
+    is_trading_good: bool,
+    user_id: Optional[int] = None,
+):
+    """Inserta o actualiza is_trading_good para un numero_parte. Registra el cambio en trading_goods_historial. Devuelve el registro."""
+    numero_parte = (numero_parte or "").strip()
+    if not numero_parte:
+        raise ValueError("numero_parte es requerido")
+    is_tg = bool(is_trading_good)
+    row = await get_trading_good_by_numero_parte(db, numero_parte)
+    if row:
+        estado_anterior = row.is_trading_good
+        if estado_anterior == is_tg:
+            return row
+        row.is_trading_good = is_tg
+        db.add(
+            TradingGoodHistorial(
+                numero_parte=numero_parte,
+                estado_anterior=estado_anterior,
+                estado_nuevo=is_tg,
+                user_id=user_id,
+            )
+        )
+        await db.commit()
+        await db.refresh(row)
+        return row
+    row = TradingGood(numero_parte=numero_parte, is_trading_good=is_tg)
+    db.add(row)
+    db.add(
+        TradingGoodHistorial(
+            numero_parte=numero_parte,
+            estado_anterior=None,
+            estado_nuevo=is_tg,
+            user_id=user_id,
+        )
+    )
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
+async def list_trading_goods(db: AsyncSession) -> List[Dict[str, Any]]:
+    """Lista todos los registros de trading_goods ordenados por numero_parte."""
+    result = await db.execute(
+        select(TradingGood).order_by(TradingGood.numero_parte)
+    )
+    rows = result.scalars().all()
+    return [
+        {
+            "numero_parte": r.numero_parte,
+            "is_trading_good": r.is_trading_good,
+            "updated_at": r.updated_at,
+        }
+        for r in rows
+    ]
+
+
+async def list_trading_goods_historial(
+    db: AsyncSession,
+    limit: int = 100,
+    offset: int = 0,
+    numero_parte: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Lista el historial de cambios de trading_goods (estado anterior, nuevo, usuario)."""
+    query = (
+        select(TradingGoodHistorial)
+        .options(selectinload(TradingGoodHistorial.user))
+        .order_by(desc(TradingGoodHistorial.created_at))
+        .limit(limit)
+        .offset(offset)
+    )
+    if numero_parte and str(numero_parte).strip():
+        query = query.where(TradingGoodHistorial.numero_parte == str(numero_parte).strip())
+    result = await db.execute(query)
+    rows = result.scalars().all()
+    return [
+        {
+            "numero_parte": r.numero_parte,
+            "estado_anterior": r.estado_anterior,
+            "estado_nuevo": r.estado_nuevo,
+            "user_id": r.user_id,
+            "usuario_email": r.user.email if r.user else None,
+            "usuario_nombre": getattr(r.user, "nombre", None) or (r.user.email if r.user else "—"),
+            "created_at": r.created_at,
+        }
+        for r in rows
+    ]
 
 
 async def update_fraccion_parte(
@@ -1176,6 +1275,7 @@ async def get_bom_items_for_parte(
                 PaisOrigenMaterial.pais_origen,
                 PaisOrigenMaterial.porcentaje_compra,
                 PaisOrigenMaterial.comentario,
+                PaisOrigenMaterial.tipo,
             )
             .where(
                 PaisOrigenMaterial.numero_material.in_(numeros_parte),
@@ -1200,6 +1300,7 @@ async def get_bom_items_for_parte(
                 "pais_origen": (r[2] or "").strip() if r[2] is not None else "",
                 "porcentaje_compra": pct,
                 "comentario": (r[4] or "").strip() if r[4] else None,
+                "tipo": (r[5] or "").strip() if r[5] else None,
             }
         # Último PU/Kg por (numero_material, codigo_proveedor): PU/Kg = amount_in_lc / quantity_in_opun (desde compras).
         # Si la última compra es anterior a 2 años calendario al actual, no usar precio (0) y marcar para ICR 0%.
@@ -1286,6 +1387,7 @@ async def get_bom_items_for_parte(
                     "precio_compra": precio_final,
                     "currency_uom": ultimo.get("currency"),
                     "comentario": data.get("comentario"),
+                    "tipo": data.get("tipo"),
                 }
                 if num not in proveedores_by_material:
                     proveedores_by_material[num] = []
@@ -3810,6 +3912,7 @@ async def sincronizar_paises_origen_desde_compras(
                     "pais_origen": "Pendiente",
                     "porcentaje_compra": None,
                     "comentario": None,
+                    "tipo": None,
                     "created_at": None,
                     "updated_at": None,
                 }
@@ -3869,7 +3972,7 @@ async def sincronizar_paises_origen_desde_compras(
                                     operacion=PaisOrigenMaterialOperacion.CREATE,
                                     user_id=user_id,
                                     datos_antes=None,
-                                    datos_despues={"id": po_id, "codigo_proveedor": codigo_int, "numero_material": numero_material_fk, "pais_origen": "Pendiente", "porcentaje_compra": None, "comentario": None, "created_at": None, "updated_at": None},
+                                    datos_despues={"id": po_id, "codigo_proveedor": codigo_int, "numero_material": numero_material_fk, "pais_origen": "Pendiente", "porcentaje_compra": None, "comentario": None, "tipo": None, "created_at": None, "updated_at": None},
                                     campos_modificados=None
                                 )
                                 db.add(historial)
@@ -3917,7 +4020,7 @@ async def sincronizar_paises_origen_desde_compras(
                                     operacion=PaisOrigenMaterialOperacion.CREATE,
                                     user_id=user_id,
                                     datos_antes=None,
-                                    datos_despues={"id": po_id, "codigo_proveedor": codigo_int, "numero_material": numero_material_fk, "pais_origen": "Pendiente", "porcentaje_compra": None, "comentario": None, "created_at": None, "updated_at": None},
+                                    datos_despues={"id": po_id, "codigo_proveedor": codigo_int, "numero_material": numero_material_fk, "pais_origen": "Pendiente", "porcentaje_compra": None, "comentario": None, "tipo": None, "created_at": None, "updated_at": None},
                                     campos_modificados=None
                                 )
                                 db.add(historial)
@@ -5071,8 +5174,9 @@ async def count_compras(
 
 # ==================== CRUD para PaisOrigenMaterial ====================
 
-# Sentinel para "comentario no enviado" en update (no modificar el campo)
+# Sentinels para "no enviado" en update (no modificar el campo)
 _COMENTARIO_SENTINEL = object()
+_TIPO_SENTINEL = object()
 
 
 def _pais_origen_material_to_dict(pais_origen_material: PaisOrigenMaterial) -> Dict[str, Any]:
@@ -5084,6 +5188,7 @@ def _pais_origen_material_to_dict(pais_origen_material: PaisOrigenMaterial) -> D
         "pais_origen": pais_origen_material.pais_origen,
         "porcentaje_compra": float(pais_origen_material.porcentaje_compra) if pais_origen_material.porcentaje_compra is not None else None,
         "comentario": pais_origen_material.comentario,
+        "tipo": pais_origen_material.tipo,
         "created_at": pais_origen_material.created_at.isoformat() if pais_origen_material.created_at else None,
         "updated_at": pais_origen_material.updated_at.isoformat() if pais_origen_material.updated_at else None
     }
@@ -5117,6 +5222,7 @@ async def create_pais_origen_material(
     pais_origen: str,
     porcentaje_compra: Optional[float] = None,
     comentario: Optional[str] = None,
+    tipo: Optional[str] = None,
     user_id: Optional[int] = None
 ) -> PaisOrigenMaterial:
     """Crea un nuevo país de origen de material."""
@@ -5126,6 +5232,7 @@ async def create_pais_origen_material(
         pais_origen=pais_origen,
         porcentaje_compra=porcentaje_compra,
         comentario=comentario,
+        tipo=tipo,
     )
     db.add(pais_origen_material)
     await db.flush()  # Flush para obtener el ID sin hacer commit
@@ -5155,6 +5262,7 @@ async def update_pais_origen_material(
     pais_origen: Optional[str] = None,
     porcentaje_compra: Optional[float] = None,
     comentario: Optional[str] = _COMENTARIO_SENTINEL,
+    tipo: Optional[str] = _TIPO_SENTINEL,
     user_id: Optional[int] = None
 ) -> Optional[PaisOrigenMaterial]:
     """Actualiza un país de origen de material."""
@@ -5178,6 +5286,10 @@ async def update_pais_origen_material(
     if comentario is not _COMENTARIO_SENTINEL and pais_origen_material.comentario != comentario:
         pais_origen_material.comentario = comentario
         campos_modificados.append("comentario")
+    
+    if tipo is not _TIPO_SENTINEL and pais_origen_material.tipo != tipo:
+        pais_origen_material.tipo = tipo
+        campos_modificados.append("tipo")
     
     # Solo registrar en historial si hubo cambios
     if campos_modificados and user_id is not None:
@@ -5209,6 +5321,7 @@ async def upsert_pais_origen_material(
     pais_origen: str,
     porcentaje_compra: Optional[float] = None,
     comentario: Optional[str] = None,
+    tipo: Optional[str] = None,
     user_id: Optional[int] = None
 ) -> PaisOrigenMaterial:
     """Crea o actualiza un país de origen de material (upsert)."""
@@ -5222,6 +5335,7 @@ async def upsert_pais_origen_material(
             pais_origen=pais_origen,
             porcentaje_compra=porcentaje_compra,
             comentario=comentario,
+            tipo=tipo,
             user_id=user_id
         )
     else:
@@ -5233,6 +5347,7 @@ async def upsert_pais_origen_material(
             pais_origen=pais_origen,
             porcentaje_compra=porcentaje_compra,
             comentario=comentario,
+            tipo=tipo,
             user_id=user_id
         )
 
@@ -6189,6 +6304,50 @@ async def list_todos_clientes_partes_con_ventas_icr(db: AsyncSession) -> List[Di
     return out
 
 
+async def list_clientes_con_ventas_icr(
+    db: AsyncSession,
+    search: Optional[str] = None,
+    limit: int = 200,
+) -> List[Dict[str, Any]]:
+    """
+    Lista clientes que tienen al menos una venta con datos ICR (precios exmetal/full_metal no nulos).
+    Devuelve lista de dicts con codigo_cliente y nombre. Opcionalmente filtra por búsqueda en código o nombre.
+    """
+    subq = (
+        select(Venta.codigo_cliente)
+        .where(_ventas_icr_filter)
+        .distinct()
+    )
+    result = await db.execute(subq)
+    codigos = [int(r[0]) for r in result.all() if r[0] is not None]
+    if not codigos:
+        return []
+    nombres_query = select(Cliente.codigo_cliente, Cliente.nombre).where(Cliente.codigo_cliente.in_(codigos))
+    nombres_result = await db.execute(nombres_query)
+    nombres_map = {int(r[0]): (r[1] or "").strip() for r in nombres_result.all() if r[0] is not None}
+    codigos_sin_nombre = [c for c in codigos if c not in nombres_map]
+    if codigos_sin_nombre:
+        fallback = await db.execute(
+            select(Venta.codigo_cliente, Venta.cliente).where(
+                Venta.codigo_cliente.in_(codigos_sin_nombre),
+                Venta.cliente.isnot(None),
+            ).distinct()
+        )
+        for r in fallback.all():
+            cod = int(r[0]) if r[0] is not None else None
+            if cod is not None and cod not in nombres_map:
+                nombres_map[cod] = (r[1] or "").strip()
+    out = []
+    search_clean = (search or "").strip().lower() if search else ""
+    for cod in codigos:
+        nombre = nombres_map.get(cod) or str(cod)
+        if search_clean and search_clean not in nombre.lower() and search_clean not in str(cod):
+            continue
+        out.append({"codigo_cliente": cod, "nombre": nombre})
+    out.sort(key=lambda x: (x["nombre"].lower(), x["codigo_cliente"]))
+    return out[:limit]
+
+
 def _sum_value_items(items: List[Dict[str, Any]]) -> float:
     """Suma la columna Value (qty * porcentaje_compra/100 * precio_compra) de una lista de ítems con proveedores."""
     total = 0.0
@@ -6204,6 +6363,49 @@ def _sum_value_items(items: List[Dict[str, Any]]) -> float:
     return round(total, 3)
 
 
+def _icr_rules_force_zero(
+    items_originating: List[Dict[str, Any]],
+    items_non_originating: List[Dict[str, Any]],
+) -> bool:
+    """
+    Reglas de negocio: si se cumple alguna, el ICR debe ser 0%.
+    - Regla 1: En Non-Originating hay algún material con tipo CABLE y no hay 310004003 en Originating.
+    - Regla 2: En Non-Originating hay algún material con tipo CUERDA y no hay 310004003 en Originating.
+    - Regla 3: No hay ningún ítem en Originating.
+    """
+    orig = items_originating or []
+    non_orig = items_non_originating or []
+    # Regla 3: si no hay ítems en Originating, ICR = 0%
+    if not orig:
+        return True
+    has_310004003_in_orig = any(
+        (item.get("numero_parte") or "").strip() == "310004003" for item in orig
+    )
+
+    def item_has_tipo(item: Dict[str, Any], tipo_val: str) -> bool:
+        t = (tipo_val or "").strip().upper()
+        return any(
+            (p.get("tipo") or "").strip().upper() == t
+            for p in (item.get("proveedores") or [])
+        )
+
+    has_cable_in_non = any(item_has_tipo(item, "CABLE") for item in non_orig)
+    if has_cable_in_non and not has_310004003_in_orig:
+        return True
+    has_cuerda_in_non = any(item_has_tipo(item, "CUERDA") for item in non_orig)
+    if has_cuerda_in_non and not has_310004003_in_orig:
+        return True
+    return False
+
+
+async def get_numero_partes_trading_good_true(db: AsyncSession) -> Set[str]:
+    """Devuelve el conjunto de numero_parte que están en trading_goods con is_trading_good=True."""
+    result = await db.execute(
+        select(TradingGood.numero_parte).where(TradingGood.is_trading_good.is_(True))
+    )
+    return {str(r[0]).strip() for r in result.all() if r[0]}
+
+
 async def get_icr_para_parte(
     db: AsyncSession,
     codigo_cliente: int,
@@ -6213,13 +6415,20 @@ async def get_icr_para_parte(
     Calcula el Regional Index (ICR) para un cliente y número de parte.
     Fórmula: ((Total Originating Supplies + Markup) / F.O.B USD value) * 100.
     Devuelve None si no se puede calcular (sin FOB, sin BOM, etc.).
+    Si el número de parte está en trading_goods con is_trading_good=True, devuelve 0.0 (0% ICR).
     Si la última compra de algún material es anterior a 2 años calendario al actual, devuelve 0.0 (0% ICR).
     """
-    bom_data = await get_bom_items_for_parte(db, str(numero_parte).strip())
+    numero_parte = str(numero_parte or "").strip()
+    tg = await get_trading_good_by_numero_parte(db, numero_parte)
+    if tg and tg.is_trading_good:
+        return 0.0
+    bom_data = await get_bom_items_for_parte(db, numero_parte)
     if bom_data and bom_data.get("alguna_compra_antigua"):
         return 0.0
     items_orig = (bom_data.get("items_originating") or []) if bom_data else []
     items_non_orig = (bom_data.get("items_non_originating") or []) if bom_data else []
+    if _icr_rules_force_zero(items_orig, items_non_orig):
+        return 0.0
     total_originating_value = _sum_value_items(items_orig)
     total_non_originating_value = _sum_value_items(items_non_orig)
     fob_total_value = await get_ultimo_precio_venta_cliente_parte(db, int(codigo_cliente), str(numero_parte).strip())
@@ -6230,6 +6439,8 @@ async def get_icr_para_parte(
         fob_total_value - total_originating_value - total_non_originating_value,
         3,
     )
+    if markup_value < 0:
+        return 0.0
     if fob_total_value == 0:
         return None
     regional_index = (total_originating_value + markup_value) / fob_total_value * 100
@@ -6324,6 +6535,11 @@ async def get_analisis_icr_detalle(
     # Calcular ICR (Regional index) por parte para mostrarlo en la lista
     for p in partes_list:
         p["icr"] = await get_icr_para_parte(db, codigo_cliente, p["part_number"])
+
+    # Marcar partes que son trading good (ICR 0% y badge)
+    trading_good_set = await get_numero_partes_trading_good_true(db)
+    for p in partes_list:
+        p["is_trading_good"] = (p.get("part_number") or "").strip() in trading_good_set
 
     # Partes que tienen al menos un ítem de BOM (revisión vigente): para mostrar/ocultar Select
     part_numbers_with_bom = set()

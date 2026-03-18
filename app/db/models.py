@@ -44,6 +44,37 @@ class Parte(Base):
         return f"<Parte(id={self.id}, numero_parte={self.numero_parte})>"
 
 
+class TradingGood(Base):
+    """Indica si un número de parte es trading good (true/false)."""
+    __tablename__ = "trading_goods"
+
+    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    numero_parte = Column(Text, nullable=False, unique=True, index=True)
+    is_trading_good = Column(Boolean, nullable=False, server_default=text("false"))
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f"<TradingGood(id={self.id}, numero_parte={self.numero_parte}, is_trading_good={self.is_trading_good})>"
+
+
+class TradingGoodHistorial(Base):
+    """Historial de cambios en trading_goods: estado anterior, estado nuevo y usuario que realizó el cambio."""
+    __tablename__ = "trading_goods_historial"
+
+    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    numero_parte = Column(Text, nullable=False, index=True)
+    estado_anterior = Column(Boolean, nullable=True)  # NULL cuando es alta nueva
+    estado_nuevo = Column(Boolean, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)  # NULL si cambio vía script/Excel
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    user = relationship("User", backref="trading_goods_historial")
+
+    def __repr__(self):
+        return f"<TradingGoodHistorial(id={self.id}, numero_parte={self.numero_parte}, created_at={self.created_at})>"
+
+
 class Bom(Base):
     """Modelo para BOM (Bill of Materials): cabecera por parte, plant, usage, alternative."""
     __tablename__ = "bom"
@@ -704,6 +735,9 @@ class PaisOrigenMaterial(Base):
     
     # Comentario (opcional)
     comentario = Column(Text, nullable=True)
+    
+    # Tipo (opcional)
+    tipo = Column(String, nullable=True)
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

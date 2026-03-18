@@ -135,7 +135,7 @@
             <td class="max-w-xs truncate px-6 py-4 text-sm text-gray-700" title="{{ p.nombre_proveedor }}">{{ p.nombre_proveedor }}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.porcentaje_compra is not none %}{{ (p.porcentaje_compra|round(2)) ~ '%' }}{% else %}—{% endif %}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100)|round(2) }}{% else %}{{ item.qty|default('—', true) }}{% endif %}</td>
-            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.precio_compra is not none %}{{ (p.precio_compra|round(4)) }}{% if p.currency_uom %} {{ p.currency_uom }}{% endif %}{% else %}—{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.precio_compra is not none %}{{ (p.precio_compra|round(8)) }}{% if p.currency_uom %} {{ p.currency_uom }}{% endif %}{% else %}—{% endif %}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{{ p.pais_origen or item.origin }}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none and p.precio_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100 * p.precio_compra)|round(3) }}{% else %}—{% endif %}</td>
           </tr>
@@ -199,7 +199,7 @@
             <td class="max-w-xs truncate px-6 py-4 text-sm text-gray-700" title="{{ p.nombre_proveedor }}">{{ p.nombre_proveedor }}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.porcentaje_compra is not none %}{{ (p.porcentaje_compra|round(2)) ~ '%' }}{% else %}—{% endif %}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100)|round(2) }}{% else %}{{ item.qty|default('—', true) }}{% endif %}</td>
-            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.precio_compra is not none %}{{ (p.precio_compra|round(4)) }} USD{% else %}—{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.precio_compra is not none %}{{ (p.precio_compra|round(8)) }} USD{% else %}—{% endif %}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{{ p.pais_origen or item.origin }}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none and p.precio_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100 * p.precio_compra)|round(3) }} USD{% else %}—{% endif %}</td>
           </tr>
@@ -247,12 +247,18 @@
             <p class="mt-0.5 text-sm text-white/70">Compliance Analysis for ID #{{ codigo_cliente }}</p>
           </div>
         </div>
+        {% if is_trading_good %}
+        <span class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-amber-400/90 px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white shadow-sm ring-1 ring-amber-500/30">
+          Trading good
+        </span>
+        {% else %}
         <span class="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[#8CEBBE] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-white shadow-sm ring-1 ring-green-400/30">
           <span class="flex h-5 w-5 items-center justify-center rounded-full bg-green-500">
             <svg class="h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
           </span>
           THRESHOLD MET
         </span>
+        {% endif %}
       </div>
 
       <!-- Contenido en dos columnas -->
@@ -274,7 +280,7 @@
             <div class="absolute right-8 top-1/2 h-16 w-16 -rotate-12 rounded-full bg-white/5"></div>
           </div>
           <p class="relative text-xs font-medium uppercase tracking-widest text-white/60">Regional index</p>
-          <p class="relative mt-1 text-5xl font-bold tracking-tight text-white">{% if regional_index is defined and regional_index is not none %}{{ regional_index|round(2) }}<span class="ml-0.5 text-2xl font-semibold align-baseline">%</span>{% else %}—{% endif %}</p>
+          <p class="relative mt-1 text-5xl font-bold tracking-tight text-white">{% if is_trading_good %}0{% elif regional_index is defined and regional_index is not none %}{{ regional_index|round(2) }}{% else %}—{% endif %}{% if is_trading_good or (regional_index is defined and regional_index is not none) %}<span class="ml-0.5 text-2xl font-semibold align-baseline">%</span>{% endif %}</p>
         </div>
       </div>
     </div>

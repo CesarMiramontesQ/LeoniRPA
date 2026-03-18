@@ -6,6 +6,8 @@ from app.core.config import settings
 # Importar modelos para que SQLAlchemy los registre
 from app.db.models import (
     Parte,
+    TradingGood,
+    TradingGoodHistorial,
     Bom,
     BomRevision,
     BomItem,

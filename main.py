@@ -399,6 +399,51 @@ async def ventas_registros(request: Request, current_user: User = Depends(get_cu
     )
 
 
+@app.get("/trading-goods")
+async def trading_goods(
+    request: Request,
+    current_user: User = Depends(require_roles(["admin"])),
+    db: AsyncSession = Depends(get_db),
+):
+    """Vista Trading goods (solo administradores). Lista numero_parte, is_trading_good e historial de cambios."""
+    items = await crud.list_trading_goods(db)
+    historial = await crud.list_trading_goods_historial(db, limit=200)
+    return templates.TemplateResponse(
+        "trading_goods.html",
+        {
+            "request": request,
+            "active_page": "trading_goods",
+            "current_user": current_user,
+            "items": items,
+            "historial": historial,
+        }
+    )
+
+
+@app.post("/api/trading-goods")
+async def api_trading_goods_upsert(
+    request: Request,
+    current_user: User = Depends(require_roles(["admin"])),
+    db: AsyncSession = Depends(get_db),
+):
+    """Crea o actualiza un registro en trading_goods. Body: { "numero_parte": "...", "is_trading_good": true|false }. Solo administradores."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Cuerpo JSON inválido."}, status_code=400)
+    numero_parte = (body.get("numero_parte") or "").strip()
+    if not numero_parte:
+        return JSONResponse({"ok": False, "error": "numero_parte es requerido."}, status_code=400)
+    is_tg = body.get("is_trading_good")
+    if is_tg not in (True, False):
+        return JSONResponse({"ok": False, "error": "is_trading_good debe ser true o false."}, status_code=400)
+    try:
+        await crud.upsert_trading_good(db, numero_parte=numero_parte, is_trading_good=is_tg, user_id=current_user.id)
+    except ValueError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+    return JSONResponse({"ok": True, "mensaje": "Guardado correctamente."})
+
+
 PER_PAGE_FRACCIONES = 10
 
 
@@ -615,6 +660,21 @@ async def api_analisis_icr_partes(
     detalle["non_original_components"] = total_partes - partes_over_60
     detalle["conforming_part_numbers"] = detalle["total"]
     return JSONResponse(detalle)
+
+
+@app.get("/api/analisis-icr/clientes")
+async def api_analisis_icr_clientes(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    q: Optional[str] = None,
+):
+    """
+    Lista clientes con ventas ICR para el selector de la página Análisis ICR.
+    q: búsqueda opcional por código de cliente o nombre.
+    """
+    clientes = await crud.list_clientes_con_ventas_icr(db, search=q, limit=200)
+    return JSONResponse(clientes)
 
 
 # Datos fijos para el certificado C.O. (LEONI)
@@ -1241,6 +1301,122 @@ async def api_analisis_icr_certificado_excel(
     )
 
 
+def _context_certificado_simulacion(partes: list) -> dict:
+    """Construye el contexto para el certificado C.O. de simulación (sin datos de cliente, solo ítems)."""
+    ahora = datetime.now()
+
+    def _fmt_date(d):
+        return f"{d.month}/{d.day}/{d.strftime('%y')}"
+
+    # Normalizar partes: part_number, description, tariff_schedule, origin, customer_part_number (sin cliente = mismo que part_number)
+    partes_norm = []
+    for p in partes:
+        if not isinstance(p, dict):
+            continue
+        np = (p.get("part_number") or "").strip()
+        if not np:
+            continue
+        partes_norm.append({
+            "part_number": np,
+            "description": (p.get("description") or "").strip(),
+            "tariff_schedule": (p.get("tariff_schedule") or "").strip() or "SEE ATTACHED",
+            "origin": (p.get("origin") or "MX").strip() or "MX",
+            "customer_part_number": np,
+        })
+    if not partes_norm:
+        raise ValueError("Se requiere al menos un ítem en partes.")
+    return {
+        **_CERT_CO_LEONI,
+        "codigo_cliente": "—",
+        "cliente_nombre": "—",
+        "importer_address": "—",
+        "partes": partes_norm,
+        "blanket_period_from": _fmt_date(ahora.replace(month=1, day=1)),
+        "blanket_period_to": _fmt_date(ahora.replace(month=12, day=31)),
+        "certification_date": _fmt_date(ahora),
+        "num_pages": 2,
+        "_ahora": ahora,
+    }
+
+
+@app.post("/api/simulacion-icr/certificado-excel")
+async def api_simulacion_icr_certificado_excel(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Genera el certificado C.O. en Excel para simulación ICR (sin información de cliente, solo ítems).
+    Requiere ICR >= 60% (validado en frontend). Body: {"partes": [{"part_number": "...", "description": "...", "tariff_schedule": "...", "origin": "MX"}]}.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Cuerpo JSON inválido."}, status_code=400)
+    partes = body.get("partes") if isinstance(body, dict) else None
+    if not isinstance(partes, list) or len(partes) == 0:
+        return JSONResponse(
+            {"error": "Se requiere al menos un ítem en 'partes'."},
+            status_code=400,
+        )
+    try:
+        context = _context_certificado_simulacion(partes)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    try:
+        xlsx_bytes = await asyncio.to_thread(_render_certificado_co_xlsx, context)
+    except Exception as e:
+        logger.exception("Error generando Excel certificado simulación.")
+        return JSONResponse(
+            {"error": f"Error al generar el Excel: {e!s}"},
+            status_code=500,
+        )
+    filename = "certificado_co_simulacion.xlsx"
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/api/simulacion-icr/certificado-pdf")
+async def api_simulacion_icr_certificado_pdf(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Genera el certificado C.O. en PDF para simulación ICR (sin información de cliente, solo ítems).
+    Requiere ICR >= 60% (validado en frontend). Body: {"partes": [{"part_number": "...", "description": "...", "tariff_schedule": "...", "origin": "MX"}]}.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Cuerpo JSON inválido."}, status_code=400)
+    partes = body.get("partes") if isinstance(body, dict) else None
+    if not isinstance(partes, list) or len(partes) == 0:
+        return JSONResponse(
+            {"error": "Se requiere al menos un ítem en 'partes'."},
+            status_code=400,
+        )
+    try:
+        context = _context_certificado_simulacion(partes)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    try:
+        pdf_bytes = await asyncio.to_thread(_render_certificado_co_pdf, context)
+    except Exception as e:
+        logger.exception("Error generando PDF certificado simulación.")
+        return JSONResponse(
+            {"error": f"Error al generar el PDF: {e!s}"},
+            status_code=500,
+        )
+    filename = "certificado_co_simulacion.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.get("/api/analisis-icr/certificado-pack")
 async def api_analisis_icr_certificado_pack(
     request: Request,
@@ -1643,13 +1819,23 @@ async def analisis_icr_material(
             3,
         )
 
+    # Si el número de parte es trading good (tabla trading_goods, is_trading_good=True), ICR = 0%
+    trading_good_row = await crud.get_trading_good_by_numero_parte(db, numero_parte)
+    is_trading_good = bool(trading_good_row and trading_good_row.is_trading_good)
+
     # Regional index = ((Total Originating Supplies + Markup) / F.O.B USD value) * 100
+    # Reglas: si trading good, markup negativo, o no hay Originating, o hay CABLE/CUERDA en Non-Originating sin 310004003 en Originating → ICR 0%
     regional_index = None
-    if fob_total_value is not None and fob_total_value != 0 and markup_value is not None:
-        regional_index = round(
-            (total_originating_value + markup_value) / fob_total_value * 100,
-            2,
-        )
+    if is_trading_good:
+        regional_index = 0.0
+    elif fob_total_value is not None and fob_total_value != 0 and markup_value is not None:
+        if markup_value < 0 or crud._icr_rules_force_zero(items_orig, items_non_orig):
+            regional_index = 0.0
+        else:
+            regional_index = round(
+                (total_originating_value + markup_value) / fob_total_value * 100,
+                2,
+            )
 
     response = templates.TemplateResponse(
         "analisis_icr_material.html",
@@ -1669,6 +1855,7 @@ async def analisis_icr_material(
             "total_non_originating_value": total_non_originating_value,
             "markup_value": markup_value,
             "regional_index": regional_index,
+            "is_trading_good": is_trading_good,
         }
     )
     # Evitar caché del navegador para que cambios en porcentaje_compra (pais_origen_material) se vean al recargar
@@ -6016,6 +6203,7 @@ async def actualizar_pais_origen(
         pais_origen = data.get("pais_origen")
         porcentaje_compra = data.get("porcentaje_compra")
         comentario = data.get("comentario")
+        tipo = data.get("tipo")
         if porcentaje_compra is not None and porcentaje_compra != "":
             try:
                 porcentaje_compra = float(porcentaje_compra)
@@ -6027,6 +6215,10 @@ async def actualizar_pais_origen(
             comentario = comentario.strip() or None
         else:
             comentario = None
+        if tipo is not None and isinstance(tipo, str):
+            tipo = tipo.strip() or None
+        else:
+            tipo = None
         
         if not pais_origen:
             return JSONResponse(
@@ -6040,6 +6232,7 @@ async def actualizar_pais_origen(
             pais_origen=pais_origen,
             porcentaje_compra=porcentaje_compra,
             comentario=comentario,
+            tipo=tipo,
             user_id=current_user.id
         )
         
@@ -6059,6 +6252,7 @@ async def actualizar_pais_origen(
                 "pais_origen": pais_actualizado.pais_origen,
                 "porcentaje_compra": float(pais_actualizado.porcentaje_compra) if pais_actualizado.porcentaje_compra is not None else None,
                 "comentario": pais_actualizado.comentario,
+                "tipo": pais_actualizado.tipo,
             }
         })
     except Exception as e:

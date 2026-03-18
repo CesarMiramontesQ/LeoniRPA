@@ -144,7 +144,7 @@
             <td class="max-w-xs truncate px-6 py-4 text-sm text-gray-700" title="{{ p.nombre_proveedor }}">{{ p.nombre_proveedor }}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.porcentaje_compra is not none %}{{ (p.porcentaje_compra|round(2)) ~ '%' }}{% else %}—{% endif %}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100)|round(2) }}{% else %}{{ item.qty|default('—', true) }}{% endif %}</td>
-            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.precio_compra is not none %}{{ (p.precio_compra|round(4)) }}{% if p.currency_uom %} {{ p.currency_uom }}{% endif %}{% else %}—{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.precio_compra is not none %}{{ (p.precio_compra|round(8)) }}{% if p.currency_uom %} {{ p.currency_uom }}{% endif %}{% else %}—{% endif %}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{{ p.pais_origen or item.origin }}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none and p.precio_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100 * p.precio_compra)|round(3) }}{% else %}—{% endif %}</td>
           </tr>
@@ -207,7 +207,7 @@
             <td class="max-w-xs truncate px-6 py-4 text-sm text-gray-700" title="{{ p.nombre_proveedor }}">{{ p.nombre_proveedor }}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.porcentaje_compra is not none %}{{ (p.porcentaje_compra|round(2)) ~ '%' }}{% else %}—{% endif %}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100)|round(2) }}{% else %}{{ item.qty|default('—', true) }}{% endif %}</td>
-            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.precio_compra is not none %}{{ (p.precio_compra|round(4)) }} USD{% else %}—{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.precio_compra is not none %}{{ (p.precio_compra|round(8)) }} USD{% else %}—{% endif %}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{{ p.pais_origen or item.origin }}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none and p.precio_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100 * p.precio_compra)|round(3) }} USD{% else %}—{% endif %}</td>
           </tr>
@@ -273,6 +273,16 @@
           <p class="relative mt-1 text-5xl font-bold tracking-tight text-white"><span id="card-regional-index">—</span><span id="card-regional-pct" class="ml-0.5 text-2xl font-semibold align-baseline" style="display:none">%</span></p>
         </div>
       </div>
+      <!-- Descarga certificado (solo cuando ICR >= 60% y hay ítems; sin datos de cliente) -->
+      <div id="simulacion-cert-buttons" class="mt-4 hidden flex flex-wrap items-center gap-3 border-t border-white/20 pt-4">
+        <span class="text-sm text-white/90">Certificado (solo ítems, sin cliente):</span>
+        <button type="button" id="btn-simulacion-cert-excel" class="inline-flex items-center rounded-md bg-white/20 px-4 py-2 text-sm font-medium text-white hover:bg-white/30 focus:outline-none focus:ring-2 focus:ring-white/50">
+          Descargar Excel
+        </button>
+        <button type="button" id="btn-simulacion-cert-pdf" class="inline-flex items-center rounded-md bg-white/20 px-4 py-2 text-sm font-medium text-white hover:bg-white/30 focus:outline-none focus:ring-2 focus:ring-white/50">
+          Descargar PDF
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -295,8 +305,10 @@
   var cardMarkup = document.getElementById('card-markup');
   var cardRegionalIndex = document.getElementById('card-regional-index');
   var cardRegionalPct = document.getElementById('card-regional-pct');
+  var simulacionCertButtons = document.getElementById('simulacion-cert-buttons');
 
   var fobValueUsuario = null;
+  var currentRegionalIndex = null;
 
   // Estado acumulativo: cada "Agregar" suma a estas listas y totales
   var materialesAgregados = [];
@@ -340,21 +352,100 @@
     updateMarkupAndRegional();
   }
 
+  function itemHasTipo(item, tipoStr) {
+    var t = String(tipoStr || '').trim().toUpperCase();
+    return (item.proveedores || []).some(function(p) { return String(p.tipo || '').trim().toUpperCase() === t; });
+  }
+  function icrRulesForceZero() {
+    if (itemsOriginatingAcum.length === 0) return true;
+    var has310InOrig = itemsOriginatingAcum.some(function(it) { return String(it.numero_parte != null ? it.numero_parte : '').trim() === '310004003'; });
+    var hasCableInNon = itemsNonOriginatingAcum.some(function(it) { return itemHasTipo(it, 'CABLE'); });
+    var hasCuerdaInNon = itemsNonOriginatingAcum.some(function(it) { return itemHasTipo(it, 'CUERDA'); });
+    if (hasCableInNon && !has310InOrig) return true;
+    if (hasCuerdaInNon && !has310InOrig) return true;
+    return false;
+  }
   function updateMarkupAndRegional() {
     if (!cardMarkup || !cardRegionalIndex) return;
     if (fobValueUsuario != null && !isNaN(fobValueUsuario) && fobValueUsuario > 0) {
       var markup = fobValueUsuario - totalOriginatingAcum - totalNonOriginatingAcum;
       markup = Math.round(markup * 1000) / 1000;
-      var regionalIndex = (totalOriginatingAcum + markup) / fobValueUsuario * 100;
-      regionalIndex = Math.round(regionalIndex * 100) / 100;
+      var regionalIndex;
+      if (markup < 0 || icrRulesForceZero()) {
+        regionalIndex = 0;
+      } else {
+        regionalIndex = (totalOriginatingAcum + markup) / fobValueUsuario * 100;
+        regionalIndex = Math.round(regionalIndex * 100) / 100;
+      }
+      currentRegionalIndex = regionalIndex;
       cardMarkup.textContent = markup.toFixed(3);
       cardRegionalIndex.textContent = regionalIndex.toFixed(2);
       if (cardRegionalPct) cardRegionalPct.style.display = '';
+      if (simulacionCertButtons) {
+        var hasItems = (itemsOriginatingAcum.length > 0 || itemsNonOriginatingAcum.length > 0);
+        if (regionalIndex >= 60 && hasItems) {
+          simulacionCertButtons.classList.remove('hidden');
+        } else {
+          simulacionCertButtons.classList.add('hidden');
+        }
+      }
     } else {
+      currentRegionalIndex = null;
       cardMarkup.textContent = '—';
       cardRegionalIndex.textContent = '—';
       if (cardRegionalPct) cardRegionalPct.style.display = 'none';
+      if (simulacionCertButtons) simulacionCertButtons.classList.add('hidden');
     }
+  }
+
+  function getPartesForCertificado() {
+    var seen = {};
+    var partes = [];
+    function add(item) {
+      var np = String(item.numero_parte != null ? item.numero_parte : '').trim();
+      if (!np || seen[np]) return;
+      seen[np] = true;
+      var origin = 'MX';
+      if (item.proveedores && item.proveedores[0] && item.proveedores[0].pais_origen)
+        origin = String(item.proveedores[0].pais_origen).trim() || 'MX';
+      else if (item.origin) origin = String(item.origin).trim() || 'MX';
+      partes.push({
+        part_number: np,
+        description: (item.descripcion != null ? item.descripcion : item.name) || '',
+        tariff_schedule: (item.comm_code != null ? item.comm_code : '') || 'SEE ATTACHED',
+        origin: origin
+      });
+    }
+    itemsOriginatingAcum.forEach(add);
+    itemsNonOriginatingAcum.forEach(add);
+    return partes;
+  }
+
+  function descargarCertificadoSimulacion(formato) {
+    if (currentRegionalIndex == null || currentRegionalIndex < 60) return;
+    var partes = getPartesForCertificado();
+    if (partes.length === 0) return;
+    var url = formato === 'pdf' ? '/api/simulacion-icr/certificado-pdf' : '/api/simulacion-icr/certificado-excel';
+    var filename = formato === 'pdf' ? 'certificado_co_simulacion.pdf' : 'certificado_co_simulacion.xlsx';
+    fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ partes: partes }),
+      credentials: 'same-origin'
+    }).then(function(r) {
+      if (!r.ok) return r.json().then(function(j) { throw new Error(j.error || 'Error en el servidor'); });
+      return r.blob();
+    }).then(function(blob) {
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    }).catch(function(e) {
+      alert(e.message || 'No se pudo descargar el certificado.');
+    });
   }
 
   function bomIndexToOrigIndex(bomIdx) {
@@ -535,7 +626,7 @@
         item.proveedores.forEach(function(p, provIdx) {
           var pct = p.porcentaje_compra != null ? Number(p.porcentaje_compra).toFixed(2) + '%' : '—';
           var qtyKg = (qty != null && p.porcentaje_compra != null) ? (qty * p.porcentaje_compra / 100).toFixed(2) : (qty != null ? qty : '—');
-          var puKg = p.precio_compra != null ? Number(p.precio_compra).toFixed(4) + (p.currency_uom ? ' ' + p.currency_uom : '') : '—';
+          var puKg = p.precio_compra != null ? Number(p.precio_compra).toFixed(8) + (p.currency_uom ? ' ' + p.currency_uom : '') : '—';
           var originVal = esc(p.pais_origen || item.origin);
           var value = (qty != null && p.porcentaje_compra != null && p.precio_compra != null)
             ? (qty * p.porcentaje_compra / 100 * p.precio_compra).toFixed(3) : '—';
@@ -594,7 +685,7 @@
         item.proveedores.forEach(function(p, provIdx) {
           var pct = p.porcentaje_compra != null ? Number(p.porcentaje_compra).toFixed(2) + '%' : '—';
           var qtyKg = (qty != null && p.porcentaje_compra != null) ? (qty * p.porcentaje_compra / 100).toFixed(2) : (qty != null ? qty : '—');
-          var puKg = p.precio_compra != null ? Number(p.precio_compra).toFixed(4) + ' USD' : '—';
+          var puKg = p.precio_compra != null ? Number(p.precio_compra).toFixed(8) + ' USD' : '—';
           var originVal = esc(p.pais_origen || item.origin);
           var value = (qty != null && p.porcentaje_compra != null && p.precio_compra != null)
             ? (qty * p.porcentaje_compra / 100 * p.precio_compra).toFixed(3) + ' USD' : '—';
@@ -773,6 +864,11 @@
       btnAgregar.disabled = false;
     });
   });
+
+  var btnCertExcel = document.getElementById('btn-simulacion-cert-excel');
+  var btnCertPdf = document.getElementById('btn-simulacion-cert-pdf');
+  if (btnCertExcel) btnCertExcel.addEventListener('click', function() { descargarCertificadoSimulacion('excel'); });
+  if (btnCertPdf) btnCertPdf.addEventListener('click', function() { descargarCertificadoSimulacion('pdf'); });
 })();
 </script>
 {% endblock %}
