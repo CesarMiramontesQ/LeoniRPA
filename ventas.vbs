@@ -214,8 +214,8 @@ Esperar 3
 session.findById("wnd[1]/usr/ctxtRKEA2-ERKRS").text = "us10"
 session.findById("wnd[1]/usr/ctxtRKEA2-ERKRS").caretPosition = 4
 session.findById("wnd[1]/tbar[0]/btn[0]").press
-session.findById("wnd[0]/shellcont/shell").selectedNode = "000000001008"
-session.findById("wnd[0]/shellcont/shell").doubleClickNode "000000001008"
+session.findById("wnd[0]/shellcont/shell").selectedNode = "000000001010"
+session.findById("wnd[0]/shellcont/shell").doubleClickNode "000000001010"
 session.findById("wnd[0]/usr/ctxtPAR_08").text = periodo
 session.findById("wnd[0]/usr/ctxtPAR_09").text = periodo
 session.findById("wnd[0]/usr/ctxtPAR_09").setFocus
