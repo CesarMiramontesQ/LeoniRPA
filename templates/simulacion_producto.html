@@ -86,7 +86,7 @@
             <td class="px-6 py-4 text-sm text-gray-600">
               {% if item.proveedores %}
                 {% for p in item.proveedores %}
-                  <span class="block">{{ p.nombre_proveedor }}{% if p.porcentaje_compra is not none %} ({{ (p.porcentaje_compra|round(2)) ~ '%' }}){% endif %}{% if not loop.last %}<br>{% endif %}</span>
+                  <span class="block">{{ p.nombre_proveedor }}{% if p.porcentaje_compra is not none %} ({{ (p.porcentaje_compra|round(8)) ~ '%' }}){% endif %}{% if not loop.last %}<br>{% endif %}</span>
                 {% endfor %}
               {% else %}
                 —
@@ -142,11 +142,11 @@
           <tr class="hover:bg-gray-50">
             <td class="max-w-xs truncate px-6 py-4 text-sm text-gray-900" title="{{ item.name }}">{{ item.name }}</td>
             <td class="max-w-xs truncate px-6 py-4 text-sm text-gray-700" title="{{ p.nombre_proveedor }}">{{ p.nombre_proveedor }}</td>
-            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.porcentaje_compra is not none %}{{ (p.porcentaje_compra|round(2)) ~ '%' }}{% else %}—{% endif %}</td>
-            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100)|round(2) }}{% else %}{{ item.qty|default('—', true) }}{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.porcentaje_compra is not none %}{{ (p.porcentaje_compra|round(8)) ~ '%' }}{% else %}—{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100)|round(8) }}{% else %}{{ item.qty|default('—', true) }}{% endif %}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.precio_compra is not none %}{{ (p.precio_compra|round(8)) }}{% if p.currency_uom %} {{ p.currency_uom }}{% endif %}{% else %}—{% endif %}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{{ p.pais_origen or item.origin }}</td>
-            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none and p.precio_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100 * p.precio_compra)|round(3) }}{% else %}—{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none and p.precio_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100 * p.precio_compra)|round(8) }}{% else %}—{% endif %}</td>
           </tr>
               {% endfor %}
             {% else %}
@@ -170,7 +170,7 @@
       </table>
     </div>
     <div id="footer-originating" class="border-t border-gray-200 bg-green-50/50 px-6 py-2 {% if not items_originating %}hidden{% endif %}">
-      <p class="text-sm font-semibold text-green-700">Total Originating Supplies: <span id="total-originating-value">{% if total_originating_value is defined and total_originating_value is not none %}{{ total_originating_value|round(3) }}{% else %}—{% endif %}</span></p>
+      <p class="text-sm font-semibold text-green-700">Total Originating Supplies: <span id="total-originating-value">{% if total_originating_value is defined and total_originating_value is not none %}{{ total_originating_value|round(8) }}{% else %}—{% endif %}</span></p>
     </div>
   </div>
 
@@ -205,11 +205,11 @@
           <tr class="hover:bg-gray-50">
             <td class="max-w-xs truncate px-6 py-4 text-sm text-gray-900" title="{{ item.name }}">{{ item.name }}</td>
             <td class="max-w-xs truncate px-6 py-4 text-sm text-gray-700" title="{{ p.nombre_proveedor }}">{{ p.nombre_proveedor }}</td>
-            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.porcentaje_compra is not none %}{{ (p.porcentaje_compra|round(2)) ~ '%' }}{% else %}—{% endif %}</td>
-            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100)|round(2) }}{% else %}{{ item.qty|default('—', true) }}{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.porcentaje_compra is not none %}{{ (p.porcentaje_compra|round(8)) ~ '%' }}{% else %}—{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100)|round(8) }}{% else %}{{ item.qty|default('—', true) }}{% endif %}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.precio_compra is not none %}{{ (p.precio_compra|round(8)) }} USD{% else %}—{% endif %}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{{ p.pais_origen or item.origin }}</td>
-            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none and p.precio_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100 * p.precio_compra)|round(3) }} USD{% else %}—{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none and p.precio_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100 * p.precio_compra)|round(8) }} USD{% else %}—{% endif %}</td>
           </tr>
               {% endfor %}
             {% else %}
@@ -233,7 +233,7 @@
       </table>
     </div>
     <div id="footer-non-originating" class="border-t border-gray-200 bg-amber-50/50 px-6 py-2 {% if not items_non_originating %}hidden{% endif %}">
-      <p class="text-sm font-semibold text-amber-700">Total Non-Originating Supplies: <span id="total-non-originating-value">{% if total_non_originating_value is defined and total_non_originating_value is not none %}{{ total_non_originating_value|round(3) }} USD{% else %}—{% endif %}</span></p>
+      <p class="text-sm font-semibold text-amber-700">Total Non-Originating Supplies: <span id="total-non-originating-value">{% if total_non_originating_value is defined and total_non_originating_value is not none %}{{ total_non_originating_value|round(8) }} USD{% else %}—{% endif %}</span></p>
     </div>
   </div>
 
@@ -328,6 +328,13 @@
     return isNaN(n) ? null : n;
   }
 
+  // Redondea a 8 decimales y quita ceros a la derecha (para que muestre "hasta" 8)
+  function formatFixed8(v) {
+    var n = Number(v);
+    if (v == null || v === undefined || isNaN(n)) return '—';
+    return n.toFixed(8).replace(/\.?0+$/, '');
+  }
+
   function recalcTotalsFromItems() {
     var o = 0;
     itemsOriginatingAcum.forEach(function(item) {
@@ -347,8 +354,8 @@
     });
     totalOriginatingAcum = Math.round(o * 1000) / 1000;
     totalNonOriginatingAcum = Math.round(n * 1000) / 1000;
-    if (totalOriginatingValue) totalOriginatingValue.textContent = totalOriginatingAcum > 0 ? totalOriginatingAcum.toFixed(3) : '—';
-    if (totalNonOriginatingValue) totalNonOriginatingValue.textContent = totalNonOriginatingAcum > 0 ? totalNonOriginatingAcum.toFixed(3) + ' USD' : '—';
+    if (totalOriginatingValue) totalOriginatingValue.textContent = totalOriginatingAcum > 0 ? formatFixed8(totalOriginatingAcum) : '—';
+    if (totalNonOriginatingValue) totalNonOriginatingValue.textContent = totalNonOriginatingAcum > 0 ? formatFixed8(totalNonOriginatingAcum) + ' USD' : '—';
     updateMarkupAndRegional();
   }
 
@@ -497,7 +504,7 @@
       if (item.proveedores && item.proveedores.length) {
         proveedoresHtml = item.proveedores.map(function(p) {
           var t = esc(p.nombre_proveedor);
-          if (p.porcentaje_compra != null) t += ' (' + Number(p.porcentaje_compra).toFixed(2) + '%)';
+          if (p.porcentaje_compra != null) t += ' (' + formatFixed8(p.porcentaje_compra) + '%)';
           return t;
         }).join('<br>');
       }
@@ -624,12 +631,12 @@
       var origin = esc(item.origin);
       if (item.proveedores && item.proveedores.length) {
         item.proveedores.forEach(function(p, provIdx) {
-          var pct = p.porcentaje_compra != null ? Number(p.porcentaje_compra).toFixed(2) + '%' : '—';
-          var qtyKg = (qty != null && p.porcentaje_compra != null) ? (qty * p.porcentaje_compra / 100).toFixed(2) : (qty != null ? qty : '—');
+          var pct = p.porcentaje_compra != null ? formatFixed8(p.porcentaje_compra) + '%' : '—';
+          var qtyKg = (qty != null && p.porcentaje_compra != null) ? formatFixed8(qty * p.porcentaje_compra / 100) : (qty != null ? qty : '—');
           var puKg = p.precio_compra != null ? Number(p.precio_compra).toFixed(8) + (p.currency_uom ? ' ' + p.currency_uom : '') : '—';
           var originVal = esc(p.pais_origen || item.origin);
           var value = (qty != null && p.porcentaje_compra != null && p.precio_compra != null)
-            ? (qty * p.porcentaje_compra / 100 * p.precio_compra).toFixed(3) : '—';
+            ? formatFixed8(qty * p.porcentaje_compra / 100 * p.precio_compra) : '—';
           var tr = document.createElement('tr');
           tr.className = 'hover:bg-gray-50';
           tr.draggable = true;
@@ -683,12 +690,12 @@
       var origin = esc(item.origin);
       if (item.proveedores && item.proveedores.length) {
         item.proveedores.forEach(function(p, provIdx) {
-          var pct = p.porcentaje_compra != null ? Number(p.porcentaje_compra).toFixed(2) + '%' : '—';
-          var qtyKg = (qty != null && p.porcentaje_compra != null) ? (qty * p.porcentaje_compra / 100).toFixed(2) : (qty != null ? qty : '—');
+          var pct = p.porcentaje_compra != null ? formatFixed8(p.porcentaje_compra) + '%' : '—';
+          var qtyKg = (qty != null && p.porcentaje_compra != null) ? formatFixed8(qty * p.porcentaje_compra / 100) : (qty != null ? qty : '—');
           var puKg = p.precio_compra != null ? Number(p.precio_compra).toFixed(8) + ' USD' : '—';
           var originVal = esc(p.pais_origen || item.origin);
           var value = (qty != null && p.porcentaje_compra != null && p.precio_compra != null)
-            ? (qty * p.porcentaje_compra / 100 * p.precio_compra).toFixed(3) + ' USD' : '—';
+            ? formatFixed8(qty * p.porcentaje_compra / 100 * p.precio_compra) + ' USD' : '—';
           var tr = document.createElement('tr');
           tr.className = 'hover:bg-gray-50';
           tr.draggable = true;
@@ -843,9 +850,9 @@
         if (bomSubtitle) bomSubtitle.textContent = 'Materiales agregados: ' + materialesAgregados.join(', ');
         renderBomRows(itemsBomAcum);
         renderOriginatingRows(itemsOriginatingAcum);
-        if (totalOriginatingValue) totalOriginatingValue.textContent = totalOriginatingAcum > 0 ? totalOriginatingAcum.toFixed(3) : '—';
+        if (totalOriginatingValue) totalOriginatingValue.textContent = totalOriginatingAcum > 0 ? formatFixed8(totalOriginatingAcum) : '—';
         renderNonOriginatingRows(itemsNonOriginatingAcum);
-        if (totalNonOriginatingValue) totalNonOriginatingValue.textContent = totalNonOriginatingAcum > 0 ? totalNonOriginatingAcum.toFixed(3) + ' USD' : '—';
+        if (totalNonOriginatingValue) totalNonOriginatingValue.textContent = totalNonOriginatingAcum > 0 ? formatFixed8(totalNonOriginatingAcum) + ' USD' : '—';
         if (!itemsOriginatingAcum.length) footerOriginating.classList.add('hidden'); else footerOriginating.classList.remove('hidden');
         if (!itemsNonOriginatingAcum.length) footerNonOriginating.classList.add('hidden'); else footerNonOriginating.classList.remove('hidden');
         if (data.ultimo_precio_venta != null && inputFob && (inputFob.value.trim() === '' || fobValueUsuario == null)) {

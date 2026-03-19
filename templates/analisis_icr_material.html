@@ -36,11 +36,11 @@
     </div>
     <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6 border-l-4 border-green-500">
       <dt class="truncate text-sm font-medium text-gray-500">F.O.B USD value</dt>
-      <dd class="mt-1 text-2xl font-semibold tracking-tight text-green-600">{% if fob_total_value is defined and fob_total_value is not none %}{{ fob_total_value|round(3) }}{% else %}—{% endif %}</dd>
+      <dd class="mt-1 text-2xl font-semibold tracking-tight text-green-600">{% if fob_total_value is defined and fob_total_value is not none %}{{ fob_total_value|round(8) }}{% else %}—{% endif %}</dd>
     </div>
     <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6 border-l-4 border-purple-500">
       <dt class="truncate text-sm font-medium text-gray-500">Markup</dt>
-      <dd class="mt-1 text-2xl font-semibold tracking-tight text-purple-600">{% if markup_value is defined and markup_value is not none %}{{ markup_value|round(3) }}{% else %}—{% endif %}</dd>
+      <dd class="mt-1 text-2xl font-semibold tracking-tight text-purple-600">{% if markup_value is defined and markup_value is not none %}{{ markup_value|round(8) }}{% else %}—{% endif %}</dd>
     </div>
   </div>
 
@@ -78,7 +78,7 @@
             <td class="px-6 py-4 text-sm text-gray-600">
               {% if item.proveedores %}
                 {% for p in item.proveedores %}
-                  <span class="block">{{ p.nombre_proveedor }}{% if p.porcentaje_compra is not none %} ({{ (p.porcentaje_compra|round(2)) ~ '%' }}){% endif %}{% if not loop.last %}<br>{% endif %}</span>
+                  <span class="block">{{ p.nombre_proveedor }}{% if p.porcentaje_compra is not none %} ({{ (p.porcentaje_compra|round(8)) ~ '%' }}){% endif %}{% if not loop.last %}<br>{% endif %}</span>
                 {% endfor %}
               {% else %}
                 —
@@ -133,11 +133,11 @@
           <tr class="hover:bg-gray-50">
             <td class="max-w-xs truncate px-6 py-4 text-sm text-gray-900" title="{{ item.name }}">{{ item.name }}</td>
             <td class="max-w-xs truncate px-6 py-4 text-sm text-gray-700" title="{{ p.nombre_proveedor }}">{{ p.nombre_proveedor }}</td>
-            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.porcentaje_compra is not none %}{{ (p.porcentaje_compra|round(2)) ~ '%' }}{% else %}—{% endif %}</td>
-            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100)|round(2) }}{% else %}{{ item.qty|default('—', true) }}{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.porcentaje_compra is not none %}{{ (p.porcentaje_compra|round(8)) ~ '%' }}{% else %}—{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100)|round(8) }}{% else %}{{ item.qty|default('—', true) }}{% endif %}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.precio_compra is not none %}{{ (p.precio_compra|round(8)) }}{% if p.currency_uom %} {{ p.currency_uom }}{% endif %}{% else %}—{% endif %}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{{ p.pais_origen or item.origin }}</td>
-            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none and p.precio_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100 * p.precio_compra)|round(3) }}{% else %}—{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none and p.precio_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100 * p.precio_compra)|round(8) }}{% else %}—{% endif %}</td>
           </tr>
               {% endfor %}
             {% else %}
@@ -162,7 +162,7 @@
     </div>
     {% if items_originating %}
     <div class="border-t border-gray-200 bg-green-50/50 px-6 py-2">
-      <p class="text-sm font-semibold text-green-700">Total Originating Supplies: {% if total_originating_value is defined and total_originating_value is not none %}{{ total_originating_value|round(3) }}{% else %}—{% endif %}</p>
+      <p class="text-sm font-semibold text-green-700">Total Originating Supplies: {% if total_originating_value is defined and total_originating_value is not none %}{{ total_originating_value|round(8) }}{% else %}—{% endif %}</p>
     </div>
     {% endif %}
   </div>
@@ -197,11 +197,11 @@
           <tr class="hover:bg-gray-50">
             <td class="max-w-xs truncate px-6 py-4 text-sm text-gray-900" title="{{ item.name }}">{{ item.name }}</td>
             <td class="max-w-xs truncate px-6 py-4 text-sm text-gray-700" title="{{ p.nombre_proveedor }}">{{ p.nombre_proveedor }}</td>
-            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.porcentaje_compra is not none %}{{ (p.porcentaje_compra|round(2)) ~ '%' }}{% else %}—{% endif %}</td>
-            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100)|round(2) }}{% else %}{{ item.qty|default('—', true) }}{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.porcentaje_compra is not none %}{{ (p.porcentaje_compra|round(8)) ~ '%' }}{% else %}—{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100)|round(8) }}{% else %}{{ item.qty|default('—', true) }}{% endif %}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if p.precio_compra is not none %}{{ (p.precio_compra|round(8)) }} USD{% else %}—{% endif %}</td>
             <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{{ p.pais_origen or item.origin }}</td>
-            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none and p.precio_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100 * p.precio_compra)|round(3) }} USD{% else %}—{% endif %}</td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">{% if item.qty is not none and p.porcentaje_compra is not none and p.precio_compra is not none %}{{ (item.qty * p.porcentaje_compra / 100 * p.precio_compra)|round(8) }} USD{% else %}—{% endif %}</td>
           </tr>
               {% endfor %}
             {% else %}
@@ -226,7 +226,7 @@
     </div>
     {% if items_non_originating %}
     <div class="border-t border-gray-200 bg-amber-50/50 px-6 py-2">
-      <p class="text-sm font-semibold text-amber-700">Total Non-Originating Supplies: {% if total_non_originating_value is defined and total_non_originating_value is not none %}{{ total_non_originating_value|round(3) }} USD{% else %}—{% endif %}</p>
+      <p class="text-sm font-semibold text-amber-700">Total Non-Originating Supplies: {% if total_non_originating_value is defined and total_non_originating_value is not none %}{{ total_non_originating_value|round(8) }} USD{% else %}—{% endif %}</p>
     </div>
     {% endif %}
   </div>

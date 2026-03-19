@@ -76,9 +76,9 @@
         id="btn-actualizar-porcentaje-compra"
         type="button"
         class="rounded-md border border-[#003D89] bg-white px-4 py-2 text-sm font-medium text-[#003D89] hover:bg-[#003D89] hover:text-white focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-        title="Calcular % de compra con compras de los últimos 5 años (sin año actual)"
+        title="Calcular % de compra con compras de los últimos 2 años calendario hacia el presente"
       >
-        <span id="btn-porcentaje-texto">Actualizar % compra (5 años)</span>
+        <span id="btn-porcentaje-texto">Actualizar % compra (2 años)</span>
         <span id="btn-porcentaje-spinner" class="hidden">
           <svg class="animate-spin -ml-1 mr-2 h-4 w-4 inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -692,7 +692,7 @@
     }
     const btnPorcentaje = document.getElementById('btn-actualizar-porcentaje-compra');
     if (btnPorcentaje) {
-      btnPorcentaje.addEventListener('click', actualizarPorcentajeCompraUltimos5Anios);
+      btnPorcentaje.addEventListener('click', actualizarPorcentajeCompraUltimos2Anios);
     }
 
     // Botón guardar en modal de edición
@@ -1036,7 +1036,7 @@
     }
   }
 
-  async function actualizarPorcentajeCompraUltimos5Anios() {
+  async function actualizarPorcentajeCompraUltimos2Anios() {
     const btn = document.getElementById('btn-actualizar-porcentaje-compra');
     const texto = document.getElementById('btn-porcentaje-texto');
     const spinner = document.getElementById('btn-porcentaje-spinner');
@@ -1053,7 +1053,7 @@
       if (!response.ok) {
         throw new Error(data.mensaje || data.error || `Error ${response.status}`);
       }
-      document.getElementById('modal-title').textContent = 'Resultado: % de compra (últimos 5 años)';
+      document.getElementById('modal-title').textContent = 'Resultado: % de compra (últimos 2 años calendario)';
       mostrarModalResultados(data);
       if (data.actualizados > 0) {
         setTimeout(() => { window.location.reload(); }, 2500);

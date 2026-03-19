@@ -5409,7 +5409,10 @@ async def actualizar_porcentaje_compra_ultimos_5_anios(
 ) -> Dict[str, Any]:
     """
     Calcula y actualiza porcentaje_compra en pais_origen_material usando las compras
-    de los últimos 5 años sin incluir el año actual.
+    de los últimos 2 años calendario hacia el presente.
+
+    El periodo se define desde el 1 de enero del año actual-2 hasta el momento actual
+    (incluye el año actual en forma parcial).
     Para cada (codigo_proveedor, numero_material) el porcentaje es:
     100 * (suma de quantity_in_opun de ese proveedor/material en el periodo) / (suma total de quantity_in_opun del material en el periodo).
     Solo se actualizan registros que ya existen en pais_origen_material.
@@ -5424,10 +5427,11 @@ async def actualizar_porcentaje_compra_ultimos_5_anios(
         "errores": [],
     }
     try:
-        año_actual = datetime.now().year
-        # Últimos 5 años excluyendo el año actual: año_actual-5 hasta año_actual-1 inclusive
-        fecha_inicio = datetime(año_actual - 5, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
-        fecha_fin = datetime(año_actual, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        año_actual = now.year
+        # Desde el 1-ene del año actual-2 hasta el momento actual (UTC)
+        fecha_inicio = datetime(año_actual - 2, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        fecha_fin = now
 
         # 1. Suma de quantity_in_opun por (codigo_proveedor, numero_material) en el periodo
         q = (

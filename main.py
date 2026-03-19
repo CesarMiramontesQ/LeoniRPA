@@ -737,6 +737,7 @@ def _render_certificado_co_pdf_reportlab(context: dict) -> bytes:
     partes = context.get("partes") or []
     data = [["5.", "DESCRIPTION OF GOOD (S)", "6. HS TARIFF CLASSIFICATION NUMBER", "7. CRITERION OF ORIGIN", "8. ORIGIN COUNTRY"]]
     for p in partes:
+        # En PDF (fallback reportlab), mostramos "part_number — description" si existe.
         desc = (p.get("part_number") or "—")
         if p.get("description"):
             d = (p.get("description") or "")[:80]
@@ -1161,29 +1162,36 @@ async def api_analisis_icr_certificado_pdf(
     numero_parte: List[str] = Query(default=[], description="Números de parte seleccionados (columna Select)"),
 ):
     """
-    Genera el certificado de origen (C.O.) en PDF para los números de parte seleccionados.
-    Requiere al menos un número de parte seleccionado en la columna Select.
+    Genera el certificado C.O. (cumplimiento) en PDF para las partes seleccionadas (ICR >= 60%).
     """
     if codigo_cliente is None:
         return JSONResponse({"error": "Falta el parámetro codigo_cliente"}, status_code=400)
     selected = [str(n).strip() for n in numero_parte if n is not None and str(n).strip()]
     if not selected:
         return JSONResponse(
-            {"error": "No hay números de parte seleccionados. Seleccione al menos uno en la columna Select."},
+            {"error": "No hay números de parte seleccionados."},
             status_code=400,
         )
+
     detalle = await crud.get_analisis_icr_detalle(db, codigo_cliente=codigo_cliente)
     todas_partes = detalle.get("partes") or []
-    # Filtrar solo las partes seleccionadas, manteniendo el orden de selección
-    partes_para_certificado = []
-    for np in selected:
-        for p in todas_partes:
-            if (p.get("part_number") or "").strip() == np:
-                partes_para_certificado.append(p)
-                break
+
+    def _califica(p: dict) -> bool:
+        icr = p.get("icr")
+        if icr is None:
+            return False
+        try:
+            return float(icr) >= 60
+        except (TypeError, ValueError):
+            return False
+
+    # CO: solo partes seleccionadas que califican (ICR >= 60).
+    by_part_number = {str(p.get("part_number") or "").strip(): p for p in todas_partes}
+    selected_parts = [by_part_number.get(np) for np in selected if by_part_number.get(np)]
+    partes_para_certificado = [p for p in selected_parts if _califica(p)]
     if not partes_para_certificado:
         return JSONResponse(
-            {"error": "Ninguno de los números de parte seleccionados pertenece a este cliente."},
+            {"error": "No hay componentes que califiquen (ICR >= 60%) para este cliente."},
             status_code=400,
         )
     # Customer Part Number desde cross_reference para la hoja C.O. 3
@@ -1236,28 +1244,35 @@ async def api_analisis_icr_certificado_excel(
     numero_parte: List[str] = Query(default=[], description="Números de parte seleccionados (columna Select)"),
 ):
     """
-    Genera el certificado de origen (C.O.) en Excel (.xlsx) para revisión.
-    Mismos parámetros que el certificado PDF; solo devuelve el archivo Excel rellenado.
+    Genera el certificado C.O. (cumplimiento) en Excel (.xlsx) para las partes seleccionadas (ICR >= 60%).
     """
     if codigo_cliente is None:
         return JSONResponse({"error": "Falta el parámetro codigo_cliente"}, status_code=400)
     selected = [str(n).strip() for n in numero_parte if n is not None and str(n).strip()]
     if not selected:
         return JSONResponse(
-            {"error": "No hay números de parte seleccionados. Seleccione al menos uno en la columna Select."},
+            {"error": "No hay números de parte seleccionados."},
             status_code=400,
         )
+
     detalle = await crud.get_analisis_icr_detalle(db, codigo_cliente=codigo_cliente)
     todas_partes = detalle.get("partes") or []
-    partes_para_certificado = []
-    for np in selected:
-        for p in todas_partes:
-            if (p.get("part_number") or "").strip() == np:
-                partes_para_certificado.append(p)
-                break
+
+    def _califica(p: dict) -> bool:
+        icr = p.get("icr")
+        if icr is None:
+            return False
+        try:
+            return float(icr) >= 60
+        except (TypeError, ValueError):
+            return False
+
+    by_part_number = {str(p.get("part_number") or "").strip(): p for p in todas_partes}
+    selected_parts = [by_part_number.get(np) for np in selected if by_part_number.get(np)]
+    partes_para_certificado = [p for p in selected_parts if _califica(p)]
     if not partes_para_certificado:
         return JSONResponse(
-            {"error": "Ninguno de los números de parte seleccionados pertenece a este cliente."},
+            {"error": "No hay componentes que califiquen (ICR >= 60%) para este cliente."},
             status_code=400,
         )
     # Customer Part Number desde cross_reference para la hoja C.O. 3
@@ -1427,31 +1442,20 @@ async def api_analisis_icr_certificado_pack(
 ):
     """
     Genera un ZIP con los documentos según la selección:
-    - Si hay partes que califican (ICR >= 60%): incluye certificado Excel + PDF (solo esas partes).
-    - Si hay partes que no califican (ICR < 60% o sin ICR): incluye además Word + PDF de no calificados (cliente completo).
-    Si solo hay partes que califican: ZIP con certificado_co.xlsx y certificado_co.pdf.
+    - Si dentro de la selección hay partes (ICR >= 60%): incluye certificado C.O. Excel+PDF de cumplimiento (solo esas partes seleccionadas).
+    - Si dentro de la selección hay partes (< 60% o sin ICR): incluye además no_calificados Word+PDF (solo esas partes seleccionadas).
+    Si la selección contiene ambos casos: se descargan ambos.
     """
     if codigo_cliente is None:
         return JSONResponse({"error": "Falta el parámetro codigo_cliente"}, status_code=400)
     selected = [str(n).strip() for n in numero_parte if n is not None and str(n).strip()]
     if not selected:
         return JSONResponse(
-            {"error": "Seleccione al menos un número de parte en la columna Select para generar el certificado."},
+            {"error": "No hay números de parte seleccionados."},
             status_code=400,
         )
     detalle = await crud.get_analisis_icr_detalle(db, codigo_cliente=codigo_cliente)
     todas_partes = detalle.get("partes") or []
-    partes_seleccionadas = []
-    for np in selected:
-        for p in todas_partes:
-            if (p.get("part_number") or "").strip() == np:
-                partes_seleccionadas.append(p)
-                break
-    if not partes_seleccionadas:
-        return JSONResponse(
-            {"error": "Ninguno de los números de parte seleccionados pertenece a este cliente."},
-            status_code=400,
-        )
 
     def _califica(p):
         icr = p.get("icr")
@@ -1462,8 +1466,13 @@ async def api_analisis_icr_certificado_pack(
         except (TypeError, ValueError):
             return False
 
-    partes_que_califican = [p for p in partes_seleccionadas if _califica(p)]
-    hay_no_calificados = any(not _califica(p) for p in partes_seleccionadas)
+    by_part_number = {str(p.get("part_number") or "").strip(): p for p in todas_partes}
+    selected_parts = [by_part_number.get(np) for np in selected if by_part_number.get(np)]
+
+    # CO: solo partes seleccionadas que califican (ICR >= 60%).
+    partes_que_califican = [p for p in selected_parts if _califica(p)]
+    # No calificados: seleccionadas que no califican (ICR < 60% o sin ICR).
+    partes_no_calificados = [p for p in selected_parts if not _califica(p)]
 
     buf = BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -1494,32 +1503,26 @@ async def api_analisis_icr_certificado_pack(
             pdf_bytes = await asyncio.to_thread(_render_certificado_co_pdf, cert_context)
             zf.writestr(f"certificado_co_{codigo_cliente}.pdf", pdf_bytes)
 
-        if hay_no_calificados:
-            todas_partes = detalle.get("partes") or []
-            partes_no_calificados = [
-                p for p in todas_partes
-                if p.get("icr") is None or (isinstance(p.get("icr"), (int, float)) and float(p["icr"]) < 60)
-            ]
-            if partes_no_calificados:
-                part_numbers = [(p.get("part_number") or "").strip() for p in partes_no_calificados]
-                cross_ref = await crud.get_cross_reference_por_cliente_materiales(db, str(codigo_cliente), part_numbers)
-                for p in partes_no_calificados:
-                    np = (p.get("part_number") or "").strip()
-                    p["customer_part_number"] = (cross_ref.get(np) or np or "").strip()
-                no_cert_context = {
-                    "codigo_cliente": codigo_cliente,
-                    "cliente_nombre": detalle.get("cliente_nombre") or str(codigo_cliente),
-                    "partes": partes_no_calificados,
-                    "blanket_year": ahora.year,
-                    "_ahora": ahora,
-                }
-                docx_bytes = await asyncio.to_thread(_render_no_calificados_docx, no_cert_context)
-                zf.writestr(f"no_calificados_{codigo_cliente}.docx", docx_bytes)
-                try:
-                    pdf_nc_bytes = await asyncio.to_thread(_render_no_calificados_pdf, no_cert_context)
-                    zf.writestr(f"no_calificados_{codigo_cliente}.pdf", pdf_nc_bytes)
-                except Exception as e:
-                    logger.warning("No se pudo incluir PDF no calificados en el pack: %s", e)
+        if partes_no_calificados:
+            part_numbers = [(p.get("part_number") or "").strip() for p in partes_no_calificados]
+            cross_ref = await crud.get_cross_reference_por_cliente_materiales(db, str(codigo_cliente), part_numbers)
+            for p in partes_no_calificados:
+                np = (p.get("part_number") or "").strip()
+                p["customer_part_number"] = (cross_ref.get(np) or np or "").strip()
+            no_cert_context = {
+                "codigo_cliente": codigo_cliente,
+                "cliente_nombre": detalle.get("cliente_nombre") or str(codigo_cliente),
+                "partes": partes_no_calificados,
+                "blanket_year": ahora.year,
+                "_ahora": ahora,
+            }
+            docx_bytes = await asyncio.to_thread(_render_no_calificados_docx, no_cert_context)
+            zf.writestr(f"no_calificados_{codigo_cliente}.docx", docx_bytes)
+            try:
+                pdf_nc_bytes = await asyncio.to_thread(_render_no_calificados_pdf, no_cert_context)
+                zf.writestr(f"no_calificados_{codigo_cliente}.pdf", pdf_nc_bytes)
+            except Exception as e:
+                logger.warning("No se pudo incluir PDF no calificados en el pack: %s", e)
 
     buf.seek(0)
     filename_zip = f"certificado_pack_{codigo_cliente}.zip"
@@ -1536,17 +1539,26 @@ async def api_analisis_icr_no_calificados_docx(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     codigo_cliente: Optional[int] = None,
+    numero_parte: List[str] = Query(default=[], description="Números de parte seleccionados (columna Select)"),
 ):
     """
-    Genera la declaración jurada (Word) para componentes con ICR < 60% (no calificados USMCA).
-    Incluye todos los números de parte del cliente con ICR < 60% o sin ICR calculado.
+    Genera la declaración jurada (Word) para componentes con ICR < 60% (no calificados USMCA)
+    usando únicamente las partes seleccionadas.
     """
     if codigo_cliente is None:
         return JSONResponse({"error": "Falta el parámetro codigo_cliente"}, status_code=400)
+    selected = [str(n).strip() for n in numero_parte if n is not None and str(n).strip()]
+    if not selected:
+        return JSONResponse(
+            {"error": "No hay números de parte seleccionados."},
+            status_code=400,
+        )
     detalle = await crud.get_analisis_icr_detalle(db, codigo_cliente=codigo_cliente)
     todas_partes = detalle.get("partes") or []
+    by_part_number = {str(p.get("part_number") or "").strip(): p for p in todas_partes}
+    selected_parts = [by_part_number.get(np) for np in selected if by_part_number.get(np)]
     partes_no_calificados = [
-        p for p in todas_partes
+        p for p in selected_parts
         if p.get("icr") is None or (isinstance(p.get("icr"), (int, float)) and float(p["icr"]) < 60)
     ]
     if not partes_no_calificados:
@@ -1590,6 +1602,7 @@ async def api_analisis_icr_no_calificados_pdf(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     codigo_cliente: Optional[int] = None,
+    numero_parte: List[str] = Query(default=[], description="Números de parte seleccionados (columna Select)"),
 ):
     """
     Genera la declaración jurada en PDF para componentes con ICR < 60% (no calificados USMCA).
@@ -1597,10 +1610,18 @@ async def api_analisis_icr_no_calificados_pdf(
     """
     if codigo_cliente is None:
         return JSONResponse({"error": "Falta el parámetro codigo_cliente"}, status_code=400)
+    selected = [str(n).strip() for n in numero_parte if n is not None and str(n).strip()]
+    if not selected:
+        return JSONResponse(
+            {"error": "No hay números de parte seleccionados."},
+            status_code=400,
+        )
     detalle = await crud.get_analisis_icr_detalle(db, codigo_cliente=codigo_cliente)
     todas_partes = detalle.get("partes") or []
+    by_part_number = {str(p.get("part_number") or "").strip(): p for p in todas_partes}
+    selected_parts = [by_part_number.get(np) for np in selected if by_part_number.get(np)]
     partes_no_calificados = [
-        p for p in todas_partes
+        p for p in selected_parts
         if p.get("icr") is None or (isinstance(p.get("icr"), (int, float)) and float(p["icr"]) < 60)
     ]
     if not partes_no_calificados:
@@ -6635,7 +6656,7 @@ async def actualizar_porcentaje_compra_ultimos_5_anios_api(
     current_user: User = Depends(require_roles(["admin"])),
     db: AsyncSession = Depends(get_db)
 ):
-    """Calcula y actualiza % de compra en pais_origen_material con compras de los últimos 5 años (excl. año actual)."""
+    """Calcula y actualiza % de compra en pais_origen_material con compras de los últimos 2 años calendario hasta el presente."""
     try:
         resultado = await crud.actualizar_porcentaje_compra_ultimos_5_anios(
             db=db,
@@ -6643,7 +6664,7 @@ async def actualizar_porcentaje_compra_ultimos_5_anios_api(
         )
         mensaje = (
             f"✓ Se actualizaron {resultado['actualizados']} registro(s) con el % de compra "
-            f"(últimos 5 años, sin año actual). "
+            f"(últimos 2 años calendario hacia el presente). "
         )
         if resultado.get("sin_compras_en_periodo", 0) > 0:
             mensaje += f"{resultado['sin_compras_en_periodo']} registro(s) sin compras en el periodo."

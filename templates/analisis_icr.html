@@ -141,6 +141,29 @@
   </div>
 </div>
 
+<!-- Modal de Procesando -->
+<div id="icr-processing-modal" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-labelledby="icr-processing-title" role="dialog" aria-modal="true">
+  <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true"></div>
+  <div class="flex min-h-full items-center justify-center p-4 text-center sm:p-0 relative z-50">
+    <div class="relative transform overflow-hidden rounded-lg bg-white text-left shadow-xl sm:my-8 sm:w-full sm:max-w-md">
+      <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+        <div class="sm:flex sm:items-start">
+          <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[#003D89]/10 sm:mx-0 sm:shrink-0">
+            <svg class="h-6 w-6 animate-spin text-[#003D89]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" opacity="0.25"></circle>
+              <path fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+            </svg>
+          </div>
+          <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
+            <h3 class="text-lg leading-6 font-medium text-gray-900" id="icr-processing-title">Procesando...</h3>
+            <p class="mt-2 text-sm text-gray-600" id="icr-processing-text">Espere un momento.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 (function () {
   const input = document.getElementById('icr-codigo-cliente');
@@ -160,6 +183,22 @@
   var selectedPartNumbers = new Set();
   var selectedCodigoCliente = null;
   var clientesFetchTimeout = null;
+
+  const processingModal = document.getElementById('icr-processing-modal');
+  const processingTitle = document.getElementById('icr-processing-title');
+  const processingText = document.getElementById('icr-processing-text');
+
+  function showProcessingModal(title, text) {
+    if (!processingModal) return;
+    if (title && processingTitle) processingTitle.textContent = title;
+    if (text && processingText) processingText.textContent = text;
+    processingModal.classList.remove('hidden');
+  }
+
+  function hideProcessingModal() {
+    if (!processingModal) return;
+    processingModal.classList.add('hidden');
+  }
 
   function setMsg(text, isError) {
     msg.textContent = text;
@@ -382,6 +421,7 @@
     params.set('codigo_cliente', String(currentCodigoCliente));
     selected.forEach(function (np) { params.append('numero_parte', np); });
     var url = '/api/analisis-icr/certificado-pack?' + params.toString();
+    showProcessingModal('Procesando Generar Certificado', 'Generando ZIP de certificados. Espere un momento...');
     fetch(url, { method: 'GET', headers: { 'Accept': 'application/zip' } })
       .then(function (r) {
         if (!r.ok) {
@@ -398,6 +438,9 @@
       })
       .catch(function (err) {
         alert(err.message || 'Error al generar el certificado');
+      })
+      .finally(function () {
+        hideProcessingModal();
       });
   }
 
@@ -415,6 +458,10 @@
     var url = isPdf ? '/api/analisis-icr/certificado-pdf?' + params.toString() : '/api/analisis-icr/certificado-excel?' + params.toString();
     var accept = isPdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     var ext = isPdf ? 'pdf' : 'xlsx';
+    showProcessingModal(
+      formato === 'pdf' ? 'Procesando PDF' : 'Procesando Solo Excel',
+      'Generando certificado (solo Excel/PDF). Espere un momento...'
+    );
     fetch(url, { method: 'GET', headers: { 'Accept': accept } })
       .then(function (r) {
         if (!r.ok) {
@@ -431,14 +478,29 @@
       })
       .catch(function (err) {
         alert(err.message || 'Error al generar el certificado');
+      })
+      .finally(function () {
+        hideProcessingModal();
       });
   }
 
   function descargarNoCalificados(formato) {
     if (currentCodigoCliente == null) return;
-    var url = '/api/analisis-icr/no-calificados-' + (formato === 'pdf' ? 'pdf' : 'docx') + '?codigo_cliente=' + encodeURIComponent(currentCodigoCliente);
+    var selected = Array.from(selectedPartNumbers);
+    if (selected.length === 0) {
+      alert('Seleccione al menos un número de parte en la columna Select para generar el documento.');
+      return;
+    }
+    var params = new URLSearchParams();
+    params.set('codigo_cliente', String(currentCodigoCliente));
+    selected.forEach(function (np) { params.append('numero_parte', np); });
+    var url = '/api/analisis-icr/no-calificados-' + (formato === 'pdf' ? 'pdf' : 'docx') + '?' + params.toString();
     var accept = formato === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
     var ext = formato === 'pdf' ? 'pdf' : 'docx';
+    showProcessingModal(
+      formato === 'pdf' ? 'Procesando No calificados PDF' : 'Procesando No calificados Word',
+      'Generando declaración jurada. Espere un momento...'
+    );
     fetch(url, { method: 'GET', headers: { 'Accept': accept } })
       .then(function (r) {
         if (!r.ok) {
@@ -455,6 +517,9 @@
       })
       .catch(function (err) {
         alert(err.message || 'Error al generar el documento');
+      })
+      .finally(function () {
+        hideProcessingModal();
       });
   }
 
