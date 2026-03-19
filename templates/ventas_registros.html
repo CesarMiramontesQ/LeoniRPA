@@ -1,11 +1,22 @@
 {% extends "base.html" %} {% block content %}
 <div class="space-y-6">
   <!-- Header -->
-  <div class="flex items-center justify-between">
+  <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
     <div>
       <h1 class="text-2xl font-semibold text-gray-900">Registros de Ventas</h1>
       <p class="mt-1 text-sm text-gray-600">
         Visualiza y gestiona todas las ventas registradas en el sistema
+      </p>
+    </div>
+    <div class="shrink-0">
+      <a
+        href="/api/ventas/export-excel-partes-prioritarias"
+        class="inline-flex items-center justify-center rounded-md bg-[#003D89] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#002d66] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#003D89]"
+      >
+        Descargar Excel (lista de números de parte)
+      </a>
+      <p class="mt-1 max-w-xs text-xs text-gray-500">
+        Exporta ventas cuyo <span class="font-medium">producto condensado</span> coincide exactamente con la lista fija definida en el sistema.
       </p>
     </div>
   </div>

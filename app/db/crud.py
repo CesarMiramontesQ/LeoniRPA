@@ -1,7 +1,7 @@
 """Operaciones CRUD para usuarios, ejecuciones y BOM."""
 import json
 import math
-from sqlalchemy import select, desc, func, or_, and_, String, text, delete, update, cast
+from sqlalchemy import select, desc, func, or_, and_, String, text, delete, update, cast, tuple_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -2710,6 +2710,51 @@ async def get_cross_reference_por_cliente_materiales(
     for material, customer_material in rows:
         if material not in out and (customer_material or "").strip():
             out[material] = (customer_material or "").strip()
+    return out
+
+
+async def map_cross_reference_por_pares_customer_material(
+    db: AsyncSession,
+    pares: List[Tuple[str, str]],
+) -> Dict[Tuple[str, str], str]:
+    """
+    Para pares (customer, material) coincide con cross_reference.customer y cross_reference.material.
+    Devuelve mapa (customer, material) -> customer_material; si hay varias filas, la primera por orden de customer_material.
+    """
+    if not pares:
+        return {}
+    seen_q = []
+    seen_set = set()
+    for c, m in pares:
+        c = (c or "").strip()
+        m = (m or "").strip()
+        if not c or not m:
+            continue
+        if (c, m) in seen_set:
+            continue
+        seen_set.add((c, m))
+        seen_q.append((c, m))
+    if not seen_q:
+        return {}
+    # Evitar un IN gigante (límite de parámetros del driver / tamaño de consulta).
+    _BATCH = 300
+    out: Dict[Tuple[str, str], str] = {}
+    for i in range(0, len(seen_q), _BATCH):
+        batch = seen_q[i : i + _BATCH]
+        stmt = (
+            select(CrossReference.customer, CrossReference.material, CrossReference.customer_material)
+            .where(tuple_(CrossReference.customer, CrossReference.material).in_(batch))
+            .order_by(
+                CrossReference.customer,
+                CrossReference.material,
+                CrossReference.customer_material,
+            )
+        )
+        result = await db.execute(stmt)
+        for cust, mat, cm in result.all():
+            k = (cust, mat)
+            if k not in out and (cm or "").strip():
+                out[k] = (cm or "").strip()
     return out
 
 
@@ -6069,6 +6114,22 @@ async def list_ventas(
     
     query = query.order_by(desc(Venta.created_at)).limit(limit).offset(offset)
     
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def list_ventas_por_productos_in(
+    db: AsyncSession,
+    productos: List[str],
+    only_with_sales_km: bool = True,
+) -> List[Venta]:
+    """Lista ventas cuyo campo `producto_condensado` coincide exactamente con alguno de los valores dados."""
+    if not productos:
+        return []
+    query = select(Venta).options(selectinload(Venta.grupo)).where(Venta.producto_condensado.in_(productos))
+    if only_with_sales_km:
+        query = query.where(Venta.sales_km.isnot(None), Venta.sales_km != 0)
+    query = query.order_by(desc(Venta.created_at))
     result = await db.execute(query)
     return list(result.scalars().all())
 

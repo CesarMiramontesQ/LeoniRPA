@@ -2264,6 +2264,80 @@ async def api_ventas(
     })
 
 
+@app.get("/api/ventas/export-excel-partes-prioritarias")
+async def api_ventas_export_excel_partes_prioritarias(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Excel de ventas con producto_condensado en la lista de partes; sin duplicados por (código_cliente, producto),
+    conservando el registro más reciente. Sin código de cliente no se deduplica entre filas. Mismo filtro sales_km."""
+    import io
+    import pandas as pd
+    from app.constants.ventas_export_partes import NUMEROS_PARTE_EXPORT_VENTAS
+
+    ventas = await crud.list_ventas_por_productos_in(
+        db, list(NUMEROS_PARTE_EXPORT_VENTAS), only_with_sales_km=True
+    )
+    # Una fila por (código de cliente, producto). Sin código: cada fila cuenta por id (no se agrupan).
+    seen_keys = set()
+    ventas_sin_dup = []
+    for v in ventas:
+        prod_clave = (v.producto or "").strip() or (v.producto_condensado or "").strip()
+        if v.codigo_cliente is not None:
+            key = (v.codigo_cliente, prod_clave)
+        else:
+            key = (None, v.id, prod_clave)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        ventas_sin_dup.append(v)
+
+    pares_xref = []
+    for v in ventas_sin_dup:
+        if v.codigo_cliente is None:
+            continue
+        prod_xref = (v.producto or "").strip()
+        if not prod_xref:
+            continue
+        pares_xref.append((str(v.codigo_cliente).strip(), prod_xref))
+    xref_map = await crud.map_cross_reference_por_pares_customer_material(db, pares_xref)
+
+    filas = []
+    for v in ventas_sin_dup:
+        cr_val = None
+        if v.codigo_cliente is not None:
+            pk = (str(v.codigo_cliente).strip(), (v.producto or "").strip())
+            if pk[1]:
+                cr_val = xref_map.get(pk)
+        filas.append(
+            {
+                "ID": v.id,
+                "Cliente": v.cliente,
+                "Código Cliente": v.codigo_cliente,
+                "Grupo": v.grupo.grupo if v.grupo else None,
+                "Período": v.periodo.strftime("%Y-%m-%d") if v.periodo else None,
+                "Producto": v.producto,
+                "Producto condensado": v.producto_condensado,
+                "Cross Reference": cr_val,
+                "Descripción producto": v.descripcion_producto,
+                "Planta": v.planta,
+                "Sales KM": float(v.sales_km) if v.sales_km is not None else None,
+                "Turnover w/o metal": float(v.turnover_wo_metal) if v.turnover_wo_metal is not None else None,
+                "Precio Full Metal KM": float(v.precio_full_metal_km) if v.precio_full_metal_km is not None else None,
+            }
+        )
+    df = pd.DataFrame(filas)
+    buffer = io.BytesIO()
+    df.to_excel(buffer, index=False, engine="openpyxl", sheet_name="Ventas")
+    buffer.seek(0)
+    nombre = f"ventas_numeros_parte_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+    )
+
+
 @app.get("/clientes")
 async def clientes(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Página de clientes - requiere autenticación."""
