@@ -214,6 +214,9 @@
       <div class="md:flex md:items-center md:justify-between">
         <div class="min-w-0 flex-1">
           <h3 class="text-base font-semibold text-gray-900 sm:truncate">Descargar Excel BOM Breaking</h3>
+          <p class="mt-1 text-sm text-gray-500">
+            Solo incluye los {{ numeros_parte_bom_breaking|length }} números de parte prioritarios: {{ numeros_parte_bom_breaking|join(', ') }}.
+          </p>
         </div>
         <div class="mt-4 flex flex-wrap items-center gap-2 md:mt-0 md:ml-4">
           <a

@@ -347,6 +347,8 @@ async def dashboard(
 
     año_actual = datetime.now().year
     años_disponibles = list(range(año_actual, año_actual - 6, -1))
+    from app.constants.ventas_export_partes import NUMEROS_PARTE_EXPORT_VENTAS
+
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -359,6 +361,7 @@ async def dashboard(
             "ejecuciones_ventas": ejecuciones_ventas,
             "años_disponibles": años_disponibles,
             "mes_actual_nombre": mes_actual,
+            "numeros_parte_bom_breaking": list(NUMEROS_PARTE_EXPORT_VENTAS),
         },
     )
 
@@ -374,41 +377,20 @@ async def descargar_bom_breaking_dashboard(
 ):
     """
     Genera y descarga en el momento el archivo BOM_Breaking (Material - País)
-    a partir de la BD y de los números de parte del Excel de ventas.
+    a partir de la BD y de los números de parte prioritarios (6 números de parte Dacar).
     """
     import io
     import pandas as pd
     from sqlalchemy import select, func
+    from app.constants.ventas_export_partes import NUMEROS_PARTE_EXPORT_VENTAS
     from app.db.models import Parte, Bom, BomRevision, BomItem, PaisOrigenMaterial, Proveedor
 
-    xlsx_ventas = Path(__file__).resolve().parent / "ventas_numeros_gm.xlsx"
-    if not xlsx_ventas.exists():
-        return JSONResponse(
-            status_code=404,
-            content={"error": "No se encontró ventas_numeros_gm.xlsx en el servidor."},
-        )
-
-    # 1) Números de parte desde el Excel (columna Producto condensado)
-    try:
-        df_ventas = pd.read_excel(str(xlsx_ventas), sheet_name="Ventas", dtype=object)
-    except Exception:
-        df_ventas = pd.read_excel(str(xlsx_ventas), dtype=object)
-    if "Producto condensado" not in df_ventas.columns:
-        return JSONResponse(
-            status_code=400,
-            content={"error": "El Excel no contiene la columna 'Producto condensado'."},
-        )
-    part_numbers = sorted(
-        {
-            str(v).strip()
-            for v in df_ventas["Producto condensado"].dropna().tolist()
-            if str(v).strip()
-        }
-    )
+    # 1) Solo los 6 números de parte configurados (mismo criterio que export Excel en Registros de ventas)
+    part_numbers = list(NUMEROS_PARTE_EXPORT_VENTAS)
     if not part_numbers:
         return JSONResponse(
             status_code=400,
-            content={"error": "No se encontraron números de parte en 'Producto condensado'."},
+            content={"error": "No hay números de parte configurados para esta descarga."},
         )
 
     # 2) Obtener BOM vigente y materiales por parte (mismo criterio: primer BOM + revisión vigente)
