@@ -363,6 +363,224 @@ async def dashboard(
     )
 
 
+@app.get("/dashboard/descargar-bom-breaking")
+async def descargar_bom_breaking_dashboard(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Genera y descarga en el momento el archivo BOM_Breaking (Material - País)
+    a partir de la BD y de los números de parte del Excel de ventas.
+    """
+    import io
+    import pandas as pd
+    from sqlalchemy import select, func
+    from app.db.models import Parte, Bom, BomRevision, BomItem, PaisOrigenMaterial, Proveedor
+
+    xlsx_ventas = Path(__file__).resolve().parent / "ventas_numeros_gm.xlsx"
+    if not xlsx_ventas.exists():
+        return JSONResponse(
+            status_code=404,
+            content={"error": "No se encontró ventas_numeros_gm.xlsx en el servidor."},
+        )
+
+    # 1) Números de parte desde el Excel (columna Producto condensado)
+    try:
+        df_ventas = pd.read_excel(str(xlsx_ventas), sheet_name="Ventas", dtype=object)
+    except Exception:
+        df_ventas = pd.read_excel(str(xlsx_ventas), dtype=object)
+    if "Producto condensado" not in df_ventas.columns:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "El Excel no contiene la columna 'Producto condensado'."},
+        )
+    part_numbers = sorted(
+        {
+            str(v).strip()
+            for v in df_ventas["Producto condensado"].dropna().tolist()
+            if str(v).strip()
+        }
+    )
+    if not part_numbers:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "No se encontraron números de parte en 'Producto condensado'."},
+        )
+
+    # 2) Obtener BOM vigente y materiales por parte (mismo criterio: primer BOM + revisión vigente)
+    parte_rows = (
+        await db.execute(
+            select(Parte.id, Parte.numero_parte).where(Parte.numero_parte.in_(part_numbers))
+        )
+    ).all()
+    parte_id_by_no = {str(numero): pid for pid, numero in parte_rows}
+    parte_ids = list(parte_id_by_no.values())
+
+    rev_to_part_no = {}
+    if parte_ids:
+        rn = func.row_number().over(partition_by=Bom.parte_id, order_by=Bom.id).label("rn")
+        bom_first = (
+            select(Bom.parte_id.label("parte_id"), Bom.id.label("bom_id"), rn)
+            .where(Bom.parte_id.in_(parte_ids))
+            .subquery()
+        )
+        rev_q = (
+            select(bom_first.c.parte_id, BomRevision.id.label("rev_id"))
+            .join(BomRevision, BomRevision.bom_id == bom_first.c.bom_id)
+            .where(bom_first.c.rn == 1, BomRevision.effective_to.is_(None))
+        )
+        for parte_id, rev_id in (await db.execute(rev_q)).all():
+            pn = next((no for no, pid in parte_id_by_no.items() if pid == parte_id), None)
+            if pn and rev_id is not None:
+                rev_to_part_no[int(rev_id)] = pn
+
+    part_items = {pn: [] for pn in part_numbers}
+    used_mats = set(part_numbers)
+    if rev_to_part_no:
+        item_q = (
+            select(BomItem.bom_revision_id, BomItem.item_no, Parte.numero_parte.label("material_no"))
+            .join(Parte, Parte.id == BomItem.componente_id)
+            .where(BomItem.bom_revision_id.in_(list(rev_to_part_no.keys())))
+            .order_by(BomItem.item_no, BomItem.id)
+        )
+        for rev_id, _, material_no in (await db.execute(item_q)).all():
+            rev_id = int(rev_id)
+            if rev_id not in rev_to_part_no:
+                continue
+            pn = rev_to_part_no[rev_id]
+            mat = str(material_no).strip() if material_no is not None else ""
+            if not mat:
+                continue
+            part_items[pn].append(mat)
+            used_mats.add(mat)
+
+    # 3) País de origen por material/proveedor (solo % compra > 0)
+    provs_by_mat = {}
+    pais_q = (
+        select(
+            PaisOrigenMaterial.numero_material,
+            PaisOrigenMaterial.codigo_proveedor,
+            Proveedor.nombre,
+            PaisOrigenMaterial.porcentaje_compra,
+            PaisOrigenMaterial.pais_origen,
+        )
+        .join(Proveedor, Proveedor.codigo_proveedor == PaisOrigenMaterial.codigo_proveedor)
+        .where(
+            PaisOrigenMaterial.numero_material.in_(list(used_mats)),
+            PaisOrigenMaterial.porcentaje_compra.isnot(None),
+            PaisOrigenMaterial.porcentaje_compra > 0,
+        )
+        .order_by(
+            PaisOrigenMaterial.numero_material,
+            PaisOrigenMaterial.porcentaje_compra.desc(),
+            PaisOrigenMaterial.codigo_proveedor.asc(),
+        )
+    )
+    for num_mat, cod, nombre, pct, pais in (await db.execute(pais_q)).all():
+        mat = str(num_mat).strip() if num_mat is not None else ""
+        if not mat:
+            continue
+        provs_by_mat.setdefault(mat, []).append(
+            {
+                "nombre_proveedor": (nombre or "").strip() if nombre is not None else "",
+                "porcentaje_compra": float(pct) if pct is not None else None,
+                "pais_origen": (pais or "").strip() if pais is not None else "",
+            }
+        )
+
+    # 4) Armar Excel (BOM + BOM_Breaking con proveedores por columna)
+    def _fmt_pct(x):
+        if x is None:
+            return "—"
+        y = round(float(x), 8)
+        return ("{:.8f}".format(y)).rstrip("0").rstrip(".")
+
+    def _fmt_cell(mat, p):
+        proveedor = p.get("nombre_proveedor") or "—"
+        pct = _fmt_pct(p.get("porcentaje_compra"))
+        pais = p.get("pais_origen") or "—"
+        if pct == "—":
+            return f"{mat} - {pais}"
+        return f"{mat} - {pais}"
+
+    max_items = 0
+    for pn in part_numbers:
+        mats = part_items.get(pn) or [pn]
+        max_items = max(max_items, len(mats))
+
+    max_prov = 1
+    for m in used_mats:
+        n = len(provs_by_mat.get(m) or [])
+        max_prov = max(max_prov, n if n > 0 else 1)
+
+    # Hoja resumen BOM
+    bom_rows = []
+    for pn in part_numbers:
+        mats = part_items.get(pn) or [pn]
+        row = {"Numero parte": pn}
+        for i in range(1, max_items + 1):
+            if i <= len(mats):
+                mat = mats[i - 1]
+                provs = provs_by_mat.get(mat) or []
+                origin = (provs[0].get("pais_origen") if provs else "") or "—"
+                row[f"Item {i}"] = f"{mat} -> {origin}"
+            else:
+                row[f"Item {i}"] = ""
+        bom_rows.append(row)
+    df_bom = pd.DataFrame(bom_rows, columns=["Numero parte"] + [f"Item {i}" for i in range(1, max_items + 1)])
+
+    # Hoja breaking: proveedores en columnas (solo Numero material - Pais de origen)
+    break_cols = ["Numero parte"] + [
+        f"Item {i} - Proveedor {j}" for i in range(1, max_items + 1) for j in range(1, max_prov + 1)
+    ]
+    break_rows = []
+    for pn in part_numbers:
+        mats = part_items.get(pn) or [pn]
+        row = {"Numero parte": pn}
+        for i in range(1, max_items + 1):
+            if i <= len(mats):
+                mat = mats[i - 1]
+                provs = provs_by_mat.get(mat) or []
+                for j in range(1, max_prov + 1):
+                    p = provs[j - 1] if j - 1 < len(provs) else None
+                    row[f"Item {i} - Proveedor {j}"] = _fmt_cell(mat, p) if p else ""
+            else:
+                for j in range(1, max_prov + 1):
+                    row[f"Item {i} - Proveedor {j}"] = ""
+        break_rows.append(row)
+    df_break = pd.DataFrame(break_rows, columns=break_cols)
+
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        df_bom.to_excel(writer, index=False, sheet_name="BOM")
+        df_break.to_excel(writer, index=False, sheet_name="BOM_Breaking")
+    buffer.seek(0)
+
+    # 5) Resaltar CHINA en amarillo en hoja BOM_Breaking
+    from openpyxl import load_workbook
+    from openpyxl.styles import PatternFill
+
+    wb = load_workbook(buffer)
+    ws = wb["BOM_Breaking"]
+    yellow_fill = PatternFill(fill_type="solid", start_color="FFFFFF00", end_color="FFFFFF00")
+    for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=2, max_col=ws.max_column):
+        for cell in row:
+            v = cell.value
+            if isinstance(v, str) and "CHINA" in v.upper():
+                cell.fill = yellow_fill
+
+    out = io.BytesIO()
+    wb.save(out)
+    out.seek(0)
+
+    filename = f"bom_items_pais_origen_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    return StreamingResponse(
+        out,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename=\"{filename}\"'},
+    )
+
+
 @app.get("/ventas")
 async def ventas(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Página de ventas - requiere autenticación."""
