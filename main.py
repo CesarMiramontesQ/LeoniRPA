@@ -367,6 +367,10 @@ async def dashboard(
 async def descargar_bom_breaking_dashboard(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    formato: str = Query(
+        default="sin-proveedor",
+        description="Formato de celda en BOM_Breaking: sin-proveedor | con-proveedor",
+    ),
 ):
     """
     Genera y descarga en el momento el archivo BOM_Breaking (Material - País)
@@ -489,18 +493,19 @@ async def descargar_bom_breaking_dashboard(
         )
 
     # 4) Armar Excel (BOM + BOM_Breaking con proveedores por columna)
-    def _fmt_pct(x):
-        if x is None:
-            return "—"
-        y = round(float(x), 8)
-        return ("{:.8f}".format(y)).rstrip("0").rstrip(".")
+    formato_norm = (formato or "").strip().lower()
+    if formato_norm not in {"sin-proveedor", "con-proveedor"}:
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Parámetro 'formato' inválido. Usa 'sin-proveedor' o 'con-proveedor'."},
+        )
+    include_proveedor = formato_norm == "con-proveedor"
 
     def _fmt_cell(mat, p):
         proveedor = p.get("nombre_proveedor") or "—"
-        pct = _fmt_pct(p.get("porcentaje_compra"))
         pais = p.get("pais_origen") or "—"
-        if pct == "—":
-            return f"{mat} - {pais}"
+        if include_proveedor:
+            return f"{mat} - {pais} - {proveedor}"
         return f"{mat} - {pais}"
 
     max_items = 0
@@ -573,7 +578,8 @@ async def descargar_bom_breaking_dashboard(
     wb.save(out)
     out.seek(0)
 
-    filename = f"bom_items_pais_origen_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    suffix = "material_pais_proveedor" if include_proveedor else "material_pais"
+    filename = f"bom_items_{suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     return StreamingResponse(
         out,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
