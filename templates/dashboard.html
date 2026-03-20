@@ -215,7 +215,11 @@
         <div class="min-w-0 flex-1">
           <h3 class="text-base font-semibold text-gray-900 sm:truncate">Descargar Excel BOM Breaking</h3>
           <p class="mt-1 text-sm text-gray-500">
+            {% if numeros_parte_bom_breaking|length == 1 %}
+            Solo incluye el número de parte prioritario: {{ numeros_parte_bom_breaking[0] }}.
+            {% else %}
             Solo incluye los {{ numeros_parte_bom_breaking|length }} números de parte prioritarios: {{ numeros_parte_bom_breaking|join(', ') }}.
+            {% endif %}
           </p>
         </div>
         <div class="mt-4 flex flex-wrap items-center gap-2 md:mt-0 md:ml-4">

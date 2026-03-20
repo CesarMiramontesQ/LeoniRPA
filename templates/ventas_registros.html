@@ -13,11 +13,19 @@
         href="/api/ventas/export-excel-partes-prioritarias"
         class="inline-flex items-center justify-center rounded-md bg-[#003D89] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#002d66] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#003D89]"
       >
-        Descargar Excel (lista de números de parte)
+        Descargar Excel ({{ numeros_parte_export_registros|length }} números de parte)
       </a>
       <p class="mt-1 max-w-xs text-xs text-gray-500">
-        Exporta ventas cuyo <span class="font-medium">producto condensado</span> coincide con la lista fija (6 números de parte) definida en el sistema.
+        Exporta ventas con <span class="font-medium">sales_km</span> cuyo <span class="font-medium">producto condensado</span> coincide exactamente con alguno de los números de la lista.
       </p>
+      <details class="mt-2 max-w-md text-xs text-gray-600">
+        <summary class="cursor-pointer font-medium text-[#003D89] hover:underline">Ver números de parte incluidos</summary>
+        <ul class="mt-2 max-h-40 list-inside list-disc overflow-y-auto rounded border border-gray-200 bg-gray-50 px-2 py-1.5">
+          {% for np in numeros_parte_export_registros %}
+          <li class="font-mono">{{ np }}</li>
+          {% endfor %}
+        </ul>
+      </details>
     </div>
   </div>
 

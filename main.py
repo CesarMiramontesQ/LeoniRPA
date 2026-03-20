@@ -347,7 +347,7 @@ async def dashboard(
 
     año_actual = datetime.now().year
     años_disponibles = list(range(año_actual, año_actual - 6, -1))
-    from app.constants.ventas_export_partes import NUMEROS_PARTE_EXPORT_VENTAS
+    from app.constants.ventas_export_partes import NUMEROS_PARTE_BOM_BREAKING
 
     return templates.TemplateResponse(
         "dashboard.html",
@@ -361,7 +361,7 @@ async def dashboard(
             "ejecuciones_ventas": ejecuciones_ventas,
             "años_disponibles": años_disponibles,
             "mes_actual_nombre": mes_actual,
-            "numeros_parte_bom_breaking": list(NUMEROS_PARTE_EXPORT_VENTAS),
+            "numeros_parte_bom_breaking": list(NUMEROS_PARTE_BOM_BREAKING),
         },
     )
 
@@ -377,16 +377,15 @@ async def descargar_bom_breaking_dashboard(
 ):
     """
     Genera y descarga en el momento el archivo BOM_Breaking (Material - País)
-    a partir de la BD y de los números de parte prioritarios (6 números de parte Dacar).
+    a partir de la BD y de NUMEROS_PARTE_BOM_BREAKING.
     """
     import io
     import pandas as pd
     from sqlalchemy import select, func
-    from app.constants.ventas_export_partes import NUMEROS_PARTE_EXPORT_VENTAS
+    from app.constants.ventas_export_partes import NUMEROS_PARTE_BOM_BREAKING
     from app.db.models import Parte, Bom, BomRevision, BomItem, PaisOrigenMaterial, Proveedor
 
-    # 1) Solo los 6 números de parte configurados (mismo criterio que export Excel en Registros de ventas)
-    part_numbers = list(NUMEROS_PARTE_EXPORT_VENTAS)
+    part_numbers = list(NUMEROS_PARTE_BOM_BREAKING)
     if not part_numbers:
         return JSONResponse(
             status_code=400,
@@ -592,16 +591,19 @@ async def ventas(request: Request, current_user: User = Depends(get_current_user
 @app.get("/ventas-registros")
 async def ventas_registros(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Página de registros de ventas - requiere autenticación."""
+    from app.constants.ventas_export_partes import NUMEROS_PARTE_EXPORT_REGISTROS_VENTAS
+
     total_ventas = await crud.count_ventas(db, only_with_sales_km=True)
-    
+
     return templates.TemplateResponse(
         "ventas_registros.html",
         {
             "request": request,
             "active_page": "ventas_registros",
             "current_user": current_user,
-            "total_ventas": total_ventas
-        }
+            "total_ventas": total_ventas,
+            "numeros_parte_export_registros": list(NUMEROS_PARTE_EXPORT_REGISTROS_VENTAS),
+        },
     )
 
 
@@ -2475,14 +2477,14 @@ async def api_ventas_export_excel_partes_prioritarias(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Excel de ventas con producto_condensado en la lista de partes; sin duplicados por (código_cliente, producto),
+    """Excel de ventas con producto_condensado en NUMEROS_PARTE_EXPORT_REGISTROS_VENTAS; sin duplicados por (código_cliente, producto),
     conservando el registro más reciente. Sin código de cliente no se deduplica entre filas. Mismo filtro sales_km."""
     import io
     import pandas as pd
-    from app.constants.ventas_export_partes import NUMEROS_PARTE_EXPORT_VENTAS
+    from app.constants.ventas_export_partes import NUMEROS_PARTE_EXPORT_REGISTROS_VENTAS
 
     ventas = await crud.list_ventas_por_productos_in(
-        db, list(NUMEROS_PARTE_EXPORT_VENTAS), only_with_sales_km=True
+        db, list(NUMEROS_PARTE_EXPORT_REGISTROS_VENTAS), only_with_sales_km=True
     )
     # Una fila por (código de cliente, producto). Sin código: cada fila cuenta por id (no se agrupan).
     seen_keys = set()
