@@ -591,7 +591,10 @@ async def ventas(request: Request, current_user: User = Depends(get_current_user
 @app.get("/ventas-registros")
 async def ventas_registros(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Página de registros de ventas - requiere autenticación."""
-    from app.constants.ventas_export_partes import NUMEROS_PARTE_EXPORT_REGISTROS_VENTAS
+    from app.constants.ventas_export_partes import (
+        NUMEROS_PARTE_EXPORT_REGISTROS_VENTAS,
+        VENTAS_EXPORT_PRODUCTO_CONDENSADO_PREFIX_LEN,
+    )
 
     total_ventas = await crud.count_ventas(db, only_with_sales_km=True)
 
@@ -603,6 +606,7 @@ async def ventas_registros(request: Request, current_user: User = Depends(get_cu
             "current_user": current_user,
             "total_ventas": total_ventas,
             "numeros_parte_export_registros": list(NUMEROS_PARTE_EXPORT_REGISTROS_VENTAS),
+            "ventas_export_condensado_prefix_len": VENTAS_EXPORT_PRODUCTO_CONDENSADO_PREFIX_LEN,
         },
     )
 
@@ -2477,14 +2481,20 @@ async def api_ventas_export_excel_partes_prioritarias(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Excel de ventas con producto_condensado en NUMEROS_PARTE_EXPORT_REGISTROS_VENTAS; sin duplicados por (código_cliente, producto),
+    """Excel de ventas: producto = lista completa; producto_condensado = prefijo (9) de cada número. Sin duplicados por (código_cliente, producto),
     conservando el registro más reciente. Sin código de cliente no se deduplica entre filas. Mismo filtro sales_km."""
     import io
     import pandas as pd
-    from app.constants.ventas_export_partes import NUMEROS_PARTE_EXPORT_REGISTROS_VENTAS
+    from app.constants.ventas_export_partes import (
+        NUMEROS_PARTE_EXPORT_REGISTROS_VENTAS,
+        VENTAS_EXPORT_PRODUCTO_CONDENSADO_PREFIX_LEN,
+    )
 
     ventas = await crud.list_ventas_por_productos_in(
-        db, list(NUMEROS_PARTE_EXPORT_REGISTROS_VENTAS), only_with_sales_km=True
+        db,
+        list(NUMEROS_PARTE_EXPORT_REGISTROS_VENTAS),
+        only_with_sales_km=True,
+        producto_condensado_prefix_len=VENTAS_EXPORT_PRODUCTO_CONDENSADO_PREFIX_LEN,
     )
     # Una fila por (código de cliente, producto). Sin código: cada fila cuenta por id (no se agrupan).
     seen_keys = set()

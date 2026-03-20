@@ -16,7 +16,7 @@
         Descargar Excel ({{ numeros_parte_export_registros|length }} números de parte)
       </a>
       <p class="mt-1 max-w-xs text-xs text-gray-500">
-        Exporta ventas con <span class="font-medium">sales_km</span> cuyo <span class="font-medium">producto condensado</span> coincide exactamente con alguno de los números de la lista.
+        Exporta ventas con <span class="font-medium">sales_km</span> si el <span class="font-medium">producto</span> coincide con algún número completo de la lista, o si el <span class="font-medium">artículo condensado</span> coincide con los primeros <span class="font-medium">{{ ventas_export_condensado_prefix_len }}</span> caracteres de algún número de la lista.
       </p>
       <details class="mt-2 max-w-md text-xs text-gray-600">
         <summary class="cursor-pointer font-medium text-[#003D89] hover:underline">Ver números de parte incluidos</summary>

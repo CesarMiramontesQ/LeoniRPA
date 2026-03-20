@@ -6122,11 +6122,31 @@ async def list_ventas_por_productos_in(
     db: AsyncSession,
     productos: List[str],
     only_with_sales_km: bool = True,
+    producto_condensado_prefix_len: Optional[int] = None,
 ) -> List[Venta]:
-    """Lista ventas cuyo campo `producto_condensado` coincide exactamente con alguno de los valores dados."""
+    """
+    Lista ventas filtradas por lista de números de parte.
+
+    - `producto`: coincidencia exacta con algún valor (tras strip).
+    - `producto_condensado`: si `producto_condensado_prefix_len` > 0, coincide con el prefijo de esa
+      longitud de cada valor (conjunto único); si es None, coincide con el valor completo como `producto`.
+    """
     if not productos:
         return []
-    query = select(Venta).options(selectinload(Venta.grupo)).where(Venta.producto_condensado.in_(productos))
+    productos_limpios = [str(p).strip() for p in productos if p is not None and str(p).strip()]
+    if not productos_limpios:
+        return []
+    if producto_condensado_prefix_len is not None and producto_condensado_prefix_len > 0:
+        prefijos = list({p[:producto_condensado_prefix_len] for p in productos_limpios})
+        cond_match = Venta.producto_condensado.in_(prefijos)
+    else:
+        cond_match = Venta.producto_condensado.in_(productos_limpios)
+    query = select(Venta).options(selectinload(Venta.grupo)).where(
+        or_(
+            cond_match,
+            Venta.producto.in_(productos_limpios),
+        )
+    )
     if only_with_sales_km:
         query = query.where(Venta.sales_km.isnot(None), Venta.sales_km != 0)
     query = query.order_by(desc(Venta.created_at))

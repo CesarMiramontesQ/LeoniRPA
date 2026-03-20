@@ -1,9 +1,10 @@
 """Constantes de números de parte usadas en exportaciones y BOM Breaking."""
 
-# Dashboard: descarga Excel BOM Breaking (hojas BOM + BOM_Breaking).
-NUMEROS_PARTE_BOM_BREAKING = ("76B00025A",)
+# Excel del botón "Descargar" en Registros de Ventas:
+# - `producto` en BD = coincidencia exacta con algún valor de la tupla siguiente.
+# - `producto_condensado` (Artnr condensed) = coincidencia exacta con los primeros N caracteres de cada valor.
+VENTAS_EXPORT_PRODUCTO_CONDENSADO_PREFIX_LEN = 9
 
-# Excel del botón "Descargar" en la página Registros de Ventas (coincidencia exacta en producto_condensado).
 NUMEROS_PARTE_EXPORT_REGISTROS_VENTAS = (
     "76D00306A000H4016",
     "76D00306E000H4016",
@@ -23,4 +24,14 @@ NUMEROS_PARTE_EXPORT_REGISTROS_VENTAS = (
     "76D00306A000H6012",
     "76D00306AXXXK8002",
     "76D00306A000H6008",
+)
+
+# Dashboard: descarga Excel BOM Breaking — mismos códigos únicos de 9 caracteres que el condensado de la lista anterior.
+NUMEROS_PARTE_BOM_BREAKING = tuple(
+    sorted(
+        {
+            p.strip()[:VENTAS_EXPORT_PRODUCTO_CONDENSADO_PREFIX_LEN]
+            for p in NUMEROS_PARTE_EXPORT_REGISTROS_VENTAS
+        }
+    )
 )
