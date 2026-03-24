@@ -2460,34 +2460,43 @@ async def create_material(
     user_id: Optional[int] = None
 ) -> Material:
     """Crea un nuevo material."""
-    # Verificar que no exista antes de crear
     material_existente = await get_material_by_numero(db, numero_material)
     if material_existente:
         raise ValueError(f"El material {numero_material} ya existe")
-    
-    material = Material(
-        numero_material=numero_material,
-        descripcion_material=descripcion_material
-    )
-    db.add(material)
-    await db.flush()  # Flush para obtener el ID sin hacer commit
-    await db.refresh(material)
-    
-    # Registrar en historial
-    if user_id is not None:
-        historial = MaterialHistorial(
+
+    for attempt in range(2):
+        material = Material(
             numero_material=numero_material,
-            material_id=material.id,
-            operacion=MaterialOperacion.CREATE,
-            user_id=user_id,
-            datos_antes=None,
-            datos_despues=_material_to_dict(material),
-            campos_modificados=None
+            descripcion_material=descripcion_material
         )
-        db.add(historial)
-    
-    await db.commit()
-    return material
+        db.add(material)
+        try:
+            await db.flush()
+            await db.refresh(material)
+            if user_id is not None:
+                historial = MaterialHistorial(
+                    numero_material=numero_material,
+                    material_id=material.id,
+                    operacion=MaterialOperacion.CREATE,
+                    user_id=user_id,
+                    datos_antes=None,
+                    datos_despues=_material_to_dict(material),
+                    campos_modificados=None
+                )
+                db.add(historial)
+            await db.commit()
+            await db.refresh(material)
+            return material
+        except IntegrityError as e:
+            await db.rollback()
+            if attempt == 0 and _es_violacion_unicidad_materiales_pkey(e):
+                await _align_materiales_id_sequence(db)
+                dup = await get_material_by_numero(db, numero_material)
+                if dup:
+                    raise ValueError(f"El material {numero_material} ya existe") from e
+                continue
+            raise
+    raise RuntimeError("create_material: fallthrough inesperado")
 
 
 async def update_material(
@@ -3461,6 +3470,25 @@ async def count_material_historial(
     return result.scalar() or 0
 
 
+async def _align_materiales_id_sequence(db: AsyncSession) -> None:
+    """
+    Alinea la secuencia materiales_id_seq con MAX(id) de materiales.
+    Evita UniqueViolation en materiales_pkey tras importaciones o inserts con id explícito.
+    """
+    try:
+        result_max_id = await db.execute(select(func.max(Material.id)))
+        max_id = result_max_id.scalar() or 0
+        await db.execute(
+            text(f"SELECT setval('materiales_id_seq', {max_id + 1}, false)")
+        )
+        await db.commit()
+    except Exception:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+
 def _es_violacion_unicidad_materiales_pkey(exc: BaseException) -> bool:
     """
     Detecta UniqueViolation en la PK de materiales (secuencia id desalineada).
@@ -3493,19 +3521,8 @@ async def sincronizar_materiales_desde_compras(
     nuevos_creados = 0
     
     try:
-        # 0. Alinear secuencia materiales_id_seq con el máximo id (evita UniqueViolation tras importaciones o inserts manuales)
-        try:
-            result_max_id = await db.execute(select(func.max(Material.id)))
-            max_id = result_max_id.scalar() or 0
-            await db.execute(
-                text(f"SELECT setval('materiales_id_seq', {max_id + 1}, false)")
-            )
-            await db.commit()
-        except Exception:
-            try:
-                await db.rollback()
-            except Exception:
-                pass
+        # 0. Alinear secuencia materiales_id_seq (evita UniqueViolation tras importaciones o inserts manuales)
+        await _align_materiales_id_sequence(db)
 
         # 1. Obtener todos los numero_material únicos de compras que no sean NULL
         # Usamos GROUP BY para obtener la descripcion_material más común
@@ -3853,6 +3870,9 @@ async def sincronizar_paises_origen_desde_compras(
             await db.rollback()
             # Continuar; si falla el insert se manejará en el except del loop
             pass
+
+        # 0b. Alinear secuencia de materiales (create_material en este flujo; misma causa que en /materiales/actualizar)
+        await _align_materiales_id_sequence(db)
 
         # 1. Obtener todas las combinaciones únicas de proveedor/material en compras
         query_pares = select(
