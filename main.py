@@ -4,9 +4,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse, FileResponse, StreamingResponse, Response
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date, time
 from contextlib import asynccontextmanager
-from typing import Optional, List
+from typing import Any, Optional, List, Tuple
 from decimal import Decimal, InvalidOperation
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.router import router as auth_router, get_current_user, AuthenticationError, require_roles
@@ -28,6 +28,7 @@ import sys
 import socket
 import platform
 import os
+import re
 import logging
 import zipfile
 
@@ -368,7 +369,7 @@ async def dashboard(
 
 @app.get("/dashboard/descargar-bom-breaking")
 async def descargar_bom_breaking_dashboard(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(["GM"])),
     db: AsyncSession = Depends(get_db),
     formato: str = Query(
         default="sin-proveedor",
@@ -918,6 +919,78 @@ _CERT_CO_LEONI = {
 }
 
 
+def _fmt_certificado_co_fecha_mdy(d: date) -> str:
+    """Formato M/D/YY del certificado C.O. (blanket period, etc.)."""
+    return f"{d.month}/{d.day}/{d.strftime('%y')}"
+
+
+def _parse_fecha_iso_query(value: Optional[str]) -> Optional[date]:
+    """Parsea YYYY-MM-DD desde query (input type=date). None si vacío o inválido."""
+    if value is None or not str(value).strip():
+        return None
+    t = str(value).strip()[:10]
+    try:
+        y, m, da = t.split("-")
+        return date(int(y), int(m), int(da))
+    except (ValueError, TypeError):
+        return None
+
+
+def _resolve_blanket_period_certificado(
+    blanket_from_q: Optional[str],
+    blanket_to_q: Optional[str],
+    ref: Optional[datetime] = None,
+) -> Tuple[Optional[str], date, date, str, str]:
+    """
+    Resuelve From/To del blanket period del certificado C.O.
+    Si no se envían query params, usa 1 ene – 31 dic del año de ref.
+    Si se envía una fecha, deben enviarse ambas (YYYY-MM-DD).
+    Retorna (error_msg|None, d_from, d_to, str_from_mdy, str_to_mdy).
+    """
+    ref = ref or datetime.now()
+    y = ref.year
+    default_from = date(y, 1, 1)
+    default_to = date(y, 12, 31)
+    has_from = blanket_from_q is not None and str(blanket_from_q).strip() != ""
+    has_to = blanket_to_q is not None and str(blanket_to_q).strip() != ""
+    if has_from != has_to:
+        return (
+            "Debe indicar ambas fechas From y To del periodo del certificado (o ninguna para el año en curso).",
+            default_from,
+            default_to,
+            "",
+            "",
+        )
+    if has_from and has_to:
+        pf = _parse_fecha_iso_query(blanket_from_q)
+        pt = _parse_fecha_iso_query(blanket_to_q)
+        if pf is None or pt is None:
+            return "Formato de fecha inválido. Use YYYY-MM-DD.", default_from, default_to, "", ""
+        d_from, d_to = pf, pt
+    else:
+        d_from, d_to = default_from, default_to
+    if d_from > d_to:
+        return "La fecha From no puede ser posterior a To.", d_from, d_to, "", ""
+    return (
+        None,
+        d_from,
+        d_to,
+        _fmt_certificado_co_fecha_mdy(d_from),
+        _fmt_certificado_co_fecha_mdy(d_to),
+    )
+
+
+def _tariff_fraccion_certificado_primeros_6_digitos(value: Optional[str]) -> str:
+    """Para certificados C.O. y no calificados: solo los primeros 6 dígitos de la fracción (ignora puntos, espacios, etc.)."""
+    if value is None:
+        return ""
+    s = str(value).strip()
+    if not s:
+        return ""
+    digits = "".join(c for c in s if c.isdigit())
+    return digits[:6] if digits else ""
+
+
 def _render_certificado_co_pdf_reportlab(context: dict) -> bytes:
     """Genera el certificado C.O. en PDF con ReportLab cuando LibreOffice/Excel no están disponibles."""
     if not _REPORTLAB_AVAILABLE:
@@ -951,10 +1024,16 @@ def _render_certificado_co_pdf_reportlab(context: dict) -> bytes:
     for p in partes:
         # En PDF (fallback reportlab), mostramos "part_number — description" si existe.
         desc = (p.get("part_number") or "—")
-        if p.get("description"):
+        if not context.get("certificado_simulacion") and p.get("description"):
             d = (p.get("description") or "")[:80]
             desc += " — " + (d + "..." if len((p.get("description") or "")) > 80 else d)
-        data.append(["", desc, p.get("tariff_schedule") or "SEE ATTACHED", "B", p.get("origin") or "MX"])
+        ts_raw = (p.get("tariff_schedule") or "").strip()
+        ts6 = _tariff_fraccion_certificado_primeros_6_digitos(ts_raw)
+        if context.get("certificado_simulacion"):
+            tariff_col = ts6
+        else:
+            tariff_col = ts6 if ts6 else "SEE ATTACHED"
+        data.append(["", desc, tariff_col, "B", p.get("origin") or "MX"])
     if not partes:
         data.append(["", "—", "SEE ATTACHED", "—", "—"])
     t3 = Table(data, colWidths=[0.3 * inch, 2.3 * inch, 1.3 * inch, 1.0 * inch, 1.0 * inch])
@@ -972,6 +1051,289 @@ def _render_certificado_co_pdf_reportlab(context: dict) -> bytes:
     t4 = Table([[Paragraph(left_sig, body_style), Paragraph(right_sig, body_style)]], colWidths=[3.25 * inch, 3.25 * inch])
     t4.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (1, 0), (1, 0), 20)]))
     story.append(t4)
+    doc.build(story)
+    return out.getvalue()
+
+
+def _render_simulacion_icr_analisis_pdf(payload: dict) -> bytes:
+    """PDF del análisis de simulación ICR: resumen general, BOM y breakdowns (sin saltos forzados entre secciones). Solo ReportLab."""
+    if not _REPORTLAB_AVAILABLE:
+        raise RuntimeError("reportlab no está instalado; ejecute: pip install reportlab")
+    from reportlab.lib.pagesizes import landscape, letter
+
+    def _cell(s: object, max_len: int = 120) -> str:
+        t = "" if s is None else str(s).replace("\r", " ").replace("\n", " ")
+        t = t.strip()
+        if len(t) > max_len:
+            t = t[: max_len - 1] + "…"
+        return t
+
+    def _fmt_num(v) -> str:
+        if v is None:
+            return "—"
+        try:
+            if isinstance(v, bool):
+                return str(v)
+            f = float(v)
+            if f != f:  # NaN
+                return "—"
+            return f"{f:.8f}".rstrip("0").rstrip(".")
+        except (TypeError, ValueError):
+            return _cell(v, 40)
+
+    _MAX_ROWS = 500
+    page = landscape(letter)
+    out = BytesIO()
+    doc = SimpleDocTemplate(
+        out,
+        pagesize=page,
+        leftMargin=0.4 * inch,
+        rightMargin=0.4 * inch,
+        topMargin=0.4 * inch,
+        bottomMargin=0.4 * inch,
+    )
+    styles = getSampleStyleSheet()
+    h1 = ParagraphStyle(
+        name="SimIcrH1",
+        parent=styles["Heading1"],
+        fontSize=14,
+        spaceAfter=6,
+        textColor=colors.HexColor("#003D89"),
+    )
+    h2 = ParagraphStyle(
+        name="SimIcrH2",
+        parent=styles["Heading2"],
+        fontSize=10,
+        spaceBefore=5,
+        spaceAfter=4,
+        textColor=colors.HexColor("#1e293b"),
+    )
+    small = ParagraphStyle(name="SimIcrSmall", parent=styles["Normal"], fontSize=8, spaceAfter=4)
+    sum_val_style = ParagraphStyle(
+        name="SimIcrSumVal",
+        parent=styles["Normal"],
+        fontSize=8,
+        leading=10,
+    )
+    story = []
+
+    def _icr_percent_cell(icr_raw):
+        """Valor ICR en negrita: verde si >= 60 %, rojo si es menor."""
+        from xml.sax.saxutils import escape
+
+        if icr_raw is None:
+            return Paragraph("—", sum_val_style)
+        try:
+            f = float(icr_raw)
+            if f != f:
+                return Paragraph("—", sum_val_style)
+        except (TypeError, ValueError):
+            return Paragraph(escape(_cell(icr_raw, 40)), sum_val_style)
+        display = escape(_fmt_num(f))
+        hex_c = "#15803d" if f >= 60.0 else "#b91c1c"
+        return Paragraph(
+            f'<b><font color="{hex_c}">{display}</font></b>',
+            sum_val_style,
+        )
+
+    ahora = datetime.now()
+    report_title = (payload.get("report_title") or "").strip() or "Simulación ICR — Análisis"
+    story.append(Paragraph(_cell(report_title, 120), h1))
+    story.append(Paragraph(f"Generado: {ahora.strftime('%Y-%m-%d %H:%M')}", small))
+    report_ctx = (payload.get("report_context") or "").strip()
+    if report_ctx:
+        story.append(Paragraph(_cell(report_ctx, 220), small))
+
+    fr = _cell(payload.get("fraccion") or "—", 80)
+    fob = payload.get("fob")
+    mk = payload.get("markup")
+    icr = payload.get("icr")
+    to = payload.get("total_originating")
+    tn = payload.get("total_non_originating")
+
+    sum_data = [
+        ["Custom tariff (fracción)", fr],
+        ["F.O.B (USD)", _fmt_num(fob) if fob is not None else "—"],
+        ["Markup (USD)", _fmt_num(mk) if mk is not None else "—"],
+        ["ICR (%)", _icr_percent_cell(icr)],
+        ["Total Originating Supplies (USD)", _fmt_num(to) if to is not None else "—"],
+        ["Total Non-Originating Supplies (USD)", _fmt_num(tn) if tn is not None else "—"],
+    ]
+    mats_raw = payload.get("materiales_agregados")
+    if not isinstance(mats_raw, list):
+        mats_raw = []
+    mat_parts: list = []
+    for x in mats_raw:
+        if isinstance(x, dict):
+            nm = str(x.get("numero_material") or x.get("numero_parte") or "").strip()
+            dc = str(x.get("descripcion") or "").strip()
+            if not nm:
+                continue
+            line = f"{_cell(nm, 48)} - {_cell(dc, 200)}" if dc else _cell(nm, 80)
+            mat_parts.append(line)
+        elif x is not None:
+            s = str(x).strip()
+            if s:
+                mat_parts.append(_cell(s, 120))
+    if mat_parts:
+        from xml.sax.saxutils import escape
+
+        mats_html = ";<br/>".join(escape(p) for p in mat_parts)
+        sum_data.append(["Materiales agregados", Paragraph(mats_html, sum_val_style)])
+
+    tw_sum = (page[0] - doc.leftMargin - doc.rightMargin) / 2 - 0.1 * inch
+    t_sum = Table(sum_data, colWidths=[tw_sum, tw_sum])
+    t_sum.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f1f5f9")),
+                ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#cbd5e1")),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 5),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+                ("TOPPADDING", (0, 0), (-1, -1), 3),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ]
+        )
+    )
+    story.append(t_sum)
+
+    def _table_section(
+        title: str,
+        headers: list,
+        rows: list,
+        col_widths: list,
+        footer_rows: Optional[list] = None,
+        repeat_header: bool = True,
+    ):
+        story.append(Paragraph(title, h2))
+        foot = footer_rows if footer_rows else []
+        if not rows and not foot:
+            story.append(Paragraph("Sin filas.", small))
+            return
+        note = ""
+        body = list(rows)
+        if len(body) > _MAX_ROWS:
+            note = f"(Se muestran las primeras {_MAX_ROWS} filas de {len(body)}.)"
+            body = body[:_MAX_ROWS]
+        if note:
+            story.append(Paragraph(note, small))
+        data = [headers] + body + foot
+        w_avail = page[0] - doc.leftMargin - doc.rightMargin
+        scale = w_avail / sum(col_widths)
+        cw = [w * scale for w in col_widths]
+        tbl = Table(data, colWidths=cw, repeatRows=1 if repeat_header else 0)
+        ts = [
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e2e8f0")),
+            ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#94a3b8")),
+            ("FONTSIZE", (0, 0), (-1, -1), 7),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 3),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+            ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ]
+        if foot:
+            f0 = len(data) - len(foot)
+            ts.append(("BACKGROUND", (0, f0), (-1, -1), colors.HexColor("#f1f5f9")))
+            ts.append(("FONTNAME", (0, f0), (-1, -1), "Helvetica-Bold"))
+        tbl.setStyle(TableStyle(ts))
+        story.append(tbl)
+
+    bom = payload.get("bom") if isinstance(payload.get("bom"), list) else []
+    bom_rows = []
+    for i, r in enumerate(bom):
+        if not isinstance(r, dict):
+            continue
+        bom_rows.append(
+            [
+                str(i + 1),
+                _cell(r.get("numero_parte"), 24),
+                _cell(r.get("descripcion"), 64),
+                _cell(r.get("qty"), 14),
+                _cell(r.get("measure"), 10),
+                _cell(r.get("comm_code"), 14),
+                _cell(r.get("tipo_label"), 14),
+            ]
+        )
+    _table_section(
+        "Ítems del BOM",
+        ["#", "Nº parte", "Descripción", "Cant.", "Med.", "Código", "Tipo"],
+        bom_rows,
+        [0.32, 0.82, 2.55, 0.48, 0.4, 0.62, 0.58],
+    )
+
+    oo = payload.get("originating_rows") if isinstance(payload.get("originating_rows"), list) else []
+    or_rows = []
+    for r in oo:
+        if not isinstance(r, dict):
+            continue
+        or_rows.append(
+            [
+                _cell(r.get("material"), 36),
+                _cell(r.get("proveedor"), 28),
+                _cell(r.get("pct"), 12),
+                _cell(r.get("qty_kg"), 14),
+                _cell(r.get("pu"), 18),
+                _cell(r.get("origin"), 12),
+                _cell(r.get("value"), 18),
+            ]
+        )
+    orig_foot = [
+        [
+            "Total Originating Supplies (USD)",
+            "",
+            "",
+            "",
+            "",
+            "",
+            _fmt_num(to) if to is not None else "—",
+        ]
+    ]
+    _table_section(
+        "Breakdown of Originating Supplies",
+        ["Material / Nº parte", "Proveedor", "% compra", "Qty / Kg", "PU / Kg", "Origin", "Value (USD)"],
+        or_rows,
+        [1.35, 1.05, 0.45, 0.55, 0.75, 0.5, 0.75],
+        footer_rows=orig_foot,
+    )
+
+    nn = payload.get("non_originating_rows") if isinstance(payload.get("non_originating_rows"), list) else []
+    nr_rows = []
+    for r in nn:
+        if not isinstance(r, dict):
+            continue
+        nr_rows.append(
+            [
+                _cell(r.get("material"), 36),
+                _cell(r.get("proveedor"), 28),
+                _cell(r.get("pct"), 12),
+                _cell(r.get("qty_kg"), 14),
+                _cell(r.get("pu"), 18),
+                _cell(r.get("origin"), 12),
+                _cell(r.get("value"), 22),
+            ]
+        )
+    non_foot = [
+        [
+            "Total Non-Originating Supplies (USD)",
+            "",
+            "",
+            "",
+            "",
+            "",
+            (_fmt_num(tn) + " USD") if tn is not None else "—",
+        ]
+    ]
+    _table_section(
+        "Breakdown of Non-Originating Supplies",
+        ["Material / Nº parte", "Proveedor", "% compra", "Qty / Kg", "PU / Kg", "Origin", "Value (USD)"],
+        nr_rows,
+        [1.35, 1.05, 0.45, 0.55, 0.75, 0.5, 0.75],
+        footer_rows=non_foot,
+    )
+
     doc.build(story)
     return out.getvalue()
 
@@ -1036,6 +1398,14 @@ def _render_certificado_co_xlsx(context: dict) -> bytes:
 
     cliente_nombre = (context.get("cliente_nombre") or "").strip() or "VARIOUS (optional customer address)"
     _set_cell(ws, 16, 5, cliente_nombre)
+
+    # Blanket period en plantilla C.O.: fila 41 col 5 = FROM, fila 42 col 5 = TO (ver Plantilla calificados.xlsx)
+    bd_f = context.get("_blanket_period_from_date")
+    bd_t = context.get("_blanket_period_to_date")
+    if isinstance(bd_f, date):
+        _set_cell(ws, 41, 5, datetime.combine(bd_f, time.min))
+    if isinstance(bd_t, date):
+        _set_cell(ws, 42, 5, datetime.combine(bd_t, time.min))
 
     # En C.O. no se rellenan componentes (se deja como en plantilla, p. ej. SEE ATTACHED). Solo cliente y número de páginas.
     # La firma va ya en la plantilla; no se inserta aquí.
@@ -1105,18 +1475,31 @@ def _render_certificado_co_xlsx(context: dict) -> bytes:
         for row in range(fila_ini_co3, ultima_fila_a_limpiar + 1):
             for col in columnas_co3:
                 _set_cell(ws_co3, row, col, "")
+        cert_sim = context.get("certificado_simulacion")
         for i, p in enumerate(partes_co3):
             row = fila_ini_co3 + i
             numero = (p.get("part_number") or "").strip()
-            customer_part = (p.get("customer_part_number") or numero or "").strip()
+            customer_part = (
+                ""
+                if cert_sim
+                else (p.get("customer_part_number") or numero or "").strip()
+            )
             _set_cell(ws_co3, row, 2, "Electrical Cable")
             _set_cell(ws_co3, row, 3, customer_part)
             _set_cell(ws_co3, row, 4, numero)
-            descripcion = (p.get("description") or "").strip()
-            if descripcion:
-                descripcion = descripcion[:120].strip()
+            if cert_sim:
+                descripcion = ""
+            else:
+                descripcion = (p.get("description") or "").strip()
+                if descripcion:
+                    descripcion = descripcion[:120].strip()
             _set_cell(ws_co3, row, 5, descripcion or "")
-            _set_cell(ws_co3, row, 6, (p.get("tariff_schedule") or "").strip() or "")
+            _set_cell(
+                ws_co3,
+                row,
+                6,
+                _tariff_fraccion_certificado_primeros_6_digitos((p.get("tariff_schedule") or "").strip()) or "",
+            )
             _set_cell(ws_co3, row, 8, "B")
             _set_cell(ws_co3, row, 9, "MX")
         # Ajustar ancho de columnas en C.O. 3 para que se vea todo el texto.
@@ -1234,11 +1617,66 @@ def _render_certificado_co_pdf_via_office(
         raise RuntimeError("No se pudo convertir la plantilla Excel a PDF.")
 
 
+_NO_CALIF_DATE_COMPLETED_MONTHS_EN = (
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+)
+
+
+def _fmt_date_completed_no_calificados_en(d: date) -> str:
+    """Formato tipo plantilla: '26 Jan 2026' (mes abreviado en inglés)."""
+    return f"{d.day} {_NO_CALIF_DATE_COMPLETED_MONTHS_EN[d.month - 1]} {d.year}"
+
+
+def _patch_no_calificados_docx_fechas(doc: Any, blanket_year: int, date_completed_en: str) -> None:
+    """
+    Blanket Year: texto 'Blanket Year: AAAA' → año actual al generar.
+    Date completed: celda o párrafo cuyo texto es solo 'd Mon yyyy' en inglés → fecha de generación.
+    """
+    blanket_re = re.compile(r"(Blanket Year:\s*)\d{4}", re.IGNORECASE)
+    date_cell_re = re.compile(
+        r"^\s*\d{1,2}\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\s*$",
+        re.IGNORECASE,
+    )
+
+    def patch_text(t: str) -> str:
+        if not t or not str(t).strip():
+            return t
+        nt = blanket_re.sub(lambda m: m.group(1) + str(blanket_year), t)
+        stripped = nt.strip()
+        if date_cell_re.fullmatch(stripped):
+            return date_completed_en
+        return nt
+
+    for p in doc.paragraphs:
+        nt = patch_text(p.text)
+        if nt != p.text:
+            p.text = nt
+
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                nt = patch_text(cell.text)
+                if nt != cell.text:
+                    cell.text = nt
+
+
 def _render_no_calificados_docx(context: dict) -> bytes:
     """
     Rellena la plantilla Word 'Plantilla no calificados.docx' con los componentes con ICR < 60%.
     Context debe tener: codigo_cliente, cliente_nombre, partes (lista con part_number, description,
-    tariff_schedule, customer_part_number), blanket_year (opcional).
+    tariff_schedule, customer_part_number).
+    Blanket year y date completed se fijan al generar: año calendario actual y fecha del día (UTC servidor).
     Devuelve el .docx en bytes.
     """
     from io import BytesIO
@@ -1255,10 +1693,11 @@ def _render_no_calificados_docx(context: dict) -> bytes:
     codigo_cliente = context.get("codigo_cliente") or ""
     cliente_nombre = (context.get("cliente_nombre") or "").strip() or "—"
     partes = context.get("partes") or []
-    ahora = context.get("_ahora") or datetime.now()
-    blanket_year = context.get("blanket_year") or ahora.year
+    now = datetime.now()
+    blanket_year = now.year
+    date_completed_en = _fmt_date_completed_no_calificados_en(now.date())
 
-    # Reemplazar XXXXX y año en la primera tabla (filas 0 y 1: Customer Code, Customer Name, Blanket Year)
+    # Reemplazar XXXXX en la primera tabla (filas 0 y 1: Customer Code, Customer Name)
     tbl0 = doc.tables[0]
     xxxx_count = 0
     for row in tbl0.rows[:2]:
@@ -1270,8 +1709,6 @@ def _render_no_calificados_docx(context: dict) -> bytes:
                     cell.text = full.replace("XXXXX", str(codigo_cliente))
                 else:
                     cell.text = full.replace("XXXXX", cliente_nombre)
-            if "2026" in full:
-                cell.text = full.replace("2026", str(blanket_year))
 
     # Tabla: fila 2 = encabezado, filas 3+ = datos. Columnas: Leoni Part Number, Leoni Part Name, Customer Part Number (cross reference), Description, HTS, Comments
     num_cols = 6
@@ -1286,7 +1723,8 @@ def _render_no_calificados_docx(context: dict) -> bytes:
             descripcion = descripcion[:120].strip()
         # Customer Part Number: viene del cross reference (customer_part_number); si no hay, se usa part_number
         customer_part = (p.get("customer_part_number") or part_number or "").strip()
-        tariff = (p.get("tariff_schedule") or "").strip() or "8544.49"
+        tariff_raw = (p.get("tariff_schedule") or "").strip()
+        tariff = _tariff_fraccion_certificado_primeros_6_digitos(tariff_raw) or _tariff_fraccion_certificado_primeros_6_digitos("8544.49") or "854449"
         if row_idx < len(tbl0.rows):
             row = tbl0.rows[row_idx]
             cells = row.cells
@@ -1308,6 +1746,8 @@ def _render_no_calificados_docx(context: dict) -> bytes:
         row = tbl0.rows[row_idx]
         for cell in row.cells[:num_cols]:
             cell.text = ""
+
+    _patch_no_calificados_docx_fechas(doc, blanket_year, date_completed_en)
 
     # Tabla con letra más pequeña para que quepa en el documento y centrada
     tabla_font_pt = 8
@@ -1365,6 +1805,38 @@ def _render_no_calificados_pdf(context: dict) -> bytes:
         )
 
 
+def _analisis_icr_cert_filename_stem(
+    codigo_cliente: int,
+    cliente_nombre: Optional[str],
+    year: Optional[int] = None,
+    *,
+    segment: str = "USMCA",
+) -> str:
+    """
+    Nombre base (sin extensión) para archivos Análisis ICR:
+    - ICR >= 60 % (certificado C.O.): segment=USMCA → CU_[codigo]_[cliente]_USMCA_[año]_erob1001
+    - ICR < 60 % (declaración jurada): segment=AFFIDAVIT → CU_[codigo]_[cliente]_AFFIDAVIT_[año]_erob1001
+    El fragmento del nombre del cliente va en ASCII seguro.
+    """
+    import re
+    import unicodedata
+
+    y = int(year) if year is not None else datetime.now().year
+    seg = (segment or "USMCA").strip()
+    if not seg or not re.match(r"^[A-Za-z0-9_-]+$", seg):
+        seg = "USMCA"
+    raw = (cliente_nombre or "").strip()
+    if not raw:
+        raw = str(codigo_cliente)
+    nfkd = unicodedata.normalize("NFKD", raw)
+    ascii_str = "".join(c for c in nfkd if unicodedata.category(c) != "Mn")
+    safe = re.sub(r"[^a-zA-Z0-9._-]+", "_", ascii_str).strip("._-")
+    if not safe:
+        safe = str(codigo_cliente)
+    safe = safe[:80]
+    return f"CU_{codigo_cliente}_{safe}_{seg}_{y}_erob1001"
+
+
 @app.get("/api/analisis-icr/certificado-pdf")
 async def api_analisis_icr_certificado_pdf(
     request: Request,
@@ -1372,6 +1844,8 @@ async def api_analisis_icr_certificado_pdf(
     db: AsyncSession = Depends(get_db),
     codigo_cliente: Optional[int] = None,
     numero_parte: List[str] = Query(default=[], description="Números de parte seleccionados (columna Select)"),
+    blanket_from: Optional[str] = Query(None, description="Inicio blanket period certificado (YYYY-MM-DD)"),
+    blanket_to: Optional[str] = Query(None, description="Fin blanket period certificado (YYYY-MM-DD)"),
 ):
     """
     Genera el certificado C.O. (cumplimiento) en PDF para las partes seleccionadas (ICR >= 60%).
@@ -1414,19 +1888,24 @@ async def api_analisis_icr_certificado_pdf(
         p["customer_part_number"] = (cross_ref.get(np) or np or "").strip()
 
     ahora = datetime.now()
+    err_bp, d_bf, d_bt, s_bf, s_bt = _resolve_blanket_period_certificado(blanket_from, blanket_to, ref=ahora)
+    if err_bp:
+        return JSONResponse({"error": err_bp}, status_code=400)
+
     def _fmt_date(d):
         return f"{d.month}/{d.day}/{d.strftime('%y')}"
+
     certification_date = _fmt_date(ahora)
-    blanket_from = _fmt_date(ahora.replace(month=1, day=1))
-    blanket_to = _fmt_date(ahora.replace(month=12, day=31))
     context = {
         **_CERT_CO_LEONI,
         "codigo_cliente": codigo_cliente,
         "cliente_nombre": detalle.get("cliente_nombre") or str(codigo_cliente),
         "importer_address": None,
         "partes": partes_para_certificado,
-        "blanket_period_from": blanket_from,
-        "blanket_period_to": blanket_to,
+        "blanket_period_from": s_bf,
+        "blanket_period_to": s_bt,
+        "_blanket_period_from_date": d_bf,
+        "_blanket_period_to_date": d_bt,
         "certification_date": certification_date,
         "num_pages": 2,  # C.O. (pág 1) + C.O. 3 (pág 2)
         "_ahora": ahora,
@@ -1439,7 +1918,8 @@ async def api_analisis_icr_certificado_pdf(
             {"error": f"Error al generar el PDF: {e!s}"},
             status_code=500,
         )
-    filename = f"certificado_co_{codigo_cliente}.pdf"
+    stem = _analisis_icr_cert_filename_stem(codigo_cliente, detalle.get("cliente_nombre"), ahora.year)
+    filename = f"{stem}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -1454,6 +1934,8 @@ async def api_analisis_icr_certificado_excel(
     db: AsyncSession = Depends(get_db),
     codigo_cliente: Optional[int] = None,
     numero_parte: List[str] = Query(default=[], description="Números de parte seleccionados (columna Select)"),
+    blanket_from: Optional[str] = Query(None, description="Inicio blanket period certificado (YYYY-MM-DD)"),
+    blanket_to: Optional[str] = Query(None, description="Fin blanket period certificado (YYYY-MM-DD)"),
 ):
     """
     Genera el certificado C.O. (cumplimiento) en Excel (.xlsx) para las partes seleccionadas (ICR >= 60%).
@@ -1495,19 +1977,23 @@ async def api_analisis_icr_certificado_excel(
         p["customer_part_number"] = (cross_ref.get(np) or np or "").strip()
 
     ahora = datetime.now()
+    err_bp, d_bf, d_bt, s_bf, s_bt = _resolve_blanket_period_certificado(blanket_from, blanket_to, ref=ahora)
+    if err_bp:
+        return JSONResponse({"error": err_bp}, status_code=400)
 
     def _fmt_date(d):
         return f"{d.month}/{d.day}/{d.strftime('%y')}"
-    blanket_from = _fmt_date(ahora.replace(month=1, day=1))
-    blanket_to = _fmt_date(ahora.replace(month=12, day=31))
+
     context = {
         **_CERT_CO_LEONI,
         "codigo_cliente": codigo_cliente,
         "cliente_nombre": detalle.get("cliente_nombre") or str(codigo_cliente),
         "importer_address": None,
         "partes": partes_para_certificado,
-        "blanket_period_from": blanket_from,
-        "blanket_period_to": blanket_to,
+        "blanket_period_from": s_bf,
+        "blanket_period_to": s_bt,
+        "_blanket_period_from_date": d_bf,
+        "_blanket_period_to_date": d_bt,
         "certification_date": _fmt_date(ahora),
         "num_pages": 2,  # C.O. (pág 1) + C.O. 3 (pág 2)
         "_ahora": ahora,
@@ -1520,7 +2006,8 @@ async def api_analisis_icr_certificado_excel(
             {"error": f"Error al generar el Excel: {e!s}"},
             status_code=500,
         )
-    filename = f"certificado_co_{codigo_cliente}.xlsx"
+    stem = _analisis_icr_cert_filename_stem(codigo_cliente, detalle.get("cliente_nombre"), ahora.year)
+    filename = f"{stem}.xlsx"
     return Response(
         content=xlsx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1528,14 +2015,33 @@ async def api_analisis_icr_certificado_excel(
     )
 
 
-def _context_certificado_simulacion(partes: list) -> dict:
-    """Construye el contexto para el certificado C.O. de simulación (sin datos de cliente, solo ítems)."""
+def _certificado_sim_filename_stem(nombre_certificado: Optional[str]) -> str:
+    """Fragmento seguro para el nombre del archivo descargado (ASCII)."""
+    import re
+    import unicodedata
+
+    s = (nombre_certificado or "").strip()
+    if not s:
+        return "simulacion"
+    nfkd = unicodedata.normalize("NFKD", s)
+    ascii_str = "".join(c for c in nfkd if unicodedata.category(c) != "Mn")
+    stem = re.sub(r"[^a-zA-Z0-9._-]+", "_", ascii_str).strip("._-")
+    return (stem[:80] if stem else "simulacion")
+
+
+def _context_certificado_simulacion(
+    partes: list,
+    nombre_certificado: Optional[str] = None,
+) -> dict:
+    """Construye el contexto para el certificado C.O. de simulación: una fila por número de material; nombre opcional (importador en el documento)."""
     ahora = datetime.now()
 
     def _fmt_date(d):
         return f"{d.month}/{d.day}/{d.strftime('%y')}"
 
-    # Normalizar partes: part_number, description, tariff_schedule, origin, customer_part_number (sin cliente = mismo que part_number)
+    nombre_imp = ((nombre_certificado or "").strip()[:200])
+
+    # Normalizar partes: part_number, tariff_schedule, origin (C.O. 3 en simulación no rellena Customer Part # ni Leoni Part Name).
     partes_norm = []
     for p in partes:
         if not isinstance(p, dict):
@@ -1546,20 +2052,25 @@ def _context_certificado_simulacion(partes: list) -> dict:
         partes_norm.append({
             "part_number": np,
             "description": (p.get("description") or "").strip(),
-            "tariff_schedule": (p.get("tariff_schedule") or "").strip() or "SEE ATTACHED",
+            "tariff_schedule": (p.get("tariff_schedule") or "").strip(),
             "origin": (p.get("origin") or "MX").strip() or "MX",
-            "customer_part_number": np,
         })
     if not partes_norm:
         raise ValueError("Se requiere al menos un ítem en partes.")
+    y = ahora.year
+    d_bf = date(y, 1, 1)
+    d_bt = date(y, 12, 31)
     return {
         **_CERT_CO_LEONI,
+        "certificado_simulacion": True,
         "codigo_cliente": "—",
-        "cliente_nombre": "—",
+        "cliente_nombre": nombre_imp if nombre_imp else "—",
         "importer_address": "—",
         "partes": partes_norm,
-        "blanket_period_from": _fmt_date(ahora.replace(month=1, day=1)),
-        "blanket_period_to": _fmt_date(ahora.replace(month=12, day=31)),
+        "blanket_period_from": _fmt_date(d_bf),
+        "blanket_period_to": _fmt_date(d_bt),
+        "_blanket_period_from_date": d_bf,
+        "_blanket_period_to_date": d_bt,
         "certification_date": _fmt_date(ahora),
         "num_pages": 2,
         "_ahora": ahora,
@@ -1572,8 +2083,9 @@ async def api_simulacion_icr_certificado_excel(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Genera el certificado C.O. en Excel para simulación ICR (sin información de cliente, solo ítems).
-    Requiere ICR >= 60% (validado en frontend). Body: {"partes": [{"part_number": "...", "description": "...", "tariff_schedule": "...", "origin": "MX"}]}.
+    Genera el certificado C.O. en Excel para simulación ICR (sin cliente).
+    Debe enviarse una entrada por número de material simulado (cabecera), no por ítems del BOM.
+    Requiere ICR >= 60% (validado en frontend). Body: {"partes": [...], "nombre_certificado": "opcional — importador en el PDF/Excel"}.
     """
     try:
         body = await request.json()
@@ -1585,8 +2097,12 @@ async def api_simulacion_icr_certificado_excel(
             {"error": "Se requiere al menos un ítem en 'partes'."},
             status_code=400,
         )
+    nc = None
+    if isinstance(body, dict) and body.get("nombre_certificado") is not None:
+        nc_raw = body.get("nombre_certificado")
+        nc = str(nc_raw).strip()[:200] if isinstance(nc_raw, str) else None
     try:
-        context = _context_certificado_simulacion(partes)
+        context = _context_certificado_simulacion(partes, nombre_certificado=nc)
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
     try:
@@ -1597,7 +2113,7 @@ async def api_simulacion_icr_certificado_excel(
             {"error": f"Error al generar el Excel: {e!s}"},
             status_code=500,
         )
-    filename = "certificado_co_simulacion.xlsx"
+    filename = f"certificado_co_{_certificado_sim_filename_stem(nc)}.xlsx"
     return Response(
         content=xlsx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1611,8 +2127,9 @@ async def api_simulacion_icr_certificado_pdf(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Genera el certificado C.O. en PDF para simulación ICR (sin información de cliente, solo ítems).
-    Requiere ICR >= 60% (validado en frontend). Body: {"partes": [{"part_number": "...", "description": "...", "tariff_schedule": "...", "origin": "MX"}]}.
+    Genera el certificado C.O. en PDF para simulación ICR (sin cliente).
+    Debe enviarse una entrada por número de material simulado (cabecera), no por ítems del BOM.
+    Requiere ICR >= 60% (validado en frontend). Body: {"partes": [...], "nombre_certificado": "opcional — importador en el PDF/Excel"}.
     """
     try:
         body = await request.json()
@@ -1624,8 +2141,12 @@ async def api_simulacion_icr_certificado_pdf(
             {"error": "Se requiere al menos un ítem en 'partes'."},
             status_code=400,
         )
+    nc = None
+    if isinstance(body, dict) and body.get("nombre_certificado") is not None:
+        nc_raw = body.get("nombre_certificado")
+        nc = str(nc_raw).strip()[:200] if isinstance(nc_raw, str) else None
     try:
-        context = _context_certificado_simulacion(partes)
+        context = _context_certificado_simulacion(partes, nombre_certificado=nc)
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
     try:
@@ -1636,11 +2157,51 @@ async def api_simulacion_icr_certificado_pdf(
             {"error": f"Error al generar el PDF: {e!s}"},
             status_code=500,
         )
-    filename = "certificado_co_simulacion.pdf"
+    filename = f"certificado_co_{_certificado_sim_filename_stem(nc)}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.post("/api/simulacion-icr/analisis-pdf")
+async def api_simulacion_icr_analisis_pdf(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Genera un PDF con el análisis de simulación ICR: tabla resumen (fracción, FOB, ICR, etc.),
+    Ítems del BOM y breakdowns Originating / Non-Originating. Sin saltos de página forzados
+    entre secciones (todo fluye en orden; si no cabe, ReportLab continúa en la siguiente hoja).
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Cuerpo JSON inválido."}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "Se esperaba un objeto JSON."}, status_code=400)
+    try:
+        pdf_bytes = await asyncio.to_thread(_render_simulacion_icr_analisis_pdf, body)
+    except RuntimeError as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    except Exception as e:
+        logger.exception("Error generando PDF análisis simulación ICR.")
+        return JSONResponse(
+            {"error": f"Error al generar el PDF: {e!s}"},
+            status_code=500,
+        )
+    fn_raw = body.get("download_filename") if isinstance(body.get("download_filename"), str) else None
+    if fn_raw and fn_raw.strip():
+        fn = re.sub(r"[^a-zA-Z0-9._-]+", "_", fn_raw.strip())[:160]
+        if not fn.lower().endswith(".pdf"):
+            fn += ".pdf"
+    else:
+        fn = f"analisis_icr_simulacion_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{fn}"'},
     )
 
 
@@ -1651,6 +2212,8 @@ async def api_analisis_icr_certificado_pack(
     db: AsyncSession = Depends(get_db),
     codigo_cliente: Optional[int] = None,
     numero_parte: List[str] = Query(default=[], description="Números de parte seleccionados (columna Select)"),
+    blanket_from: Optional[str] = Query(None, description="Inicio blanket period certificado C.O. (YYYY-MM-DD)"),
+    blanket_to: Optional[str] = Query(None, description="Fin blanket period certificado C.O. (YYYY-MM-DD)"),
 ):
     """
     Genera un ZIP con los documentos según la selección:
@@ -1686,34 +2249,48 @@ async def api_analisis_icr_certificado_pack(
     # No calificados: seleccionadas que no califican (ICR < 60% o sin ICR).
     partes_no_calificados = [p for p in selected_parts if not _califica(p)]
 
+    ahora = datetime.now()
+    err_bp, d_bf, d_bt, s_bf, s_bt = _resolve_blanket_period_certificado(blanket_from, blanket_to, ref=ahora)
+    if err_bp:
+        return JSONResponse({"error": err_bp}, status_code=400)
+
+    stem = _analisis_icr_cert_filename_stem(
+        codigo_cliente, detalle.get("cliente_nombre"), ahora.year
+    )
+    stem_affidavit = _analisis_icr_cert_filename_stem(
+        codigo_cliente, detalle.get("cliente_nombre"), ahora.year, segment="AFFIDAVIT"
+    )
+
     buf = BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        ahora = datetime.now()
-
         if partes_que_califican:
             part_numbers = [(p.get("part_number") or "").strip() for p in partes_que_califican]
             cross_ref = await crud.get_cross_reference_por_cliente_materiales(db, str(codigo_cliente), part_numbers)
             for p in partes_que_califican:
                 np = (p.get("part_number") or "").strip()
                 p["customer_part_number"] = (cross_ref.get(np) or np or "").strip()
+
             def _fmt_date(d):
                 return f"{d.month}/{d.day}/{d.strftime('%y')}"
+
             cert_context = {
                 **_CERT_CO_LEONI,
                 "codigo_cliente": codigo_cliente,
                 "cliente_nombre": detalle.get("cliente_nombre") or str(codigo_cliente),
                 "importer_address": None,
                 "partes": partes_que_califican,
-                "blanket_period_from": _fmt_date(ahora.replace(month=1, day=1)),
-                "blanket_period_to": _fmt_date(ahora.replace(month=12, day=31)),
+                "blanket_period_from": s_bf,
+                "blanket_period_to": s_bt,
+                "_blanket_period_from_date": d_bf,
+                "_blanket_period_to_date": d_bt,
                 "certification_date": _fmt_date(ahora),
                 "num_pages": 2,
                 "_ahora": ahora,
             }
             xlsx_bytes = await asyncio.to_thread(_render_certificado_co_xlsx, cert_context)
-            zf.writestr(f"certificado_co_{codigo_cliente}.xlsx", xlsx_bytes)
+            zf.writestr(f"{stem}.xlsx", xlsx_bytes)
             pdf_bytes = await asyncio.to_thread(_render_certificado_co_pdf, cert_context)
-            zf.writestr(f"certificado_co_{codigo_cliente}.pdf", pdf_bytes)
+            zf.writestr(f"{stem}.pdf", pdf_bytes)
 
         if partes_no_calificados:
             part_numbers = [(p.get("part_number") or "").strip() for p in partes_no_calificados]
@@ -1725,19 +2302,17 @@ async def api_analisis_icr_certificado_pack(
                 "codigo_cliente": codigo_cliente,
                 "cliente_nombre": detalle.get("cliente_nombre") or str(codigo_cliente),
                 "partes": partes_no_calificados,
-                "blanket_year": ahora.year,
-                "_ahora": ahora,
             }
             docx_bytes = await asyncio.to_thread(_render_no_calificados_docx, no_cert_context)
-            zf.writestr(f"no_calificados_{codigo_cliente}.docx", docx_bytes)
+            zf.writestr(f"{stem_affidavit}.docx", docx_bytes)
             try:
                 pdf_nc_bytes = await asyncio.to_thread(_render_no_calificados_pdf, no_cert_context)
-                zf.writestr(f"no_calificados_{codigo_cliente}.pdf", pdf_nc_bytes)
+                zf.writestr(f"{stem_affidavit}.pdf", pdf_nc_bytes)
             except Exception as e:
                 logger.warning("No se pudo incluir PDF no calificados en el pack: %s", e)
 
     buf.seek(0)
-    filename_zip = f"certificado_pack_{codigo_cliente}.zip"
+    filename_zip = f"{stem}.zip"
     return Response(
         content=buf.getvalue(),
         media_type="application/zip",
@@ -1789,8 +2364,6 @@ async def api_analisis_icr_no_calificados_docx(
         "codigo_cliente": codigo_cliente,
         "cliente_nombre": detalle.get("cliente_nombre") or str(codigo_cliente),
         "partes": partes_no_calificados,
-        "blanket_year": ahora.year,
-        "_ahora": ahora,
     }
     try:
         docx_bytes = await asyncio.to_thread(_render_no_calificados_docx, context)
@@ -1800,7 +2373,10 @@ async def api_analisis_icr_no_calificados_docx(
             {"error": f"Error al generar el documento: {e!s}"},
             status_code=500,
         )
-    filename = f"no_calificados_{codigo_cliente}.docx"
+    stem = _analisis_icr_cert_filename_stem(
+        codigo_cliente, detalle.get("cliente_nombre"), ahora.year, segment="AFFIDAVIT"
+    )
+    filename = f"{stem}.docx"
     return Response(
         content=docx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -1852,8 +2428,6 @@ async def api_analisis_icr_no_calificados_pdf(
         "codigo_cliente": codigo_cliente,
         "cliente_nombre": detalle.get("cliente_nombre") or str(codigo_cliente),
         "partes": partes_no_calificados,
-        "blanket_year": ahora.year,
-        "_ahora": ahora,
     }
     try:
         pdf_bytes = await asyncio.to_thread(_render_no_calificados_pdf, context)
@@ -1863,7 +2437,10 @@ async def api_analisis_icr_no_calificados_pdf(
             {"error": f"Error al generar el PDF: {e!s}"},
             status_code=500,
         )
-    filename = f"no_calificados_{codigo_cliente}.pdf"
+    stem = _analisis_icr_cert_filename_stem(
+        codigo_cliente, detalle.get("cliente_nombre"), ahora.year, segment="AFFIDAVIT"
+    )
+    filename = f"{stem}.pdf"
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -1985,6 +2562,137 @@ async def api_reportes_partes_no_calificados_icr(
         )
 
 
+def _icr_pdf_format_qty(v) -> str:
+    if v is None:
+        return "—"
+    try:
+        f = float(v)
+        if f != f:
+            return "—"
+        s = f"{f:.8f}".rstrip("0").rstrip(".")
+        return s if s else "0"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _flatten_breakdown_rows_for_icr_pdf(items: Optional[list], is_orig: bool) -> list:
+    rows = []
+    for item in items or []:
+        name = str(item.get("name") or "—")
+        qty = item.get("qty")
+        provs = item.get("proveedores") or []
+        if provs:
+            for p in provs:
+                pct_val = p.get("porcentaje_compra")
+                pct = _icr_pdf_format_qty(pct_val) + "%" if pct_val is not None else "—"
+                if qty is not None and pct_val is not None:
+                    try:
+                        qty_kg = _icr_pdf_format_qty(float(qty) * float(pct_val) / 100.0)
+                    except (TypeError, ValueError):
+                        qty_kg = _icr_pdf_format_qty(qty) if qty is not None else "—"
+                else:
+                    qty_kg = _icr_pdf_format_qty(qty) if qty is not None else "—"
+                precio = p.get("precio_compra")
+                pu = "—"
+                if precio is not None:
+                    try:
+                        pu = _icr_pdf_format_qty(float(precio))
+                        if is_orig:
+                            uom = (p.get("currency_uom") or "").strip()
+                            if uom:
+                                pu += " " + uom
+                        else:
+                            pu += " USD"
+                    except (TypeError, ValueError):
+                        pu = "—"
+                origin_val = str(p.get("pais_origen") or item.get("origin") or "—")
+                value = "—"
+                if qty is not None and pct_val is not None and precio is not None:
+                    try:
+                        val = float(qty) * float(pct_val) / 100.0 * float(precio)
+                        value = _icr_pdf_format_qty(val)
+                        if not is_orig:
+                            value += " USD"
+                    except (TypeError, ValueError):
+                        pass
+                rows.append(
+                    {
+                        "material": name,
+                        "proveedor": str(p.get("nombre_proveedor") or "—"),
+                        "pct": pct,
+                        "qty_kg": qty_kg,
+                        "pu": pu,
+                        "origin": origin_val,
+                        "value": value,
+                    }
+                )
+        else:
+            rows.append(
+                {
+                    "material": name,
+                    "proveedor": "—",
+                    "pct": "—",
+                    "qty_kg": _icr_pdf_format_qty(qty) if qty is not None else "—",
+                    "pu": "—",
+                    "origin": str(item.get("origin") or "—"),
+                    "value": "—",
+                }
+            )
+    return rows
+
+
+def _build_icr_material_analisis_pdf_payload(
+    *,
+    codigo_cliente: int,
+    cliente_nombre: Optional[str],
+    numero_parte: str,
+    parte_info: dict,
+    items_bom: list,
+    items_orig: list,
+    items_non_orig: list,
+    fob_total_value,
+    markup_value,
+    regional_index,
+    total_originating_value: float,
+    total_non_originating_value: float,
+) -> dict:
+    bom_rows = []
+    for item in items_bom or []:
+        tipo = item.get("tipo") or "—"
+        q = item.get("qty")
+        bom_rows.append(
+            {
+                "numero_parte": item.get("numero_parte"),
+                "descripcion": item.get("descripcion"),
+                "qty": _icr_pdf_format_qty(q) if q is not None else "—",
+                "measure": item.get("measure"),
+                "comm_code": item.get("comm_code"),
+                "tipo_label": str(tipo),
+            }
+        )
+    nm = (cliente_nombre or "").strip()
+    ctx = f"Cliente {codigo_cliente}"
+    if nm:
+        ctx += f" — {nm}"
+    ctx += f" — Parte {numero_parte}"
+    safe_np = re.sub(r"[^a-zA-Z0-9._-]+", "_", str(numero_parte).strip())[:50].strip("._-") or "parte"
+    return {
+        "fraccion": str((parte_info or {}).get("fraccion") or "—"),
+        "fob": float(fob_total_value) if fob_total_value is not None else None,
+        "markup": float(markup_value) if markup_value is not None else None,
+        "icr": float(regional_index) if regional_index is not None else None,
+        "total_originating": float(total_originating_value),
+        "total_non_originating": float(total_non_originating_value),
+        "materiales_agregados": [],
+        "bom": bom_rows,
+        "originating_rows": _flatten_breakdown_rows_for_icr_pdf(items_orig, True),
+        "non_originating_rows": _flatten_breakdown_rows_for_icr_pdf(items_non_orig, False),
+        "report_title": "Análisis ICR — Material",
+        "report_context": ctx,
+        "download_filename": f"analisis_icr_material_{codigo_cliente}_{safe_np}_{datetime.now().strftime('%Y%m%d_%H%M')}",
+    }
+
+
 @app.get("/analisis-icr/material")
 async def analisis_icr_material(
     request: Request,
@@ -2082,6 +2790,22 @@ async def analisis_icr_material(
                 2,
             )
 
+    icr_material_pdf_payload = _build_icr_material_analisis_pdf_payload(
+        codigo_cliente=codigo_cliente,
+        cliente_nombre=cliente_nombre,
+        numero_parte=numero_parte,
+        parte_info=parte_info,
+        items_bom=items_bom,
+        items_orig=items_orig,
+        items_non_orig=items_non_orig,
+        fob_total_value=fob_total_value,
+        markup_value=markup_value,
+        regional_index=regional_index,
+        total_originating_value=total_originating_value,
+        total_non_originating_value=total_non_originating_value,
+    )
+    icr_material_pdf_payload_json = json.dumps(icr_material_pdf_payload, ensure_ascii=True)
+
     response = templates.TemplateResponse(
         "analisis_icr_material.html",
         {
@@ -2102,6 +2826,7 @@ async def analisis_icr_material(
             "regional_index": regional_index,
             "is_trading_good": is_trading_good,
             "icr_zero_reason": icr_zero_reason,
+            "icr_material_pdf_payload_json": icr_material_pdf_payload_json,
         }
     )
     # Evitar caché del navegador para que cambios en porcentaje_compra (pais_origen_material) se vean al recargar
@@ -2478,7 +3203,7 @@ async def api_ventas(
 
 @app.get("/api/ventas/export-excel-partes-prioritarias")
 async def api_ventas_export_excel_partes_prioritarias(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(["GM"])),
     db: AsyncSession = Depends(get_db),
 ):
     """Excel de ventas: producto = lista completa; producto_condensado = prefijo (9) de cada número. Sin duplicados por (código_cliente, producto),
@@ -2654,6 +3379,7 @@ def to_iso_filter(value):
 # Registrar el filtro en el entorno de templates
 templates.env.filters['datetime_cdmx'] = datetime_cdmx_filter
 templates.env.filters['to_iso'] = to_iso_filter
+templates.env.filters['tariff_certificado_6'] = _tariff_fraccion_certificado_primeros_6_digitos
 
 
 @app.get("/compras")
@@ -9802,11 +10528,15 @@ async def admin(request: Request, current_user: User = Depends(get_current_user)
     if current_user.rol != "admin":
         return RedirectResponse(url="/dashboard", status_code=302)
     
-    from sqlalchemy import select
+    from sqlalchemy import or_, select
     from app.db.models import User
-    
-    # Obtener todos los usuarios
-    result = await db.execute(select(User).order_by(User.created_at.desc()))
+
+    # Usuarios con rol GM solo existen/editan en BD; no se listan en administración
+    result = await db.execute(
+        select(User)
+        .where(or_(User.rol.is_(None), User.rol != "GM"))
+        .order_by(User.created_at.desc())
+    )
     users = result.scalars().all()
     
     return templates.TemplateResponse(
@@ -9890,6 +10620,12 @@ async def admin_update_user_role(
         return RedirectResponse(url="/dashboard", status_code=302)
     
     from app.db import crud
+
+    target = await crud.get_user_by_id(db, user_id)
+    if target is None:
+        return RedirectResponse(url="/admin?error=Usuario no encontrado", status_code=302)
+    if (target.rol or "") == "GM":
+        return RedirectResponse(url="/admin?error=No autorizado", status_code=302)
     
     # Validar rol
     if rol not in ["admin", "operador", "auditor"]:
@@ -9921,6 +10657,12 @@ async def admin_update_user(
         return RedirectResponse(url="/dashboard", status_code=302)
     
     from app.db import crud
+
+    target = await crud.get_user_by_id(db, user_id)
+    if target is None:
+        return RedirectResponse(url="/admin?error=Usuario no encontrado", status_code=302)
+    if (target.rol or "") == "GM":
+        return RedirectResponse(url="/admin?error=No autorizado", status_code=302)
     
     # Validar rol
     if rol not in ["admin", "operador", "auditor"]:

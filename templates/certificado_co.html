@@ -99,7 +99,7 @@
       <tr>
         <td></td>
         <td>{{ p.part_number or '—' }}{% if p.description %} — {{ p.description[:80] }}{% if (p.description or '')|length > 80 %}...{% endif %}{% endif %}</td>
-        <td>{{ p.tariff_schedule or '—' }}</td>
+        <td>{{ (p.tariff_schedule or '')|tariff_certificado_6 or '—' }}</td>
         <td>B</td>
         <td>{{ p.origin or 'MX' }}</td>
       </tr>

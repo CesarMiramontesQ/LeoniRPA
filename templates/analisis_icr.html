@@ -52,20 +52,24 @@
 
     <!-- Panel de filtros y botones en una fila -->
     <div class="rounded-lg bg-white p-6 shadow-sm">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div class="flex items-center gap-2">
+      <div class="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex shrink-0 items-center gap-2">
           <label for="icr-filter-part" class="whitespace-nowrap text-sm font-medium text-gray-900">Filter Part Number:</label>
           <input
             id="icr-filter-part"
             type="text"
             placeholder="Search part number..."
-            class="block w-48 rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+            class="block w-48 max-w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
           />
         </div>
-        <div class="flex flex-wrap items-center gap-2">
+        <div class="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:w-auto sm:flex-1">
         <button type="button" id="icr-certificado-pack" class="flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700" title="Genera ZIP: certificado Excel+PDF (partes que califican) y, si hay no calificados, Word+PDF de no calificados">
           <svg class="h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" /></svg>
           Generar certificado
+        </button>
+        <button type="button" id="icr-certificado-pdf" class="flex items-center gap-1.5 rounded-md bg-rose-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-rose-700" title="Solo PDF del certificado C.O. (partes seleccionadas que califican, ICR ≥ 60%)">
+          <svg class="h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
+          Solo PDF (certificado)
         </button>
         <button type="button" id="icr-certificado-excel" class="flex items-center gap-1.5 rounded-md bg-slate-500 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-slate-600" title="Solo Excel del certificado (partes seleccionadas que califican)">
           <svg class="h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
@@ -79,10 +83,37 @@
           <svg class="h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" /></svg>
           No calificados (PDF)
         </button>
+        <!-- Oculto por ahora: reporte global ICR &lt; 60% -->
+        <span class="hidden" aria-hidden="true">
         <button type="button" id="icr-reporte-partes-no-calificados" class="flex items-center gap-1.5 rounded-md bg-slate-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-slate-700" title="Reporte Excel: todos los clientes y partes con ICR &lt; 60% (ventas con sales_km y precios)">
           <svg class="h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
           Reporte ICR &lt; 60% (Excel)
         </button>
+        </span>
+        </div>
+      </div>
+      <div class="mt-4 flex flex-col gap-3 border-t border-gray-200 pt-4">
+        <p class="text-sm font-medium text-gray-900">
+          Periodo del certificado
+          <span class="block font-normal text-gray-500">Aplica a certificado C.O. de partes que cumplen (ICR ≥ 60&nbsp;%): Excel, PDF y ZIP.</span>
+        </p>
+        <div class="flex flex-wrap items-end gap-4">
+          <div>
+            <label for="icr-cert-blanket-from" class="block text-xs font-medium text-gray-600">From</label>
+            <input
+              type="date"
+              id="icr-cert-blanket-from"
+              class="mt-1 block rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-900 focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+            />
+          </div>
+          <div>
+            <label for="icr-cert-blanket-to" class="block text-xs font-medium text-gray-600">To</label>
+            <input
+              type="date"
+              id="icr-cert-blanket-to"
+              class="mt-1 block rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-900 focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -198,6 +229,49 @@
   function hideProcessingModal() {
     if (!processingModal) return;
     processingModal.classList.add('hidden');
+  }
+
+  /** Usa el nombre que envía el servidor en Content-Disposition (coincide con CU_…_USMCA_…_erob1001). */
+  function resetCertificadoBlanketDates() {
+    var y = new Date().getFullYear();
+    var fromEl = document.getElementById('icr-cert-blanket-from');
+    var toEl = document.getElementById('icr-cert-blanket-to');
+    if (fromEl) fromEl.value = y + '-01-01';
+    if (toEl) toEl.value = y + '-12-31';
+  }
+
+  /** Añade blanket_from y blanket_to al certificado C.O. Retorna false si validación falla. */
+  function appendCertificadoBlanketQueryParams(params) {
+    var fromEl = document.getElementById('icr-cert-blanket-from');
+    var toEl = document.getElementById('icr-cert-blanket-to');
+    var fromV = fromEl && fromEl.value ? String(fromEl.value).trim() : '';
+    var toV = toEl && toEl.value ? String(toEl.value).trim() : '';
+    if (!fromV || !toV) {
+      alert('Indique las fechas From y To del periodo del certificado.');
+      return false;
+    }
+    if (fromV > toV) {
+      alert('La fecha From no puede ser posterior a To.');
+      return false;
+    }
+    params.set('blanket_from', fromV);
+    params.set('blanket_to', toV);
+    return true;
+  }
+
+  function icrFilenameFromDisposition(cdHeader, fallback) {
+    if (!cdHeader || typeof cdHeader !== 'string') return fallback;
+    var star = /filename\*=UTF-8''([^;\s]+)/i.exec(cdHeader);
+    if (star) {
+      try {
+        return decodeURIComponent(star[1]);
+      } catch (e) { /* ignore */ }
+    }
+    var quoted = /filename="([^"]+)"/i.exec(cdHeader);
+    if (quoted) return quoted[1];
+    var plain = /filename=([^;\s]+)/i.exec(cdHeader);
+    if (plain) return plain[1].replace(/^["']|["']$/g, '');
+    return fallback;
   }
 
   function setMsg(text, isError) {
@@ -328,6 +402,7 @@
     document.getElementById('icr-non-original-value').textContent = String(data.non_original_components != null ? data.non_original_components : 0);
     document.getElementById('icr-conforming-value').textContent = String(data.conforming_part_numbers != null ? data.conforming_part_numbers : data.total || 0);
     filterPart.value = '';
+    resetCertificadoBlanketDates();
     busqueda.classList.add('hidden');
     vistaCliente.classList.remove('hidden');
     if (totalRegistros) totalRegistros.textContent = data.total != null ? data.total : (data.partes && data.partes.length) || 0;
@@ -420,6 +495,7 @@
     var params = new URLSearchParams();
     params.set('codigo_cliente', String(currentCodigoCliente));
     selected.forEach(function (np) { params.append('numero_parte', np); });
+    if (!appendCertificadoBlanketQueryParams(params)) return;
     var url = '/api/analisis-icr/certificado-pack?' + params.toString();
     showProcessingModal('Procesando Generar Certificado', 'Generando ZIP de certificados. Espere un momento...');
     fetch(url, { method: 'GET', headers: { 'Accept': 'application/zip' } })
@@ -427,12 +503,16 @@
         if (!r.ok) {
           return r.json().then(function (d) { throw new Error(d.error || 'Error al generar el certificado'); });
         }
-        return r.blob();
+        var fn = icrFilenameFromDisposition(
+          r.headers.get('Content-Disposition'),
+          'certificado_pack_' + currentCodigoCliente + '.zip'
+        );
+        return r.blob().then(function (blob) { return { blob: blob, fn: fn }; });
       })
-      .then(function (blob) {
+      .then(function (o) {
         var a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'certificado_pack_' + currentCodigoCliente + '.zip';
+        a.href = URL.createObjectURL(o.blob);
+        a.download = o.fn;
         a.click();
         URL.revokeObjectURL(a.href);
       })
@@ -454,25 +534,30 @@
     var params = new URLSearchParams();
     params.set('codigo_cliente', String(currentCodigoCliente));
     selected.forEach(function (np) { params.append('numero_parte', np); });
+    if (!appendCertificadoBlanketQueryParams(params)) return;
     var isPdf = formato === 'pdf';
     var url = isPdf ? '/api/analisis-icr/certificado-pdf?' + params.toString() : '/api/analisis-icr/certificado-excel?' + params.toString();
     var accept = isPdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     var ext = isPdf ? 'pdf' : 'xlsx';
     showProcessingModal(
-      formato === 'pdf' ? 'Procesando PDF' : 'Procesando Solo Excel',
-      'Generando certificado (solo Excel/PDF). Espere un momento...'
+      formato === 'pdf' ? 'Procesando Solo PDF' : 'Procesando Solo Excel',
+      formato === 'pdf' ? 'Generando certificado en PDF. Espere un momento...' : 'Generando certificado en Excel. Espere un momento...'
     );
     fetch(url, { method: 'GET', headers: { 'Accept': accept } })
       .then(function (r) {
         if (!r.ok) {
           return r.json().then(function (d) { throw new Error(d.error || 'Error al generar el certificado'); });
         }
-        return r.blob();
+        var fn = icrFilenameFromDisposition(
+          r.headers.get('Content-Disposition'),
+          'certificado_co_' + currentCodigoCliente + '.' + ext
+        );
+        return r.blob().then(function (blob) { return { blob: blob, fn: fn }; });
       })
-      .then(function (blob) {
+      .then(function (o) {
         var a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'certificado_co_' + currentCodigoCliente + '.' + ext;
+        a.href = URL.createObjectURL(o.blob);
+        a.download = o.fn;
         a.click();
         URL.revokeObjectURL(a.href);
       })
@@ -506,12 +591,16 @@
         if (!r.ok) {
           return r.json().then(function (d) { throw new Error(d.error || 'Error al generar el documento'); });
         }
-        return r.blob();
+        var fn = icrFilenameFromDisposition(
+          r.headers.get('Content-Disposition'),
+          'no_calificados_' + currentCodigoCliente + '.' + ext
+        );
+        return r.blob().then(function (blob) { return { blob: blob, fn: fn }; });
       })
-      .then(function (blob) {
+      .then(function (o) {
         var a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'no_calificados_' + currentCodigoCliente + '.' + ext;
+        a.href = URL.createObjectURL(o.blob);
+        a.download = o.fn;
         a.click();
         URL.revokeObjectURL(a.href);
       })
@@ -524,6 +613,7 @@
   }
 
   document.getElementById('icr-certificado-pack').addEventListener('click', descargarCertificadoPack);
+  document.getElementById('icr-certificado-pdf').addEventListener('click', function () { descargarCertificado('pdf'); });
   document.getElementById('icr-certificado-excel').addEventListener('click', function () { descargarCertificado('excel'); });
   document.getElementById('icr-no-calificados-docx').addEventListener('click', function () { descargarNoCalificados('docx'); });
   document.getElementById('icr-no-calificados-pdf').addEventListener('click', function () { descargarNoCalificados('pdf'); });

@@ -3461,6 +3461,18 @@ async def count_material_historial(
     return result.scalar() or 0
 
 
+def _es_violacion_unicidad_materiales_pkey(exc: BaseException) -> bool:
+    """
+    Detecta UniqueViolation en la PK de materiales (secuencia id desalineada).
+    Incluye mensajes en inglés y en español de PostgreSQL.
+    """
+    parts = [str(exc)]
+    orig = getattr(exc, "orig", None)
+    if orig is not None:
+        parts.append(str(orig))
+    return "materiales_pkey" in " ".join(parts).lower()
+
+
 async def sincronizar_materiales_desde_compras(
     db: AsyncSession,
     user_id: Optional[int] = None
@@ -3481,6 +3493,20 @@ async def sincronizar_materiales_desde_compras(
     nuevos_creados = 0
     
     try:
+        # 0. Alinear secuencia materiales_id_seq con el máximo id (evita UniqueViolation tras importaciones o inserts manuales)
+        try:
+            result_max_id = await db.execute(select(func.max(Material.id)))
+            max_id = result_max_id.scalar() or 0
+            await db.execute(
+                text(f"SELECT setval('materiales_id_seq', {max_id + 1}, false)")
+            )
+            await db.commit()
+        except Exception:
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+
         # 1. Obtener todos los numero_material únicos de compras que no sean NULL
         # Usamos GROUP BY para obtener la descripcion_material más común
         query_codigos = select(
@@ -3557,8 +3583,8 @@ async def sincronizar_materiales_desde_compras(
                     except:
                         pass
                     
-                    # Si es un error de secuencia, intentar corregirla
-                    if "duplicate key value violates unique constraint" in error_str and "materiales_pkey" in error_str:
+                    # Si es un error de secuencia (PK duplicada), intentar corregirla (EN/ES)
+                    if _es_violacion_unicidad_materiales_pkey(e):
                         try:
                             # Obtener el máximo ID actual
                             result = await db.execute(

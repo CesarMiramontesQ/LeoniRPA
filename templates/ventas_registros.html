@@ -8,6 +8,7 @@
         Visualiza y gestiona todas las ventas registradas en el sistema
       </p>
     </div>
+    {% if current_user and current_user.rol == 'GM' %}
     <div class="shrink-0">
       <a
         href="/api/ventas/export-excel-partes-prioritarias"
@@ -27,6 +28,7 @@
         </ul>
       </details>
     </div>
+    {% endif %}
   </div>
 
   <!-- Tarjetas de Estadísticas -->
