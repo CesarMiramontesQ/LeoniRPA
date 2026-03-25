@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.dialects.postgresql import insert
-from typing import Optional, List, Dict, Any, Set, Tuple
+from typing import Optional, List, Dict, Any, Set, Tuple, FrozenSet
 from datetime import datetime, timedelta, timezone, date
 from decimal import Decimal, InvalidOperation
 from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaProveedoresNacional, CargaProveedoresNacionalHistorial, CargaCliente, MasterUnificadoVirtuales, MasterUnificadoVirtualHistorial, MasterUnificadoVirtualOperacion, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente, Parte, TradingGood, TradingGoodHistorial, Bom, BomRevision, BomItem, BomHistorial, PesoNeto, PesoNetoHistorial, CrossReference, CrossReferenceHistorial, PrecioVenta, PrecioVentaHistorial, FraccionArancelariaHistorial
@@ -4157,6 +4157,187 @@ async def sincronizar_paises_origen_desde_compras(
         }
 
 
+async def temp_ensure_pais_origen_310905000_desde_compras(
+    db: AsyncSession,
+    user_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    TEMPORAL: crea un registro en pais_origen_material para el material 310905000
+    con el proveedor que más compras tiene para ese material (tabla compras).
+    Si el par ya existe, no duplica. Eliminar cuando el sync general sea suficiente.
+    """
+    numero_objetivo = "310905000"
+    try:
+        n_expr = func.count().label("n")
+        q = (
+            select(Compra.codigo_proveedor, n_expr)
+            .where(
+                Compra.codigo_proveedor.isnot(None),
+                Compra.numero_material.isnot(None),
+                Compra.numero_material != "",
+                or_(
+                    Compra.numero_material == numero_objetivo,
+                    func.trim(Compra.numero_material) == numero_objetivo,
+                ),
+            )
+            .group_by(Compra.codigo_proveedor)
+            .order_by(n_expr.desc())
+            .limit(1)
+        )
+        r = await db.execute(q)
+        row = r.one_or_none()
+        if not row:
+            return {
+                "ok": False,
+                "creado": False,
+                "nuevos_creados": 0,
+                "total_encontrados": 0,
+                "success": False,
+                "mensaje": f"No hay compras con material {numero_objetivo} (numero_material exacto o trim).",
+                "errores": [f"Sin filas en compras para {numero_objetivo}"],
+            }
+        codigo_int = int(row[0])
+
+        pr = await db.execute(
+            select(Proveedor.nombre).where(Proveedor.codigo_proveedor == codigo_int).limit(1)
+        )
+        proveedor_nombre = pr.scalar_one_or_none()
+
+        material_row = await get_material_by_numero(db, numero_objetivo)
+        numero_fk = numero_objetivo
+        if not material_row:
+            qd = (
+                select(Compra.descripcion_material)
+                .where(
+                    Compra.codigo_proveedor == codigo_int,
+                    or_(
+                        Compra.numero_material == numero_objetivo,
+                        func.trim(Compra.numero_material) == numero_objetivo,
+                    ),
+                    Compra.descripcion_material.isnot(None),
+                )
+                .limit(1)
+            )
+            rd = await db.execute(qd)
+            descripcion = rd.scalar_one_or_none()
+            try:
+                await create_material(
+                    db, numero_objetivo, descripcion_material=descripcion, user_id=user_id
+                )
+            except ValueError:
+                material_row = await get_material_by_numero(db, numero_objetivo)
+                if material_row:
+                    numero_fk = material_row.numero_material
+                else:
+                    return {
+                        "ok": False,
+                        "creado": False,
+                        "success": False,
+                        "nuevos_creados": 0,
+                        "mensaje": "No se pudo asegurar el material en catálogo.",
+                        "errores": ["Material ausente tras intento de creación."],
+                    }
+            except Exception as e_mat:
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+                return {
+                    "ok": False,
+                    "creado": False,
+                    "success": False,
+                    "nuevos_creados": 0,
+                    "mensaje": str(e_mat),
+                    "errores": [str(e_mat)],
+                }
+            else:
+                material_row = await get_material_by_numero(db, numero_objetivo)
+                if material_row:
+                    numero_fk = material_row.numero_material
+        else:
+            numero_fk = material_row.numero_material
+
+        existente = await get_pais_origen_material_by_proveedor_material(
+            db, str(codigo_int), str(numero_fk)
+        )
+        if existente:
+            sufijo = f" ({proveedor_nombre})" if proveedor_nombre else ""
+            return {
+                "ok": True,
+                "creado": False,
+                "nuevos_creados": 0,
+                "total_encontrados": 1,
+                "success": True,
+                "mensaje": (
+                    f"Ya existía país de origen para {numero_fk} y proveedor {codigo_int}{sufijo}."
+                ),
+                "errores": [],
+                "codigo_proveedor": codigo_int,
+                "proveedor_nombre": proveedor_nombre or "",
+            }
+
+        pom = PaisOrigenMaterial(
+            codigo_proveedor=codigo_int,
+            numero_material=numero_fk,
+            pais_origen="Pendiente",
+        )
+        db.add(pom)
+        await db.flush()
+        pais_origen_id = pom.id
+        datos_despues = {
+            "id": pais_origen_id,
+            "codigo_proveedor": codigo_int,
+            "numero_material": numero_fk,
+            "pais_origen": "Pendiente",
+            "porcentaje_compra": None,
+            "comentario": None,
+            "tipo": None,
+            "created_at": None,
+            "updated_at": None,
+        }
+        if user_id is not None:
+            historial = PaisOrigenMaterialHistorial(
+                pais_origen_id=pais_origen_id,
+                codigo_proveedor=codigo_int,
+                numero_material=numero_fk,
+                operacion=PaisOrigenMaterialOperacion.CREATE,
+                user_id=user_id,
+                datos_antes=None,
+                datos_despues=datos_despues,
+                campos_modificados=None,
+            )
+            db.add(historial)
+        await db.commit()
+        sufijo = f" ({proveedor_nombre})" if proveedor_nombre else ""
+        return {
+            "ok": True,
+            "creado": True,
+            "nuevos_creados": 1,
+            "total_encontrados": 1,
+            "success": True,
+            "mensaje": (
+                f"Creado país de origen Pendiente para {numero_fk} y proveedor {codigo_int}{sufijo}."
+            ),
+            "errores": [],
+            "codigo_proveedor": codigo_int,
+            "proveedor_nombre": proveedor_nombre or "",
+        }
+    except Exception as e:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        msg = str(e)
+        return {
+            "ok": False,
+            "creado": False,
+            "nuevos_creados": 0,
+            "success": False,
+            "mensaje": msg,
+            "errores": [msg],
+        }
+
+
 # ==================== CRUD para Precios Materiales ====================
 
 def _precio_material_to_dict(precio_material: PrecioMaterial) -> Dict[str, Any]:
@@ -5686,6 +5867,46 @@ async def count_paises_origen_material(
     return result.scalar_one()
 
 
+async def list_paises_origen_material_export(
+    db: AsyncSession,
+    search: Optional[str] = None,
+    pais_origen_exact: Optional[str] = None,
+) -> List[PaisOrigenMaterial]:
+    """
+    Todos los registros de países de origen para exportación (sin límite).
+    Filtros opcionales alineados con la vista: búsqueda amplia y país exacto.
+    """
+    query = (
+        select(PaisOrigenMaterial, Proveedor.nombre.label("proveedor_nombre"))
+        .outerjoin(
+            Proveedor,
+            cast(Proveedor.codigo_proveedor, String) == cast(PaisOrigenMaterial.codigo_proveedor, String),
+        )
+        .outerjoin(Material, Material.numero_material == PaisOrigenMaterial.numero_material)
+        .options(selectinload(PaisOrigenMaterial.material))
+    )
+    if search:
+        search_pattern = f"%{search.strip()}%"
+        query = query.where(
+            or_(
+                PaisOrigenMaterial.codigo_proveedor.cast(String).ilike(search_pattern),
+                PaisOrigenMaterial.numero_material.ilike(search_pattern),
+                PaisOrigenMaterial.pais_origen.ilike(search_pattern),
+                Proveedor.nombre.ilike(search_pattern),
+                Material.descripcion_material.ilike(search_pattern),
+            )
+        )
+    if pais_origen_exact and str(pais_origen_exact).strip():
+        query = query.where(PaisOrigenMaterial.pais_origen == str(pais_origen_exact).strip())
+    query = query.order_by(desc(PaisOrigenMaterial.updated_at))
+    result = await db.execute(query)
+    paises: List[PaisOrigenMaterial] = []
+    for pais, proveedor_nombre in result.all():
+        pais.proveedor_nombre = proveedor_nombre
+        paises.append(pais)
+    return paises
+
+
 async def delete_pais_origen_material(
     db: AsyncSession,
     pais_id: int,
@@ -6479,6 +6700,20 @@ async def list_clientes_con_ventas_icr(
     return out[:limit]
 
 
+# Números de parte con ICR 100 % por regla de negocio (cualquier cliente / donde aparezcan en análisis ICR).
+ICR_NUMEROS_PARTE_100_POR_DEFECTO: FrozenSet[str] = frozenset({
+    "05C13113B",
+    "05C16618B",
+    "05C20001B",
+    "05C16617B",
+})
+
+
+def icr_numero_parte_forzado_100(numero_parte: Optional[str]) -> bool:
+    """True si el número de parte debe reportarse con ICR 100 % sin aplicar el cálculo normal."""
+    return (str(numero_parte or "").strip() in ICR_NUMEROS_PARTE_100_POR_DEFECTO)
+
+
 def _sum_value_items(items: List[Dict[str, Any]]) -> float:
     """Suma la columna Value (qty * porcentaje_compra/100 * precio_compra) de una lista de ítems con proveedores."""
     total = 0.0
@@ -6554,6 +6789,8 @@ async def get_icr_para_parte(
     Devuelve (icr, icr_zero_reason): icr es el porcentaje o None; icr_zero_reason solo cuando icr == 0.
     """
     numero_parte = str(numero_parte or "").strip()
+    if icr_numero_parte_forzado_100(numero_parte):
+        return (100.0, None)
     tg = await get_trading_good_by_numero_parte(db, numero_parte)
     if tg and tg.is_trading_good:
         return (0.0, "Trading good")
@@ -6693,10 +6930,11 @@ async def get_analisis_icr_detalle(
         p["icr"] = icr_val
         p["icr_zero_reason"] = icr_reason if (icr_val is not None and float(icr_val) == 0) else None
 
-    # Marcar partes que son trading good (ICR 0% y badge)
+    # Marcar partes que son trading good (ICR 0% y badge); no aplica si ICR va forzado al 100 %.
     trading_good_set = await get_numero_partes_trading_good_true(db)
     for p in partes_list:
-        p["is_trading_good"] = (p.get("part_number") or "").strip() in trading_good_set
+        pn = (p.get("part_number") or "").strip()
+        p["is_trading_good"] = pn in trading_good_set and not icr_numero_parte_forzado_100(pn)
 
     # Partes que tienen al menos un ítem de BOM (revisión vigente): para mostrar/ocultar Select
     part_numbers_with_bom = set()

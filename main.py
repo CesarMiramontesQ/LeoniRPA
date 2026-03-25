@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse, FileResponse, StreamingResponse, Response
-from datetime import datetime, timedelta, date, time
+from datetime import datetime, timedelta, date, time, timezone
 from contextlib import asynccontextmanager
 from typing import Any, Optional, List, Tuple
 from decimal import Decimal, InvalidOperation
@@ -2783,7 +2783,10 @@ async def analisis_icr_material(
     # Reglas: si trading good, compra antigua, markup negativo, o no hay Originating, o hay CABLE/CUERDA en Non-Originating sin 310004003 en Originating → ICR 0%
     regional_index = None
     icr_zero_reason = None
-    if is_trading_good:
+    if crud.icr_numero_parte_forzado_100(numero_parte):
+        regional_index = 100.0
+        icr_zero_reason = None
+    elif is_trading_good:
         regional_index = 0.0
         icr_zero_reason = "Trading good"
     elif alguna_compra_antigua:
@@ -2818,6 +2821,11 @@ async def analisis_icr_material(
     )
     icr_material_pdf_payload_json = json.dumps(icr_material_pdf_payload, ensure_ascii=True)
 
+    # ICR al 100 % forzado por número de parte prevalece sobre trading good en la UI (tarjeta y PDF usan regional_index).
+    is_trading_good_ui = bool(
+        is_trading_good and not crud.icr_numero_parte_forzado_100(numero_parte)
+    )
+
     response = templates.TemplateResponse(
         "analisis_icr_material.html",
         {
@@ -2836,7 +2844,7 @@ async def analisis_icr_material(
             "total_non_originating_value": total_non_originating_value,
             "markup_value": markup_value,
             "regional_index": regional_index,
-            "is_trading_good": is_trading_good,
+            "is_trading_good": is_trading_good_ui,
             "icr_zero_reason": icr_zero_reason,
             "icr_material_pdf_payload_json": icr_material_pdf_payload_json,
         }
@@ -7332,6 +7340,75 @@ async def actualizar_pais_origen(
         )
 
 
+def _datetime_naive_para_excel(dt: Any) -> Optional[datetime]:
+    """openpyxl/pandas no aceptan datetimes con tz; se normalizan a UTC sin tz."""
+    if dt is None:
+        return None
+    if getattr(dt, "tzinfo", None) is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _paises_origen_filas_para_excel(paises_list: List[Any]) -> List[dict]:
+    """Convierte ORM PaisOrigenMaterial (con proveedor_nombre) a filas planas para DataFrame."""
+    filas = []
+    for p in paises_list:
+        mat = getattr(p, "material", None)
+        desc = ""
+        if mat is not None and getattr(mat, "descripcion_material", None):
+            desc = str(mat.descripcion_material)
+        pct = p.porcentaje_compra
+        pct_f = float(pct) if pct is not None else None
+        filas.append({
+            "ID": p.id,
+            "Proveedor": getattr(p, "proveedor_nombre", None) or "",
+            "Código proveedor": p.codigo_proveedor,
+            "Número material": (p.numero_material or ""),
+            "Descripción material": desc,
+            "País de origen": p.pais_origen or "",
+            "% compra": pct_f,
+            "Tipo": (p.tipo or "") if p.tipo else "",
+            "Comentario": (p.comentario or "") if p.comentario else "",
+            "Creado": _datetime_naive_para_excel(p.created_at),
+            "Última actualización": _datetime_naive_para_excel(p.updated_at),
+        })
+    return filas
+
+
+def _paises_origen_excel_bytes_from_filas(filas: List[dict]) -> bytes:
+    import io
+    import pandas as pd
+    df = pd.DataFrame(filas)
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="Países origen")
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+@app.get("/api/paises-origen/export-excel")
+async def api_paises_origen_export_excel(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    search: Optional[str] = Query(None, description="Mismo criterio de búsqueda que la tabla"),
+    pais_origen: Optional[str] = Query(None, description="Filtrar por país de origen exacto"),
+):
+    """Exporta todos los países de origen de materiales a Excel (respeta filtros de búsqueda y país)."""
+    paises_list = await crud.list_paises_origen_material_export(
+        db,
+        search=(search.strip() if search else None) or None,
+        pais_origen_exact=(pais_origen.strip() if pais_origen else None) or None,
+    )
+    filas = _paises_origen_filas_para_excel(paises_list)
+    xlsx_bytes = await asyncio.to_thread(_paises_origen_excel_bytes_from_filas, filas)
+    fn = f"paises_origen_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename=\"{fn}\"'},
+    )
+
+
 @app.get("/api/paises-origen/historial")
 async def api_paises_origen_historial(
     request: Request,
@@ -7678,6 +7755,23 @@ async def actualizar_paises_origen_desde_compras(
                 "mensaje": f"Error al sincronizar países de origen desde compras: {str(e)}"
             }
         )
+
+
+@app.post("/api/paises-origen/temp-310905000")
+async def api_paises_origen_temp_310905000(
+    current_user: User = Depends(require_roles(["admin"])),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    TEMPORAL: asegura un registro pais_origen para material 310905000 con el proveedor
+    que más compras tenga en la tabla compras. Quitar ruta y CRUD asociado cuando ya no se necesite.
+    """
+    resultado = await crud.temp_ensure_pais_origen_310905000_desde_compras(
+        db=db,
+        user_id=current_user.id,
+    )
+    status = 200 if resultado.get("ok") else 400
+    return JSONResponse(status_code=status, content=resultado)
 
 
 @app.post("/api/paises-origen/actualizar-porcentaje-compra")

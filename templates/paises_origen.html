@@ -87,6 +87,21 @@
           Calculando...
         </span>
       </button>
+      <button
+        id="btn-temp-310905000-pais-origen"
+        type="button"
+        class="rounded-md bg-amber-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+        title="TEMPORAL: crea país de origen Pendiente para 310905000 con el proveedor que más compras tenga (según tabla compras). Quitar cuando el sync general bastee."
+      >
+        <span id="btn-temp-310905000-texto">Temp: 310905000</span>
+        <span id="btn-temp-310905000-spinner" class="hidden">
+          <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          Procesando…
+        </span>
+      </button>
     </div>
     {% endif %}
   </div>
@@ -134,13 +149,21 @@
           </select>
         </div>
       </div>
-      <div class="flex items-end">
+      <div class="flex items-end gap-2">
         <button
           id="btn-limpiar-filtros"
           type="button"
           class="rounded-md border border-gray-300 bg-white px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
         >
           Limpiar
+        </button>
+        <button
+          id="btn-exportar-excel-paises"
+          type="button"
+          class="inline-flex items-center rounded-md bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          title="Descarga todos los registros (respeta búsqueda y filtro de país; no solo la página visible)"
+        >
+          Descargar Excel
         </button>
       </div>
     </div>
@@ -644,6 +667,11 @@
       });
     }
 
+    const btnExportExcel = document.getElementById('btn-exportar-excel-paises');
+    if (btnExportExcel) {
+      btnExportExcel.addEventListener('click', descargarPaisesOrigenExcel);
+    }
+
     // Selector de registros por página
     const registrosPorPaginaSelect = document.getElementById('registros-por-pagina');
     if (registrosPorPaginaSelect) {
@@ -693,6 +721,10 @@
     const btnPorcentaje = document.getElementById('btn-actualizar-porcentaje-compra');
     if (btnPorcentaje) {
       btnPorcentaje.addEventListener('click', actualizarPorcentajeCompraUltimos2Anios);
+    }
+    const btnTemp310 = document.getElementById('btn-temp-310905000-pais-origen');
+    if (btnTemp310) {
+      btnTemp310.addEventListener('click', tempPaisOrigen310905000);
     }
 
     // Botón guardar en modal de edición
@@ -763,6 +795,54 @@
     });
 
     paginaActual = 1;
+  }
+
+  async function descargarPaisesOrigenExcel() {
+    const btn = document.getElementById('btn-exportar-excel-paises');
+    const params = new URLSearchParams();
+    if (filtros.search && String(filtros.search).trim()) {
+      params.set('search', String(filtros.search).trim());
+    }
+    if (filtros.pais_origen) {
+      params.set('pais_origen', filtros.pais_origen);
+    }
+    const qs = params.toString();
+    const url = '/api/paises-origen/export-excel' + (qs ? '?' + qs : '');
+    if (btn) btn.disabled = true;
+    try {
+      const response = await fetch(url, { method: 'GET', credentials: 'same-origin' });
+      if (!response.ok) {
+        let msg = 'No se pudo generar el Excel.';
+        try {
+          const j = await response.json();
+          if (typeof j.detail === 'string') msg = j.detail;
+        } catch (err) { /* ignore */ }
+        throw new Error(msg);
+      }
+      const blob = await response.blob();
+      const cd = response.headers.get('Content-Disposition');
+      var fn = 'paises_origen.xlsx';
+      if (cd) {
+        var mStar = /filename\*=UTF-8''([^;\n]+)/i.exec(cd);
+        var mBasic = /filename="([^"]+)"/.exec(cd);
+        if (mStar) {
+          try { fn = decodeURIComponent(mStar[1]); } catch (e2) { /* use default */ }
+        } else if (mBasic) {
+          fn = mBasic[1];
+        }
+      }
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = fn;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      alert(e.message || 'Error al descargar');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   }
 
   function poblarSelectPaises() {
@@ -1028,6 +1108,47 @@
         total_encontrados: 0,
         nuevos_creados: 0,
         errores: [mensajeError]
+      });
+    } finally {
+      btn.disabled = false;
+      texto.classList.remove('hidden');
+      spinner.classList.add('hidden');
+    }
+  }
+
+  async function tempPaisOrigen310905000() {
+    const btn = document.getElementById('btn-temp-310905000-pais-origen');
+    const texto = document.getElementById('btn-temp-310905000-texto');
+    const spinner = document.getElementById('btn-temp-310905000-spinner');
+    if (!btn || !texto || !spinner) return;
+    btn.disabled = true;
+    texto.classList.add('hidden');
+    spinner.classList.remove('hidden');
+    try {
+      const response = await fetch('/api/paises-origen/temp-310905000', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.mensaje || data.error || `Error ${response.status}`);
+      }
+      document.getElementById('modal-title').textContent = 'Resultado (temp 310905000)';
+      mostrarModalResultados(data);
+      if (data.nuevos_creados > 0 || data.creado === true) {
+        setTimeout(() => { window.location.reload(); }, 2500);
+      } else if (data.success && data.ok) {
+        setTimeout(() => { window.location.reload(); }, 2000);
+      }
+    } catch (error) {
+      console.error('Temp 310905000:', error);
+      document.getElementById('modal-title').textContent = 'Resultado (temp 310905000)';
+      mostrarModalResultados({
+        success: false,
+        mensaje: error.message || 'Error de conexión',
+        errores: [error.message || 'Error'],
+        nuevos_creados: 0,
+        total_encontrados: 0
       });
     } finally {
       btn.disabled = false;

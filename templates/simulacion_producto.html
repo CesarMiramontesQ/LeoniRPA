@@ -351,6 +351,24 @@
 
   // Estado acumulativo: cada "Agregar" suma a estas listas y totales
   var materialesAgregados = [];
+
+  // Mismo criterio que backend (ICR 100 % fijo para estos materiales).
+  var ICR_NUMEROS_PARTE_100_POR_DEFECTO = {
+    '05C13113B': true,
+    '05C16618B': true,
+    '05C20001B': true,
+    '05C16617B': true
+  };
+  function icrNumeroParteForzado100(np) {
+    return !!ICR_NUMEROS_PARTE_100_POR_DEFECTO[String(np != null ? np : '').trim()];
+  }
+  function allMaterialesAgregadosForzados100() {
+    if (!materialesAgregados.length) return false;
+    for (var i = 0; i < materialesAgregados.length; i++) {
+      if (!icrNumeroParteForzado100(materialesAgregados[i])) return false;
+    }
+    return true;
+  }
   // Info del material cabecera (mismo criterio que Análisis ICR: certificado por número de material, no por ítems del BOM)
   var parteInfoCertificadoPorMaterial = {};
   var itemsBomAcum = [];
@@ -480,6 +498,23 @@
   }
   function updateMarkupAndRegional() {
     if (!cardMarkup || !cardRegionalIndex) return;
+    if (allMaterialesAgregadosForzados100()) {
+      currentRegionalIndex = 100;
+      cardRegionalIndex.textContent = '100.00';
+      if (cardRegionalPct) cardRegionalPct.style.display = '';
+      if (fobValueUsuario != null && !isNaN(fobValueUsuario) && fobValueUsuario > 0) {
+        var mk = fobValueUsuario - totalOriginatingAcum - totalNonOriginatingAcum;
+        cardMarkup.textContent = (Math.round(mk * 1000) / 1000).toFixed(3);
+      } else {
+        cardMarkup.textContent = '—';
+      }
+      if (simulacionCertButtons) {
+        var hasItemsForced = (itemsOriginatingAcum.length > 0 || itemsNonOriginatingAcum.length > 0);
+        if (hasItemsForced) simulacionCertButtons.classList.remove('hidden');
+        else simulacionCertButtons.classList.add('hidden');
+      }
+      return;
+    }
     if (fobValueUsuario != null && !isNaN(fobValueUsuario) && fobValueUsuario > 0) {
       var markup = fobValueUsuario - totalOriginatingAcum - totalNonOriginatingAcum;
       markup = Math.round(markup * 1000) / 1000;
