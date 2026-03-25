@@ -4265,11 +4265,14 @@ async def temp_ensure_pais_origen_310905000_desde_compras(
             return {
                 "ok": True,
                 "creado": False,
-                "nuevos_creados": 0,
-                "total_encontrados": 1,
                 "success": True,
+                "pais_origen_temp": True,
+                "estado": "ya_existia",
+                "pais_origen_id": existente.id,
                 "mensaje": (
-                    f"Ya existía país de origen para {numero_fk} y proveedor {codigo_int}{sufijo}."
+                    f"No se creó fila nueva: ya existía país de origen para material {numero_fk} "
+                    f"y proveedor {codigo_int}{sufijo} (id {existente.id}). "
+                    "Si no lo ves en la tabla, recarga o busca por material (la página solo precarga 1000 registros)."
                 ),
                 "errores": [],
                 "codigo_proveedor": codigo_int,
@@ -4313,10 +4316,13 @@ async def temp_ensure_pais_origen_310905000_desde_compras(
             "ok": True,
             "creado": True,
             "nuevos_creados": 1,
-            "total_encontrados": 1,
             "success": True,
+            "pais_origen_temp": True,
+            "estado": "creado",
+            "pais_origen_id": pais_origen_id,
             "mensaje": (
-                f"Creado país de origen Pendiente para {numero_fk} y proveedor {codigo_int}{sufijo}."
+                f"Se creó 1 registro nuevo: país de origen Pendiente para {numero_fk} "
+                f"y proveedor {codigo_int}{sufijo}."
             ),
             "errores": [],
             "codigo_proveedor": codigo_int,

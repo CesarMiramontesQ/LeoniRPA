@@ -1204,8 +1204,9 @@
     const btnCerrar = document.getElementById('modal-btn-cerrar');
     
     let icono, colorClase, tipoResultado;
-    
-    if ((data.nuevos_creados > 0 || data.actualizados > 0 || data.success) && (!data.errores || data.errores.length === 0)) {
+    var tempYaExistia = data.pais_origen_temp === true && data.estado === 'ya_existia';
+
+    if ((data.nuevos_creados > 0 || data.actualizados > 0 || (data.success && !tempYaExistia)) && (!data.errores || data.errores.length === 0)) {
       tipoResultado = 'success';
       colorClase = 'bg-green-100';
       icono = `
@@ -1237,7 +1238,27 @@
     modalMensaje.textContent = data.mensaje || 'Sincronización completada';
     modalMensaje.className = `text-sm ${tipoResultado === 'error' ? 'text-red-600' : tipoResultado === 'success' ? 'text-green-600' : 'text-blue-600'}`;
     
-    if (data.actualizados !== undefined || data.total_encontrados !== undefined || data.nuevos_creados !== undefined) {
+    if (data.pais_origen_temp === true && (data.estado === 'creado' || data.estado === 'ya_existia')) {
+      modalDetalles.classList.remove('hidden');
+      var provLabel = (data.codigo_proveedor != null ? String(data.codigo_proveedor) : '—') +
+        (data.proveedor_nombre ? ' — ' + escapeHtml(String(data.proveedor_nombre)) : '');
+      if (data.estado === 'creado') {
+        modalDetalles.innerHTML =
+          '<div class="rounded-md border border-green-200 bg-green-50 p-4 text-sm text-green-900">' +
+          '<p class="font-semibold text-green-800">Registro nuevo creado</p>' +
+          '<p class="mt-2">Se insertó <strong>1</strong> fila en <span class="font-medium">pais_origen_material</span> (material <strong>310905000</strong>, país <strong>Pendiente</strong>).</p>' +
+          (data.pais_origen_id != null ? '<p class="mt-2 text-xs text-green-800">ID en base de datos: ' + escapeHtml(String(data.pais_origen_id)) + '</p>' : '') +
+          '<p class="mt-2 text-xs text-green-800">Proveedor: ' + provLabel + '</p></div>';
+      } else {
+        modalDetalles.innerHTML =
+          '<div class="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">' +
+          '<p class="font-semibold text-amber-900">No se creó registro nuevo</p>' +
+          '<p class="mt-2">El par proveedor + material <strong>310905000</strong> ya estaba en países de origen.</p>' +
+          (data.pais_origen_id != null ? '<p class="mt-2 text-xs">ID existente: ' + escapeHtml(String(data.pais_origen_id)) + '</p>' : '') +
+          '<p class="mt-2 text-xs">Proveedor: ' + provLabel + '</p>' +
+          '<p class="mt-2 text-xs text-amber-800">La lista de la página solo carga 1000 registros: usa buscar o exporta Excel para localizarlo.</p></div>';
+      }
+    } else if (data.actualizados !== undefined || data.total_encontrados !== undefined || data.nuevos_creados !== undefined) {
       modalDetalles.classList.remove('hidden');
       if (data.actualizados !== undefined) {
         modalDetalles.innerHTML = `
