@@ -5747,11 +5747,9 @@ async def api_cross_reference_movimientos(
 @app.get("/paises-origen")
 async def paises_origen(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Página de países de origen de materiales - requiere autenticación."""
-    # Cargar los países de origen desde la base de datos con relaciones
-    paises_data = await crud.list_paises_origen_material(db, limit=1000)
-    
-    # Calcular estadísticas
     total_paises = await crud.count_paises_origen_material(db)
+    # Cargar todos los registros para la tabla en el navegador (filtros/paginación son solo cliente).
+    paises_data = await crud.list_paises_origen_material(db, limit=max(total_paises, 1))
     
     # Calcular número de partes únicos (numero_material únicos)
     from sqlalchemy import select, func, distinct
@@ -7755,23 +7753,6 @@ async def actualizar_paises_origen_desde_compras(
                 "mensaje": f"Error al sincronizar países de origen desde compras: {str(e)}"
             }
         )
-
-
-@app.post("/api/paises-origen/temp-310905000")
-async def api_paises_origen_temp_310905000(
-    current_user: User = Depends(require_roles(["admin"])),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    TEMPORAL: asegura un registro pais_origen para material 310905000 con el proveedor
-    que más compras tenga en la tabla compras. Quitar ruta y CRUD asociado cuando ya no se necesite.
-    """
-    resultado = await crud.temp_ensure_pais_origen_310905000_desde_compras(
-        db=db,
-        user_id=current_user.id,
-    )
-    status = 200 if resultado.get("ok") else 400
-    return JSONResponse(status_code=status, content=resultado)
 
 
 @app.post("/api/paises-origen/actualizar-porcentaje-compra")
