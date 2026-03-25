@@ -2992,7 +2992,7 @@ async def get_ultimo_precio_venta_cliente_parte(
     Se usa precio_full_metal_km como precio de referencia.
     """
     numero_parte = str(numero_parte).strip()
-    if not numero_parte:
+    if not numero_parte or numero_parte.upper() == "DUMMY":
         return None
     result = await db.execute(
         select(Venta.precio_full_metal_km)
@@ -3019,7 +3019,7 @@ async def get_ultimo_precio_venta_parte(
     sin filtrar por cliente. Útil para Simulacion Producto.
     """
     numero_parte = str(numero_parte).strip()
-    if not numero_parte:
+    if not numero_parte or numero_parte.upper() == "DUMMY":
         return None
     result = await db.execute(
         select(Venta.precio_full_metal_km)
@@ -6377,6 +6377,10 @@ async def count_fracciones_arancelarias_ventas(
     return result.scalar() or 0
 
 
+# Excluye placeholder DUMMY (trim + mayúsculas) del análisis y reportes ICR.
+_venta_icr_producto_no_dummy = func.upper(func.trim(Venta.producto_condensado)) != "DUMMY"
+
+
 async def list_partes_icr_por_cliente(
     db: AsyncSession,
     codigo_cliente: int,
@@ -6400,6 +6404,7 @@ async def list_partes_icr_por_cliente(
             Venta.precio_full_metal_km != 0,
             Venta.precio_full_metal_m.isnot(None),
             Venta.precio_full_metal_m != 0,
+            _venta_icr_producto_no_dummy,
         )
         .distinct()
         .order_by(Venta.producto_condensado)
@@ -6414,6 +6419,7 @@ _ventas_icr_filter = and_(
     Venta.codigo_cliente.isnot(None),
     Venta.producto_condensado.isnot(None),
     Venta.producto_condensado != "",
+    _venta_icr_producto_no_dummy,
     Venta.sales_km.isnot(None),
     Venta.sales_km != 0,
     Venta.precio_exmetal_km.isnot(None),
@@ -6608,6 +6614,8 @@ async def get_icr_para_parte(
     Devuelve (icr, icr_zero_reason): icr es el porcentaje o None; icr_zero_reason solo cuando icr == 0.
     """
     numero_parte = str(numero_parte or "").strip()
+    if not numero_parte or numero_parte.upper() == "DUMMY":
+        return (None, None)
     if icr_numero_parte_forzado_100(numero_parte):
         return (100.0, None)
     tg = await get_trading_good_by_numero_parte(db, numero_parte)
@@ -6690,6 +6698,7 @@ async def get_analisis_icr_detalle(
         Venta.codigo_cliente == codigo_cliente,
         Venta.producto_condensado.isnot(None),
         Venta.producto_condensado != "",
+        _venta_icr_producto_no_dummy,
         Venta.periodo >= inicio_periodo,
         Venta.periodo <= fin_periodo,
         Venta.precio_exmetal_km.isnot(None),
@@ -6714,7 +6723,7 @@ async def get_analisis_icr_detalle(
     partes_list = []
     for row in ventas_rows:
         pn = (row[0] and str(row[0]).strip()) or ""
-        if not pn or pn == "DUMMY" or pn in part_numbers_seen:
+        if not pn or pn.upper() == "DUMMY" or pn in part_numbers_seen:
             continue
         part_numbers_seen.add(pn)
         descr = (row[1] and str(row[1]).strip()) or "—"

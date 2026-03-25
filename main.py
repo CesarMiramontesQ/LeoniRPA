@@ -2510,7 +2510,7 @@ async def api_reportes_partes_no_calificados_icr(
 
     try:
         # Descripción y tarifa desde tabla Parte
-        part_numbers = list({f["part_number"] for f in filas})
+        part_numbers = list({str(f["part_number"]).strip() for f in filas if f.get("part_number")})
         partes_query = await db.execute(
             select(Parte.numero_parte, Parte.descripcion, Parte.fraccion).where(Parte.numero_parte.in_(part_numbers))
         )
@@ -2520,10 +2520,29 @@ async def api_reportes_partes_no_calificados_icr(
             if pn:
                 partes_map[pn] = {"description": (r[1] or "").strip() or "—", "tariff_schedule": (r[2] or "").strip() or "—"}
 
+        # Partes con BOM vigente (mismo criterio que Análisis ICR: revisión activa con ítems)
+        from app.db.models import Bom, BomRevision, BomItem
+
+        part_numbers_with_bom = set()
+        if part_numbers:
+            q_bom = (
+                select(Parte.numero_parte)
+                .join(Bom, Bom.parte_id == Parte.id)
+                .join(BomRevision, (BomRevision.bom_id == Bom.id) & (BomRevision.effective_to.is_(None)))
+                .join(BomItem, BomItem.bom_revision_id == BomRevision.id)
+                .where(Parte.numero_parte.in_(part_numbers))
+                .distinct()
+            )
+            bom_rows = await db.execute(q_bom)
+            part_numbers_with_bom = {str(r[0]).strip() for r in bom_rows.all() if r[0]}
+
         for f in filas:
-            info = partes_map.get(f["part_number"]) or {}
+            info = partes_map.get(str(f["part_number"]).strip()) or {}
             f["description"] = info.get("description", "—")
             f["tariff_schedule"] = info.get("tariff_schedule", "—")
+            pn_key = str(f["part_number"]).strip()
+            tiene_bom = pn_key in part_numbers_with_bom
+            f["bom_vigente"] = "Sí" if tiene_bom else "No"
 
         # Excel
         wb = Workbook()
@@ -2537,6 +2556,7 @@ async def api_reportes_partes_no_calificados_icr(
             "Tariff Schedule",
             "ICR",
             "Motivo / razón",
+            "BOM vigente",
         ]
         header_fill = PatternFill(fill_type="solid", start_color="4472C4", end_color="4472C4")
         header_font = Font(bold=True, color="FFFFFF")
@@ -2546,6 +2566,8 @@ async def api_reportes_partes_no_calificados_icr(
             c.font = header_font
         for row_idx, f in enumerate(filas, start=2):
             motivo = crud.motivo_no_cumple_icr(f.get("icr"), f.get("icr_zero_reason"))
+            if f.get("bom_vigente") == "No":
+                motivo = f"Sin BOM. {motivo}" if (motivo and str(motivo).strip()) else "Sin BOM"
             ws.cell(row=row_idx, column=1, value=f["codigo_cliente"])
             ws.cell(row=row_idx, column=2, value=f["cliente_nombre"])
             ws.cell(row=row_idx, column=3, value=f["part_number"])
@@ -2553,9 +2575,12 @@ async def api_reportes_partes_no_calificados_icr(
             ws.cell(row=row_idx, column=5, value=f["tariff_schedule"])
             ws.cell(row=row_idx, column=6, value=f["icr"] if f["icr"] is not None else "—")
             ws.cell(row=row_idx, column=7, value=motivo)
-        for col in range(1, len(headers) + 1):
-            letter = ws.cell(row=1, column=col).column_letter
-            ws.column_dimensions[letter].width = 30 if col == 7 else 18
+            ws.cell(row=row_idx, column=8, value=f.get("bom_vigente", "—"))
+        col_widths = [16, 28, 22, 36, 18, 12, 48, 14]
+        for col_idx, width in enumerate(col_widths, start=1):
+            if col_idx <= len(headers):
+                letter = ws.cell(row=1, column=col_idx).column_letter
+                ws.column_dimensions[letter].width = width
 
         buf = BytesIO()
         wb.save(buf)
