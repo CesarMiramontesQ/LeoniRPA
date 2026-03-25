@@ -7,6 +7,17 @@
     <p class="mt-1 text-sm text-gray-600">
       Consulta los números de parte que ha adquirido un cliente según los registros de ventas del año pasado y del año actual (solo ventas con precios ICR definidos).
     </p>
+    <div class="mt-4">
+      <button
+        type="button"
+        id="icr-reporte-partes-no-calificados"
+        class="inline-flex items-center gap-2 rounded-md bg-slate-700 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-800"
+        title="Excel: todos los clientes y partes que no cumplen ICR ≥ 60%, con motivo (no requiere elegir cliente)"
+      >
+        <svg class="h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+        Excel ICR no conformes (todos los clientes)
+      </button>
+    </div>
   </div>
 
   <div id="icr-busqueda" class="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
@@ -77,19 +88,12 @@
         </button>
         <button type="button" id="icr-no-calificados-docx" class="flex items-center gap-1.5 rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-amber-700" title="Declaración jurada para componentes con ICR &lt; 60%">
           <svg class="h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
-          No calificados (Word)
+          Affidavit (Word)
         </button>
         <button type="button" id="icr-no-calificados-pdf" class="flex items-center gap-1.5 rounded-md bg-amber-700 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-amber-800" title="Declaración jurada PDF para componentes con ICR &lt; 60%">
           <svg class="h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" /></svg>
-          No calificados (PDF)
+          Affidavit (PDF)
         </button>
-        <!-- Oculto por ahora: reporte global ICR &lt; 60% -->
-        <span class="hidden" aria-hidden="true">
-        <button type="button" id="icr-reporte-partes-no-calificados" class="flex items-center gap-1.5 rounded-md bg-slate-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-slate-700" title="Reporte Excel: todos los clientes y partes con ICR &lt; 60% (ventas con sales_km y precios)">
-          <svg class="h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
-          Reporte ICR &lt; 60% (Excel)
-        </button>
-        </span>
         </div>
       </div>
       <div class="mt-4 flex flex-col gap-3 border-t border-gray-200 pt-4">
@@ -583,7 +587,7 @@
     var accept = formato === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
     var ext = formato === 'pdf' ? 'pdf' : 'docx';
     showProcessingModal(
-      formato === 'pdf' ? 'Procesando No calificados PDF' : 'Procesando No calificados Word',
+      formato === 'pdf' ? 'Procesando Affidavit PDF' : 'Procesando Affidavit Word',
       'Generando declaración jurada. Espere un momento...'
     );
     fetch(url, { method: 'GET', headers: { 'Accept': accept } })
@@ -620,6 +624,7 @@
 
   document.getElementById('icr-reporte-partes-no-calificados').addEventListener('click', function () {
     var url = '/api/reportes/partes-no-calificados-icr';
+    showProcessingModal('Generando Excel', 'Calculando ICR para todos los clientes y partes con ventas ICR. Puede tardar varios minutos...');
     fetch(url, { method: 'GET', headers: { 'Accept': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' } })
       .then(function (r) {
         if (!r.ok) {
@@ -631,17 +636,24 @@
             throw new Error(text && text.length < 200 ? text : 'Error al generar el reporte (código ' + r.status + ')');
           });
         }
-        return r.blob();
+        var fn = icrFilenameFromDisposition(
+          r.headers.get('Content-Disposition'),
+          'reporte_partes_icr_menor_60.xlsx'
+        );
+        return r.blob().then(function (blob) { return { blob: blob, fn: fn }; });
       })
-      .then(function (blob) {
+      .then(function (o) {
         var a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = 'reporte_partes_icr_menor_60.xlsx';
+        a.href = URL.createObjectURL(o.blob);
+        a.download = o.fn;
         a.click();
         URL.revokeObjectURL(a.href);
       })
       .catch(function (err) {
         alert(err.message || 'Error al generar el reporte');
+      })
+      .finally(function () {
+        hideProcessingModal();
       });
   });
 

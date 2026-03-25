@@ -6583,6 +6583,25 @@ async def get_icr_para_parte(
     return (round(regional_index, 2), None)
 
 
+def motivo_no_cumple_icr(icr: Optional[Any], icr_zero_reason: Optional[str]) -> str:
+    """
+    Explicación en texto para partes que no cumplen ICR ≥ 60 % (exportes / reportes).
+    Reutiliza icr_zero_reason cuando ICR es 0 % (mismas reglas que get_icr_para_parte).
+    """
+    if icr is None:
+        return "Sin ICR calculable (sin precio de venta F.O.B. para este cliente o F.O.B. en cero)"
+    try:
+        v = float(icr)
+    except (TypeError, ValueError):
+        return "ICR no disponible"
+    if v >= 60:
+        return ""
+    if v == 0:
+        z = (icr_zero_reason or "").strip()
+        return z if z else "ICR 0%"
+    return f"ICR {v:.2f}% inferior al umbral mínimo (60%)"
+
+
 async def get_analisis_icr_detalle(
     db: AsyncSession,
     codigo_cliente: int,

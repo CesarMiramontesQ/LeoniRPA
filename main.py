@@ -2455,9 +2455,9 @@ async def api_reportes_partes_no_calificados_icr(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Reporte Excel: todos los números de parte que no cumplen ICR > 60% por cliente.
+    Reporte Excel: todos los (cliente, número de parte) que no cumplen ICR ≥ 60%.
     Origen: ventas con sales_km y precios (exmetal/full_metal) no vacíos ni 0;
-    para cada (codigo_cliente, part_number) se calcula ICR y se listan los que tienen ICR < 60 o sin ICR.
+    para cada par se calcula ICR y se listan los que tienen ICR < 60 o sin ICR, con columna de motivo.
     """
     from io import BytesIO
     from sqlalchemy import select
@@ -2481,18 +2481,19 @@ async def api_reportes_partes_no_calificados_icr(
             status_code=400,
         )
 
-    # Calcular ICR por cada (cliente, parte) y filtrar no conformes (ICR < 60 o None)
+    # Calcular ICR por cada (cliente, parte) y filtrar no conformes (mismo criterio que certificado: ICR ≥ 60 cumple)
     filas = []
     try:
         for p in pares:
-            icr, _ = await crud.get_icr_para_parte(db, p["codigo_cliente"], p["part_number"])
-            if icr is not None and float(icr) > 60:
+            icr, icr_zero_reason = await crud.get_icr_para_parte(db, p["codigo_cliente"], p["part_number"])
+            if icr is not None and float(icr) >= 60:
                 continue
             filas.append({
                 "codigo_cliente": p["codigo_cliente"],
                 "cliente_nombre": p["cliente_nombre"],
                 "part_number": p["part_number"],
                 "icr": icr,
+                "icr_zero_reason": icr_zero_reason,
             })
     except Exception as e:
         logger.exception("Error al calcular ICR en reporte partes no calificados")
@@ -2528,7 +2529,15 @@ async def api_reportes_partes_no_calificados_icr(
         wb = Workbook()
         ws = wb.active
         ws.title = "Partes ICR < 60%"
-        headers = ["Codigo Cliente", "Cliente Nombre", "Part Number", "Description", "Tariff Schedule", "ICR"]
+        headers = [
+            "Codigo Cliente",
+            "Cliente Nombre",
+            "Part Number",
+            "Description",
+            "Tariff Schedule",
+            "ICR",
+            "Motivo / razón",
+        ]
         header_fill = PatternFill(fill_type="solid", start_color="4472C4", end_color="4472C4")
         header_font = Font(bold=True, color="FFFFFF")
         for col_idx, h in enumerate(headers, start=1):
@@ -2536,14 +2545,17 @@ async def api_reportes_partes_no_calificados_icr(
             c.fill = header_fill
             c.font = header_font
         for row_idx, f in enumerate(filas, start=2):
+            motivo = crud.motivo_no_cumple_icr(f.get("icr"), f.get("icr_zero_reason"))
             ws.cell(row=row_idx, column=1, value=f["codigo_cliente"])
             ws.cell(row=row_idx, column=2, value=f["cliente_nombre"])
             ws.cell(row=row_idx, column=3, value=f["part_number"])
             ws.cell(row=row_idx, column=4, value=f["description"])
             ws.cell(row=row_idx, column=5, value=f["tariff_schedule"])
             ws.cell(row=row_idx, column=6, value=f["icr"] if f["icr"] is not None else "—")
+            ws.cell(row=row_idx, column=7, value=motivo)
         for col in range(1, len(headers) + 1):
-            ws.column_dimensions[ws.cell(row=1, column=col).column_letter].width = 18
+            letter = ws.cell(row=1, column=col).column_letter
+            ws.column_dimensions[letter].width = 30 if col == 7 else 18
 
         buf = BytesIO()
         wb.save(buf)
