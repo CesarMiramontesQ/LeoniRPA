@@ -6375,8 +6375,8 @@ async def virtuales(request: Request, current_user: User = Depends(get_current_u
     """Página Virtuales (master unificado) dentro de Aduanas - requiere autenticación."""
     mes_actual = MESES_VIRTUALES_ES[datetime.now().month - 1]
 
-    # Tabla: todos los registros (sin filtrar por mes)
-    virtuales_data = await crud.list_master_unificado_virtuales(db, limit=2000, offset=0)
+    # Tabla: todos los registros para la vista (mismo orden de plantilla Excel)
+    virtuales_data = await crud.list_master_unificado_virtuales(db, limit=50000, offset=0)
 
     # Tarjetas de estadísticas: solo datos del mes actual
     total_virtuales = await crud.count_master_unificado_virtuales(db, mes=mes_actual)
@@ -6387,6 +6387,8 @@ async def virtuales(request: Request, current_user: User = Depends(get_current_u
 
     # Valores distintos de tipo_exportacion para el filtro (desde toda la tabla)
     tipo_exportacion_opciones = await crud.get_tipo_exportacion_distintos_master_virtuales(db)
+    escenario_opciones = await crud.get_escenario_distintos_master_virtuales(db)
+    estatus_opciones = await crud.get_estatus_distintos_master_virtuales(db)
 
     # Historial: administrador ve todos los movimientos; operador solo los suyos
     if current_user.rol == "admin":
@@ -6396,9 +6398,9 @@ async def virtuales(request: Request, current_user: User = Depends(get_current_u
     else:
         historial_reciente = []
 
-    # Años para el selector de descarga Excel (actual y 5 anteriores)
+    # Años para descarga Excel y filtro por fecha de creación (actual y 15 anteriores)
     año_actual = datetime.now().year
-    años_disponibles = list(range(año_actual, año_actual - 6, -1))
+    años_disponibles = list(range(año_actual, año_actual - 16, -1))
     
     return templates.TemplateResponse(
         "virtuales.html",
@@ -6410,6 +6412,8 @@ async def virtuales(request: Request, current_user: User = Depends(get_current_u
             "total_virtuales": total_virtuales,
             "estatus_counts": estatus_counts,
             "tipo_exportacion_opciones": tipo_exportacion_opciones,
+            "escenario_opciones": escenario_opciones,
+            "estatus_opciones": estatus_opciones,
             "historial_reciente": historial_reciente,
             "años_disponibles": años_disponibles,
             "mes_actual_nombre": mes_actual,

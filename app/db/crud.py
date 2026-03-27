@@ -9067,6 +9067,26 @@ async def get_tipo_exportacion_distintos_master_virtuales(db: AsyncSession) -> L
     return sorted([(r[0] or "").strip() for r in result.all() if (r[0] or "").strip()])
 
 
+async def get_escenario_distintos_master_virtuales(db: AsyncSession) -> List[str]:
+    """Valores distintos de escenario (no vacíos), ordenados."""
+    query = select(MasterUnificadoVirtuales.escenario).distinct()
+    result = await db.execute(query)
+    return sorted([(r[0] or "").strip() for r in result.all() if (r[0] or "").strip()])
+
+
+async def get_estatus_distintos_master_virtuales(db: AsyncSession) -> List[str]:
+    """Valores distintos de estatus para filtros; vacío o null se agrupa como 'Sin estatus'."""
+    query = select(MasterUnificadoVirtuales.estatus).distinct()
+    result = await db.execute(query)
+    labels = set()
+    for (raw,) in result.all():
+        if raw is None or not str(raw).strip():
+            labels.add("Sin estatus")
+        else:
+            labels.add(str(raw).strip())
+    return sorted(labels)
+
+
 async def get_proveedores_distintos_master_virtuales(db: AsyncSession) -> List[tuple]:
     """
     Obtiene (numero, proveedor_cliente) distintos donde tipo indica proveedor.
