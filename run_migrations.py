@@ -67,6 +67,18 @@ async def run_migration_materialidad():
     print("  ✓ Columna 'materialidad' agregada a master_unificado_virtuales.")
 
 
+async def run_migration_materialidad_carpeta():
+    """Agrega la columna materialidad_carpeta (TEXT) a master_unificado_virtuales."""
+    from app.db.base import engine
+    from sqlalchemy import text
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            ALTER TABLE master_unificado_virtuales
+            ADD COLUMN IF NOT EXISTS materialidad_carpeta TEXT
+        """))
+    print("  ✓ Columna 'materialidad_carpeta' agregada a master_unificado_virtuales.")
+
+
 async def run_migration_partes():
     """Crea la tabla partes si no existe."""
     from app.db.base import engine
@@ -517,6 +529,10 @@ async def main():
         # 4. Migración: columna materialidad
         print("\n[4/18] Migración: columna materialidad en master_unificado_virtuales...")
         await run_migration_materialidad()
+
+        # 4b. Migración: columna materialidad_carpeta
+        print("\n[4b] Migración: columna materialidad_carpeta en master_unificado_virtuales...")
+        await run_migration_materialidad_carpeta()
 
         # 5. Migración: tabla partes
         print("\n[5/18] Migración: tabla partes...")

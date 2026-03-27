@@ -8525,6 +8525,7 @@ def master_unificado_virtual_to_dict(master: Optional[MasterUnificadoVirtuales])
         "tipo_exportacion": master.tipo_exportacion,
         "escenario": master.escenario,
         "materialidad": master.materialidad,
+        "materialidad_carpeta": master.materialidad_carpeta,
         "created_at": master.created_at.isoformat() if master.created_at else None,
         "updated_at": master.updated_at.isoformat() if master.updated_at else None,
     }
@@ -8614,6 +8615,7 @@ async def create_master_unificado_virtuales(
     tipo_exportacion: Optional[str] = None,
     escenario: Optional[str] = None,
     materialidad: Optional[bool] = None,
+    materialidad_carpeta: Optional[str] = None,
     user_id: Optional[int] = None,
 ) -> MasterUnificadoVirtuales:
     """Crea un nuevo registro de master unificado virtuales."""
@@ -8645,6 +8647,7 @@ async def create_master_unificado_virtuales(
         tipo_exportacion=tipo_exportacion,
         escenario=escenario,
         materialidad=materialidad,
+        materialidad_carpeta=materialidad_carpeta,
     )
     db.add(master)
     await db.flush()
@@ -8892,6 +8895,7 @@ async def update_master_unificado_virtuales(
     tipo_exportacion: Optional[str] = None,
     escenario: Optional[str] = None,
     materialidad: Optional[bool] = None,
+    materialidad_carpeta: Optional[str] = None,
     user_id: Optional[int] = None,
     master_id: Optional[int] = None,
 ) -> Optional[MasterUnificadoVirtuales]:
@@ -8963,6 +8967,8 @@ async def update_master_unificado_virtuales(
         master.escenario = escenario
     if materialidad is not None:
         master.materialidad = materialidad
+    if materialidad_carpeta is not None:
+        master.materialidad_carpeta = materialidad_carpeta
 
     if user_id:
         datos_despues = master_unificado_virtual_to_dict(master)
@@ -9627,6 +9633,7 @@ async def actualizar_master_virtuales_desde_compras(
                 tipo_exportacion=r.tipo_exportacion,
                 escenario=r.escenario,
                 materialidad=r.materialidad,
+                materialidad_carpeta=r.materialidad_carpeta,
             )
             db.add(nuevo)
             await db.flush()

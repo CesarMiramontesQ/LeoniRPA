@@ -376,7 +376,7 @@
     <div class="overflow-x-auto">
       <table class="min-w-full divide-y divide-gray-200 text-xs" id="tabla-virtuales">
         <colgroup>
-          <col span="30" />
+          <col span="31" />
           <col style="min-width: 320px; width: 320px;" />
         </colgroup>
         <thead class="bg-gray-50">
@@ -404,6 +404,7 @@
             <th scope="col" class="cursor-pointer px-2 py-2 text-left font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="tipo_exportacion">Tipo exp.</th>
             <th scope="col" class="cursor-pointer px-2 py-2 text-left font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="escenario">Escenario</th>
             <th scope="col" class="cursor-pointer whitespace-nowrap px-2 py-2 text-left font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="materialidad">Materialidad</th>
+            <th scope="col" class="cursor-pointer px-2 py-2 text-left font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="materialidad_carpeta">Mat. carpeta</th>
             <th scope="col" class="cursor-pointer whitespace-nowrap px-2 py-2 text-left font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="op_regular">OP reg.</th>
             <th scope="col" class="cursor-pointer whitespace-nowrap px-2 py-2 text-left font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="carretes">Carretes</th>
             <th scope="col" class="cursor-pointer px-2 py-2 text-left font-medium uppercase tracking-wider text-gray-500 hover:bg-gray-100" data-sort="servicio_cliente">Serv. cliente</th>
@@ -416,7 +417,7 @@
         </thead>
         <tbody class="divide-y divide-gray-200 bg-white" id="tabla-virtuales-body">
           <tr id="fila-sin-datos-virtuales">
-            <td colspan="31" class="px-6 py-12 text-center text-sm text-gray-500">
+            <td colspan="32" class="px-6 py-12 text-center text-sm text-gray-500">
               <div class="flex flex-col items-center">
                 <svg class="h-12 w-12 text-gray-400 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -607,6 +608,7 @@
     data-tipo-exportacion="{{ v.tipo_exportacion or '' }}"
     data-escenario="{{ v.escenario or '' }}"
     data-materialidad="{{ 'Sí' if v.materialidad else 'No' }}"
+    data-materialidad-carpeta="{{ v.materialidad_carpeta or '' }}"
     data-plazo="{{ v.plazo or '' }}"
     data-solicitud-previo="{{ 'Sí' if v.solicitud_previo else 'No' }}"
     data-pedimento="{{ v.pedimento or '' }}"
@@ -870,12 +872,24 @@
             <!-- Materialidad -->
             <div>
               <label for="modal-materialidad" class="block text-sm/6 font-medium text-gray-900">Materialidad</label>
+              <p class="mt-1 text-xs text-gray-500">Si elige <span class="font-medium">Sí</span>, se abrirá una ventana para capturar la carpeta.</p>
               <div class="mt-2">
                 <select id="modal-materialidad" name="materialidad" class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-[#003D89] sm:text-sm/6">
                   <option value="">-</option>
                   <option value="Sí">Sí</option>
                   <option value="No">No</option>
                 </select>
+              </div>
+            </div>
+            <!-- Materialidad carpeta (modal obligatorio al elegir Sí; botón Editar si ya es Sí) -->
+            <div>
+              <div class="flex flex-wrap items-end justify-between gap-2">
+                <label for="modal-materialidad-carpeta" class="block text-sm/6 font-medium text-gray-900">Materialidad carpeta</label>
+                <button type="button" id="btn-editar-materialidad-carpeta" class="text-xs font-medium text-[#003D89] hover:underline focus:outline-none focus:ring-2 focus:ring-[#003D89] rounded">Editar ubicación</button>
+              </div>
+              <p class="mt-1 text-xs text-gray-500">Debe comenzar con la ruta base <span class="font-mono text-[11px]">G:\Customs 2025\…\2.- EXPO</span> o <span class="font-mono text-[11px]">…\1.- IMPO</span> según Impo/Expo.</p>
+              <div class="mt-2">
+                <input type="text" id="modal-materialidad-carpeta" name="materialidad_carpeta" readonly class="block w-full cursor-not-allowed rounded-md bg-gray-50 px-3 py-1.5 text-base text-gray-800 outline-1 -outline-offset-1 outline-gray-200 sm:text-sm/6" title="Se completa al elegir Materialidad Sí o con «Editar ubicación»" />
               </div>
             </div>
           </div>
@@ -896,6 +910,32 @@
           </div>
         </div>
       </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: carpeta al cambiar materialidad a Sí (encima del modal de detalle) -->
+<div id="modal-materialidad-carpeta-prompt" class="hidden fixed inset-0 z-[60] overflow-y-auto" aria-labelledby="modal-materialidad-carpeta-prompt-title" role="dialog" aria-modal="true">
+  <div class="flex min-h-screen items-end justify-center px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+    <div id="modal-materialidad-carpeta-prompt-backdrop" class="fixed inset-0 bg-gray-900/60 transition-opacity"></div>
+    <span class="hidden sm:inline-block sm:h-screen sm:align-middle" aria-hidden="true">&#8203;</span>
+    <div class="relative inline-block transform overflow-hidden rounded-lg bg-white text-left align-bottom shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-2xl sm:align-middle">
+      <div class="bg-[#003D89] px-6 py-4">
+        <h3 class="text-lg font-semibold text-white" id="modal-materialidad-carpeta-prompt-title">Ubicación de la materialidad</h3>
+        <p class="mt-1 text-sm text-blue-100">La ruta completa debe comenzar con el prefijo que corresponda a <span class="font-semibold">Impo/Expo</span> del registro (vea el recuadro siguiente).</p>
+      </div>
+      <div class="px-6 py-4">
+        <p class="text-xs font-medium uppercase tracking-wide text-gray-500">Prefijo obligatorio para este registro</p>
+        <p id="modal-materialidad-carpeta-prompt-prefijo" class="mt-1 text-xs font-mono text-gray-900 break-all rounded border border-gray-200 bg-gray-50 px-2 py-2"></p>
+        <label for="modal-materialidad-carpeta-prompt-input" class="mt-4 block text-sm font-medium text-gray-900">Ruta completa de la carpeta <span class="text-red-600">*</span></label>
+        <div class="mt-2">
+          <input type="text" id="modal-materialidad-carpeta-prompt-input" autocomplete="off" class="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-base text-gray-900 shadow-sm placeholder:text-gray-400 focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89] sm:text-sm" />
+        </div>
+      </div>
+      <div class="bg-gray-50 px-6 py-3 flex justify-end gap-3">
+        <button type="button" id="btn-materialidad-carpeta-prompt-cancelar" class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2">Cancelar</button>
+        <button type="button" id="btn-materialidad-carpeta-prompt-aceptar" class="rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white hover:bg-[#002d66] focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2">Aceptar</button>
+      </div>
     </div>
   </div>
 </div>
@@ -976,7 +1016,108 @@
   let sortAsc = true;
   let modoModal = 'edit';
   let registroActual = null;
+  /** Valor de Materialidad considerado «confirmado» al abrir el formulario o tras aceptar cambios. */
+  let _virtMatSnapshot = '';
+  /** Si es true, al cancelar el prompt de carpeta se restaura el select al valor guardado en _matCarpetaPromptValorAnterior. */
+  let _matCarpetaPromptRevertir = false;
+  let _matCarpetaPromptValorAnterior = '';
   const esAdmin = {{ 'true' if current_user.rol|default('')|lower == 'admin' else 'false' }};
+
+  var PREFIX_MAT_CARP_EXPO = 'G:\\Customs 2025\\Segment 2 Change Access\\4.- VIRTUALES\\2.-REQUISITOS V1\\2.- EXPO';
+  var PREFIX_MAT_CARP_IMPO = 'G:\\Customs 2025\\Segment 2 Change Access\\4.- VIRTUALES\\2.-REQUISITOS V1\\1.- IMPO';
+
+  function normalizarRutaMatCarp(s) {
+    var t = String(s || '').trim().replace(/\//g, '\\');
+    while (t.indexOf('\\\\') !== -1) t = t.replace('\\\\', '\\');
+    return t;
+  }
+
+  function validarMaterialidadCarpetaVsImpoExpo(impoExpo, carpeta) {
+    var c = String(carpeta || '').trim();
+    if (!c) return null;
+    var ie = String(impoExpo || '').trim().toUpperCase();
+    if (ie !== 'EXPO' && ie !== 'IMPO') {
+      return 'Impo/Expo debe ser EXPO o IMPO. Seleccione uno en el formulario antes de indicar la carpeta.';
+    }
+    var pref = ie === 'EXPO' ? PREFIX_MAT_CARP_EXPO : PREFIX_MAT_CARP_IMPO;
+    var n = normalizarRutaMatCarp(c);
+    var p = normalizarRutaMatCarp(pref);
+    if (!n.toUpperCase().startsWith(p.toUpperCase())) {
+      return 'La ruta debe comenzar exactamente con:\n' + pref;
+    }
+    return null;
+  }
+
+  function modalCarpetaMaterialidadEstaAbierto() {
+    const el = document.getElementById('modal-materialidad-carpeta-prompt');
+    return el && !el.classList.contains('hidden');
+  }
+
+  /**
+   * @param {boolean} revertirSiCancela - si true, cancelar restaura el select (p. ej. al pasar a Sí desde otro valor)
+   * @param {string} valorAnteriorSelect - valor del select antes del cambio a Sí (puede ser '')
+   */
+  function abrirModalPromptCarpetaMaterialidad(revertirSiCancela, valorAnteriorSelect) {
+    _matCarpetaPromptRevertir = !!revertirSiCancela;
+    _matCarpetaPromptValorAnterior = valorAnteriorSelect != null ? String(valorAnteriorSelect) : '';
+    const overlay = document.getElementById('modal-materialidad-carpeta-prompt');
+    const input = document.getElementById('modal-materialidad-carpeta-prompt-input');
+    const main = document.getElementById('modal-materialidad-carpeta');
+    var impo = (document.getElementById('modal-impo-expo') && document.getElementById('modal-impo-expo').value || '').trim().toUpperCase();
+    var prefEl = document.getElementById('modal-materialidad-carpeta-prompt-prefijo');
+    if (prefEl) {
+      if (impo === 'EXPO') {
+        prefEl.textContent = PREFIX_MAT_CARP_EXPO;
+        if (input) input.placeholder = PREFIX_MAT_CARP_EXPO + '\\...';
+      } else if (impo === 'IMPO') {
+        prefEl.textContent = PREFIX_MAT_CARP_IMPO;
+        if (input) input.placeholder = PREFIX_MAT_CARP_IMPO + '\\...';
+      } else {
+        prefEl.textContent = 'EXPO → ' + PREFIX_MAT_CARP_EXPO + '\n\nIMPO → ' + PREFIX_MAT_CARP_IMPO;
+        if (input) input.placeholder = 'Seleccione antes Impo/Expo en el formulario';
+      }
+    }
+    input.value = (main && main.value) ? main.value : '';
+    overlay.classList.remove('hidden');
+    setTimeout(function() {
+      input.focus();
+      try { input.select(); } catch (_) {}
+    }, 30);
+  }
+
+  function ocultarModalPromptCarpetaMaterialidad() {
+    document.getElementById('modal-materialidad-carpeta-prompt').classList.add('hidden');
+    _matCarpetaPromptRevertir = false;
+    _matCarpetaPromptValorAnterior = '';
+  }
+
+  function cancelarModalPromptCarpetaMaterialidad() {
+    if (_matCarpetaPromptRevertir) {
+      const sel = document.getElementById('modal-materialidad');
+      sel.value = _matCarpetaPromptValorAnterior;
+      _virtMatSnapshot = sel.value;
+    }
+    ocultarModalPromptCarpetaMaterialidad();
+  }
+
+  function confirmarModalPromptCarpetaMaterialidad() {
+    const input = document.getElementById('modal-materialidad-carpeta-prompt-input');
+    const main = document.getElementById('modal-materialidad-carpeta');
+    const t = (input.value || '').trim();
+    if (!t) {
+      alert('Debe indicar la carpeta donde se encuentra la materialidad.');
+      return;
+    }
+    const impo = (document.getElementById('modal-impo-expo') && document.getElementById('modal-impo-expo').value || '').trim();
+    const errVal = validarMaterialidadCarpetaVsImpoExpo(impo, t);
+    if (errVal) {
+      alert(errVal);
+      return;
+    }
+    main.value = t;
+    _virtMatSnapshot = document.getElementById('modal-materialidad').value || '';
+    ocultarModalPromptCarpetaMaterialidad();
+  }
 
   function esc(s) {
     const d = document.createElement('div');
@@ -1018,6 +1159,7 @@
         tipoExportacion: el.dataset.tipoExportacion || '',
         escenario: el.dataset.escenario || '',
         materialidad: el.dataset.materialidad || '',
+        materialidadCarpeta: el.dataset.materialidadCarpeta || '',
         plazo: el.dataset.plazo || '',
         solicitudPrevio: el.dataset.solicitudPrevio || '',
         pedimento: el.dataset.pedimento || '',
@@ -1047,7 +1189,7 @@
     const t = q.toLowerCase();
     const s = [
       v.id, v.numero, v.agente, v.impoExpo, v.proveedorCliente, v.mes,
-      v.estatus, v.tipo, v.incoterm, v.tipoExportacion, v.escenario, v.materialidad, v.plazo,
+      v.estatus, v.tipo, v.incoterm, v.tipoExportacion, v.escenario, v.materialidad, v.materialidadCarpeta, v.plazo,
       v.solicitudPrevio, v.pedimento, v.aduana, v.patente, v.destino, v.clienteSpace,
       v.complemento, v.tipoImmex, v.factura, v.fechaPago, v.informacion, v.opRegular, v.carretes,
       v.servicioCliente, v.firma, v.createdAt, v.updatedAt
@@ -1207,6 +1349,7 @@
         tdTruncEsc(v.tipoExportacion) +
         tdTruncEsc(v.escenario) +
         '<td class="whitespace-nowrap px-2 py-2">' + badgeSiNoHtml(v.materialidad) + '</td>' +
+        tdTruncEsc(v.materialidadCarpeta) +
         '<td class="whitespace-nowrap px-2 py-2">' + badgeSiNoHtml(v.opRegular) + '</td>' +
         '<td class="whitespace-nowrap px-2 py-2">' + badgeSiNoHtml(v.carretes) + '</td>' +
         tdTruncEsc(v.servicioCliente) +
@@ -1299,6 +1442,7 @@
       tipoExportacion: '',
       escenario: '',
       materialidad: '',
+      materialidadCarpeta: '',
       plazo: '',
       solicitudPrevio: '',
       pedimento: '',
@@ -1369,6 +1513,8 @@
     document.getElementById('modal-op-regular').value = v.opRegular || '';
     document.getElementById('modal-carretes').value = v.carretes || '';
     document.getElementById('modal-materialidad').value = v.materialidad || '';
+    document.getElementById('modal-materialidad-carpeta').value = v.materialidadCarpeta || '';
+    _virtMatSnapshot = document.getElementById('modal-materialidad').value || '';
     
     // Mostrar el modal
     modal.classList.remove('hidden');
@@ -1471,7 +1617,7 @@
       pedimento: 'pedimento', aduana: 'aduana', patente: 'patente', destino: 'destino',
       cliente_space: 'clienteSpace', complemento: 'complemento', tipo_immex: 'tipoImmex', factura: 'factura',
       fecha_pago: 'fechaPago', plazo: 'plazo', incoterm: 'incoterm', tipo_exportacion: 'tipoExportacion',
-      escenario: 'escenario', materialidad: 'materialidad', op_regular: 'opRegular', carretes: 'carretes',
+      escenario: 'escenario', materialidad: 'materialidad', materialidad_carpeta: 'materialidadCarpeta', op_regular: 'opRegular', carretes: 'carretes',
       servicio_cliente: 'servicioCliente', firma: 'firma', informacion: 'informacion',
       created_at: 'createdAtIso', updated_at: 'updatedAtIso'
     };
@@ -1730,6 +1876,47 @@
     if (btnEliminar) {
       btnEliminar.addEventListener('click', eliminarRegistro);
     }
+
+    const selMaterialidad = document.getElementById('modal-materialidad');
+    if (selMaterialidad) {
+      selMaterialidad.addEventListener('change', function() {
+        const newV = this.value;
+        const oldSnap = _virtMatSnapshot;
+        if (newV === 'Sí') {
+          abrirModalPromptCarpetaMaterialidad(true, oldSnap);
+        } else {
+          document.getElementById('modal-materialidad-carpeta').value = '';
+          _virtMatSnapshot = newV;
+        }
+      });
+    }
+    const btnEditarCarpetaMat = document.getElementById('btn-editar-materialidad-carpeta');
+    if (btnEditarCarpetaMat) {
+      btnEditarCarpetaMat.addEventListener('click', function() {
+        const mat = (document.getElementById('modal-materialidad').value || '').trim();
+        if (mat !== 'Sí') {
+          alert('Use «Editar ubicación» solo cuando Materialidad es Sí.');
+          return;
+        }
+        abrirModalPromptCarpetaMaterialidad(false, '');
+      });
+    }
+    const btnPromptCarpAceptar = document.getElementById('btn-materialidad-carpeta-prompt-aceptar');
+    const btnPromptCarpCancelar = document.getElementById('btn-materialidad-carpeta-prompt-cancelar');
+    const backdropPromptCarp = document.getElementById('modal-materialidad-carpeta-prompt-backdrop');
+    if (btnPromptCarpAceptar) btnPromptCarpAceptar.addEventListener('click', confirmarModalPromptCarpetaMaterialidad);
+    if (btnPromptCarpCancelar) btnPromptCarpCancelar.addEventListener('click', cancelarModalPromptCarpetaMaterialidad);
+    if (backdropPromptCarp) backdropPromptCarp.addEventListener('click', cancelarModalPromptCarpetaMaterialidad);
+    const inputPromptCarp = document.getElementById('modal-materialidad-carpeta-prompt-input');
+    if (inputPromptCarp) {
+      inputPromptCarp.addEventListener('keydown', function(ev) {
+        if (ev.key === 'Enter') {
+          ev.preventDefault();
+          confirmarModalPromptCarpetaMaterialidad();
+        }
+      });
+    }
+
     document.getElementById('busqueda-virtuales').addEventListener('input', aplicarFiltros);
     document.getElementById('filtro-mes-virtuales').addEventListener('change', aplicarFiltros);
     document.getElementById('filtro-estatus-virtuales').addEventListener('change', aplicarFiltros);
@@ -1790,6 +1977,10 @@
     // Cerrar modal con tecla Escape
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
+        if (modalCarpetaMaterialidadEstaAbierto()) {
+          cancelarModalPromptCarpetaMaterialidad();
+          return;
+        }
         const modalDetalle = document.getElementById('modal-detalle');
         const modalMov = document.getElementById('modal-movimientos');
         const modalYaActualizado = document.getElementById('modal-ya-actualizado');
@@ -1833,6 +2024,22 @@
           return;
         }
       }
+
+      const matVal = (document.getElementById('modal-materialidad').value || '').trim();
+      const carpVal = (document.getElementById('modal-materialidad-carpeta').value || '').trim();
+      if (matVal === 'Sí' && !carpVal) {
+        alert('Si la materialidad es Sí, debe indicar la carpeta donde se encuentra.');
+        abrirModalPromptCarpetaMaterialidad(false, '');
+        return;
+      }
+      if (carpVal) {
+        const impoForm = (document.getElementById('modal-impo-expo').value || '').trim();
+        const errPref = validarMaterialidadCarpetaVsImpoExpo(impoForm, carpVal);
+        if (errPref) {
+          alert(errPref);
+          return;
+        }
+      }
       
       const btnGuardar = document.getElementById('btn-guardar-modal');
       const textoOriginal = btnGuardar.textContent;
@@ -1851,6 +2058,7 @@
         tipo_exportacion: document.getElementById('modal-tipo-exportacion').value,
         escenario: document.getElementById('modal-escenario').value,
         materialidad: document.getElementById('modal-materialidad').value,
+        materialidad_carpeta: document.getElementById('modal-materialidad-carpeta').value,
         plazo: document.getElementById('modal-plazo').value,
         pedimento: document.getElementById('modal-pedimento').value,
         aduana: document.getElementById('modal-aduana').value,

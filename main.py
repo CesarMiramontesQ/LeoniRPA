@@ -49,6 +49,66 @@ _CERT_FIRMA_IMG = Path(__file__).resolve().parent / "firma.png"
 # Plantilla Word para componentes con ICR < 60% (no calificados USMCA)
 _CERT_PLANTILLA_NO_CALIFICADOS_DOCX = Path(__file__).resolve().parent / "Plantilla no calificados.docx"
 
+# Virtuales: ruta base obligatoria para materialidad_carpeta según Impo/Expo
+_MATERIALIDAD_CARPETA_PREFIX_EXPO = (
+    r"G:\Customs 2025\Segment 2 Change Access\4.- VIRTUALES\2.-REQUISITOS V1\2.- EXPO"
+)
+_MATERIALIDAD_CARPETA_PREFIX_IMPO = (
+    r"G:\Customs 2025\Segment 2 Change Access\4.- VIRTUALES\2.-REQUISITOS V1\1.- IMPO"
+)
+
+
+def _normalizar_ruta_materialidad_carpeta(s: str) -> str:
+    t = (s or "").strip().replace("/", "\\")
+    while "\\\\" in t:
+        t = t.replace("\\\\", "\\")
+    return t
+
+
+def validar_materialidad_carpeta_vs_impo_expo(
+    impo_expo: Optional[str], materialidad_carpeta: Optional[str]
+) -> Optional[str]:
+    """
+    Si materialidad_carpeta no está vacío, debe comenzar con el prefijo EXPO o IMPO
+    según impo_expo. Devuelve mensaje de error o None.
+    """
+    carp = (materialidad_carpeta or "").strip()
+    if not carp:
+        return None
+    ie = (impo_expo or "").strip().upper()
+    if ie not in ("EXPO", "IMPO"):
+        return (
+            "Para validar la carpeta de materialidad, Impo/Expo debe ser EXPO o IMPO."
+        )
+    pref = (
+        _MATERIALIDAD_CARPETA_PREFIX_EXPO
+        if ie == "EXPO"
+        else _MATERIALIDAD_CARPETA_PREFIX_IMPO
+    )
+    norm_c = _normalizar_ruta_materialidad_carpeta(carp)
+    norm_p = _normalizar_ruta_materialidad_carpeta(pref)
+    if not norm_c.upper().startswith(norm_p.upper()):
+        return (
+            "La carpeta de materialidad debe comenzar exactamente con: "
+            f"{pref}"
+        )
+    return None
+
+
+def _remap_materialidad_carpeta_expo_a_impo(
+    materialidad_carpeta: Optional[str],
+) -> Optional[str]:
+    """Al duplicar EXPO→IMPO: sustituye el prefijo EXPO por el de IMPO si aplica."""
+    if not materialidad_carpeta or not str(materialidad_carpeta).strip():
+        return None
+    n = _normalizar_ruta_materialidad_carpeta(str(materialidad_carpeta).strip())
+    p_expo = _normalizar_ruta_materialidad_carpeta(_MATERIALIDAD_CARPETA_PREFIX_EXPO)
+    p_impo = _MATERIALIDAD_CARPETA_PREFIX_IMPO
+    if len(n) >= len(p_expo) and n.upper().startswith(p_expo.upper()):
+        suffix = n[len(p_expo) :]
+        return p_impo + suffix
+    return None
+
 
 def _find_libreoffice() -> Optional[str]:
     """Devuelve la ruta del ejecutable de LibreOffice (soffice) o None si no se encuentra.
@@ -6458,7 +6518,7 @@ async def descargar_virtuales_excel(
 
     columnas = [
         "numero", "proveedor_cliente", "impo_expo", "agente", "mes", "estatus", "tipo",
-        "incoterm", "tipo_exportacion", "escenario", "materialidad", "plazo", "pedimento", "aduana", "patente",
+        "incoterm", "tipo_exportacion", "escenario", "materialidad", "materialidad_carpeta", "plazo", "pedimento", "aduana", "patente",
         "destino", "cliente_space", "complemento", "tipo_immex", "factura", "fecha_pago",
         "informacion", "servicio_cliente", "firma", "solicitud_previo", "op_regular", "carretes",
         "created_at",
@@ -6477,6 +6537,7 @@ async def descargar_virtuales_excel(
             "tipo_exportacion": _valor(r.tipo_exportacion),
             "escenario": _valor(r.escenario),
             "materialidad": _valor(r.materialidad),
+            "materialidad_carpeta": _valor(r.materialidad_carpeta),
             "plazo": _valor(r.plazo),
             "pedimento": _valor(r.pedimento),
             "aduana": _valor(r.aduana),
@@ -6657,6 +6718,12 @@ async def crear_virtual(
             status_code=400,
             content={"error": "El campo 'Tipo' es obligatorio"}
         )
+
+    _mc_raw = data.get("materialidad_carpeta")
+    _mc_val = (str(_mc_raw).strip() if _mc_raw is not None else "")
+    _mat_err = validar_materialidad_carpeta_vs_impo_expo(impo_expo, _mc_val or None)
+    if _mat_err:
+        return JSONResponse(status_code=400, content={"error": _mat_err})
     
     def parse_bool(value):
         if value is None or str(value).strip() == "":
@@ -6694,6 +6761,15 @@ async def crear_virtual(
             except ValueError:
                 continue
     
+    _mat_bool = parse_bool(data.get("materialidad"))
+    if _mat_bool is True and not _mc_val:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": "Si la materialidad es Sí, debe indicar la carpeta donde se encuentra."
+            },
+        )
+
     try:
         nuevo = await crud.create_master_unificado_virtuales(
             db=db,
@@ -6724,6 +6800,7 @@ async def crear_virtual(
             tipo_exportacion=parse_str(data.get("tipo_exportacion")),
             escenario=parse_str(data.get("escenario")),
             materialidad=parse_bool(data.get("materialidad")),
+            materialidad_carpeta=parse_str(data.get("materialidad_carpeta")),
             user_id=current_user.id
         )
     except Exception as exc:
@@ -6983,6 +7060,33 @@ async def actualizar_virtual(
                 materialidad = True
             elif val is False or (isinstance(val, str) and str(val).strip().lower() in ("no", "false", "0")):
                 materialidad = False
+
+        master_id = None
+        if data.get("id") is not None and data.get("id") != "":
+            try:
+                master_id = int(data.get("id"))
+            except (ValueError, TypeError):
+                pass
+
+        reg_pre = None
+        if master_id:
+            reg_pre = await crud.get_master_unificado_virtuales_by_id(db, master_id)
+        if not reg_pre:
+            reg_pre = await crud.get_master_unificado_virtuales_by_numero(db, numero)
+        impo_eff = (data.get("impo_expo") or "").strip()
+        if not impo_eff and reg_pre:
+            impo_eff = (reg_pre.impo_expo or "").strip()
+        mat_carp_req = (data.get("materialidad_carpeta") or "").strip()
+        if materialidad is True and not mat_carp_req:
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": "Si la materialidad es Sí, debe indicar la carpeta donde se encuentra."
+                },
+            )
+        _mat_err_put = validar_materialidad_carpeta_vs_impo_expo(impo_eff, mat_carp_req or None)
+        if _mat_err_put:
+            return JSONResponse(status_code=400, content={"error": _mat_err_put})
         
         # Convertir valores numéricos
         pedimento = None
@@ -7010,14 +7114,6 @@ async def actualizar_virtual(
         if data.get("destino"):
             try:
                 destino = int(data.get("destino"))
-            except (ValueError, TypeError):
-                pass
-        
-        # Si el frontend envía id del registro, usarlo para identificar (evita ambigüedad cuando hay varios con el mismo numero)
-        master_id = None
-        if data.get("id") is not None and data.get("id") != "":
-            try:
-                master_id = int(data.get("id"))
             except (ValueError, TypeError):
                 pass
         
@@ -7050,6 +7146,7 @@ async def actualizar_virtual(
             tipo_exportacion=data.get("tipo_exportacion") or None,
             escenario=data.get("escenario") or None,
             materialidad=materialidad,
+            materialidad_carpeta=data.get("materialidad_carpeta") or None,
             user_id=current_user.id
         )
         
@@ -7122,7 +7219,12 @@ async def duplicar_virtual_expo_a_impo(
         except Exception:
             pass  # Si la tabla no usa secuencia o falla, se intenta el create igualmente
         
-        # Crear nuevo registro copiando todos los campos pero con impo_expo="IMPO"
+        # Carpeta EXPO → prefijo IMPO al duplicar (si la ruta era válida para EXPO)
+        carp_impo = _remap_materialidad_carpeta_expo_a_impo(registro_expo.materialidad_carpeta)
+        mat_impo = registro_expo.materialidad
+        if mat_impo and not carp_impo:
+            mat_impo = None
+
         nuevo_impo = await crud.create_master_unificado_virtuales(
             db=db,
             solicitud_previo=registro_expo.solicitud_previo,
@@ -7151,7 +7253,8 @@ async def duplicar_virtual_expo_a_impo(
             incoterm=registro_expo.incoterm,
             tipo_exportacion=registro_expo.tipo_exportacion,
             escenario=registro_expo.escenario,
-            materialidad=registro_expo.materialidad,
+            materialidad=mat_impo,
+            materialidad_carpeta=carp_impo,
             user_id=current_user.id
         )
         
