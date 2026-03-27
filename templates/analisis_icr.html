@@ -64,14 +64,16 @@
     <!-- Panel de filtros y botones en una fila -->
     <div class="rounded-lg bg-white p-6 shadow-sm">
       <div class="flex w-full flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div class="flex shrink-0 items-center gap-2">
-          <label for="icr-filter-part" class="whitespace-nowrap text-sm font-medium text-gray-900">Filter Part Number:</label>
-          <input
-            id="icr-filter-part"
-            type="text"
-            placeholder="Search part number..."
-            class="block w-48 max-w-full rounded-md border border-gray-300 px-3 py-1.5 text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
-          />
+        <div class="flex min-w-0 shrink-0 flex-col gap-1 sm:flex-row sm:items-center sm:gap-2">
+          <label for="icr-incluir-direccion-cliente" class="whitespace-nowrap text-sm font-medium text-gray-900">Dirección en certificado C.O.</label>
+          <select
+            id="icr-incluir-direccion-cliente"
+            class="block w-full min-w-[5rem] max-w-[8rem] rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89] sm:w-auto"
+            title="No: importador solo VARIOS. Sí: nombre y dirección del maestro en el C.O. (sin Customer # en ambos casos)."
+          >
+            <option value="0" selected>No</option>
+            <option value="1">Sí</option>
+          </select>
         </div>
         <div class="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 sm:w-auto sm:flex-1">
         <button type="button" id="icr-certificado-pack" class="flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700" title="Genera ZIP: certificado Excel+PDF (partes que califican) y, si hay no calificados, Word+PDF de no calificados">
@@ -208,7 +210,6 @@
   const busqueda = document.getElementById('icr-busqueda');
   const vistaCliente = document.getElementById('icr-vista-cliente');
   const clienteHeader = document.getElementById('icr-cliente-header');
-  const filterPart = document.getElementById('icr-filter-part');
   const tbody = document.getElementById('icr-tbody');
   const emptyState = document.getElementById('icr-empty');
   const registrosMostrados = document.getElementById('icr-registros-mostrados');
@@ -339,15 +340,10 @@
     return div.innerHTML;
   }
 
-  function filterPartes() {
-    const q = (filterPart.value || '').trim().toLowerCase();
-    const list = q ? allPartes.filter(function (p) {
-      return (p.part_number || '').toLowerCase().indexOf(q) >= 0 ||
-             (p.description || '').toLowerCase().indexOf(q) >= 0;
-    }) : allPartes;
-    if (registrosMostrados) registrosMostrados.textContent = list.length;
+  function refreshTablaPartes() {
+    if (registrosMostrados) registrosMostrados.textContent = allPartes.length;
     if (totalRegistros) totalRegistros.textContent = allPartes.length;
-    renderTableRows(list);
+    renderTableRows(allPartes);
   }
 
   function renderTableRows(partes) {
@@ -405,12 +401,11 @@
     document.getElementById('icr-original-value').textContent = String(data.original_components != null ? data.original_components : 0);
     document.getElementById('icr-non-original-value').textContent = String(data.non_original_components != null ? data.non_original_components : 0);
     document.getElementById('icr-conforming-value').textContent = String(data.conforming_part_numbers != null ? data.conforming_part_numbers : data.total || 0);
-    filterPart.value = '';
     resetCertificadoBlanketDates();
     busqueda.classList.add('hidden');
     vistaCliente.classList.remove('hidden');
     if (totalRegistros) totalRegistros.textContent = data.total != null ? data.total : (data.partes && data.partes.length) || 0;
-    filterPartes();
+    refreshTablaPartes();
   }
 
   function hideVistaCliente() {
@@ -470,7 +465,11 @@
     if (dropdown && !dropdown.contains(e.target) && e.target !== input) hideClienteDropdown();
   });
 
-  filterPart.addEventListener('input', filterPartes);
+  function appendIncluirDireccionClienteCertificado(params) {
+    var sel = document.getElementById('icr-incluir-direccion-cliente');
+    var on = sel && String(sel.value) === '1';
+    params.set('incluir_direccion_cliente', on ? 'true' : 'false');
+  }
 
   document.getElementById('icr-seleccionar-todos').addEventListener('click', function () {
     tbody.querySelectorAll('.icr-select-checkbox').forEach(function (cb) {
@@ -500,6 +499,7 @@
     params.set('codigo_cliente', String(currentCodigoCliente));
     selected.forEach(function (np) { params.append('numero_parte', np); });
     if (!appendCertificadoBlanketQueryParams(params)) return;
+    appendIncluirDireccionClienteCertificado(params);
     var url = '/api/analisis-icr/certificado-pack?' + params.toString();
     showProcessingModal('Procesando Generar Certificado', 'Generando ZIP de certificados. Espere un momento...');
     fetch(url, { method: 'GET', headers: { 'Accept': 'application/zip' } })
@@ -539,6 +539,7 @@
     params.set('codigo_cliente', String(currentCodigoCliente));
     selected.forEach(function (np) { params.append('numero_parte', np); });
     if (!appendCertificadoBlanketQueryParams(params)) return;
+    appendIncluirDireccionClienteCertificado(params);
     var isPdf = formato === 'pdf';
     var url = isPdf ? '/api/analisis-icr/certificado-pdf?' + params.toString() : '/api/analisis-icr/certificado-excel?' + params.toString();
     var accept = isPdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';

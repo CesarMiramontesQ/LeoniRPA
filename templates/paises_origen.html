@@ -1075,7 +1075,7 @@
       const data = await response.json();
       mostrarModalResultados(data);
       
-      if (data.nuevos_creados > 0) {
+      if ((data.nuevos_creados > 0) || ((data.descripciones_actualizadas || 0) > 0)) {
         setTimeout(() => {
           window.location.reload();
         }, 3000);
@@ -1145,7 +1145,7 @@
     
     let icono, colorClase, tipoResultado;
 
-    if ((data.nuevos_creados > 0 || data.actualizados > 0 || data.success) && (!data.errores || data.errores.length === 0)) {
+    if ((data.nuevos_creados > 0 || data.descripciones_actualizadas > 0 || data.actualizados > 0 || data.success) && (!data.errores || data.errores.length === 0)) {
       tipoResultado = 'success';
       colorClase = 'bg-green-100';
       icono = `
@@ -1193,15 +1193,20 @@
           </div>
         `;
       } else {
+        const d = data.descripciones_actualizadas != null ? data.descripciones_actualizadas : 0;
         modalDetalles.innerHTML = `
-          <div class="grid grid-cols-2 gap-4 text-sm">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
             <div class="bg-gray-50 p-3 rounded-md">
               <p class="text-gray-500 text-xs">Registros encontrados</p>
               <p class="text-lg font-semibold text-gray-900 mt-1">${data.total_encontrados || 0}</p>
             </div>
             <div class="bg-gray-50 p-3 rounded-md">
-              <p class="text-gray-500 text-xs">Nuevos creados</p>
+              <p class="text-gray-500 text-xs">Nuevos creados (país origen)</p>
               <p class="text-lg font-semibold ${data.nuevos_creados > 0 ? 'text-green-600' : 'text-gray-900'} mt-1">${data.nuevos_creados || 0}</p>
+            </div>
+            <div class="bg-gray-50 p-3 rounded-md">
+              <p class="text-gray-500 text-xs">Descripciones materiales</p>
+              <p class="text-lg font-semibold ${d > 0 ? 'text-green-600' : 'text-gray-900'} mt-1">${d}</p>
             </div>
           </div>
         `;

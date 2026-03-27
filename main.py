@@ -1014,7 +1014,23 @@ def _render_certificado_co_pdf_reportlab(context: dict) -> bytes:
     story.append(t1)
     story.append(Spacer(1, 6))
     producer_block = "<b>3.- PRODUCER NAME, ADDRESS AND EMAIL</b><br/>" + f"{context.get('producer_company', '')}<br/>{context.get('producer_address_1', '')}<br/>{context.get('producer_address_2', '')}<br/>{context.get('producer_address_3', '')}<br/>TAX IDENTIFICATION NUMBER: {context.get('producer_tax_id', '')}<br/>TELEPHONE EMAIL<br/>" + f"{context.get('producer_phone', '')} {context.get('producer_email', '')}"
-    importer_block = "<b>4.- IMPORTER NAME, ADDRESS AND EMAIL.</b><br/>" + f"<b>{context.get('cliente_nombre') or '—'}</b><br/>Customer # {context.get('codigo_cliente') or '—'}<br/>" + f"{context.get('importer_address') or 'VARIOUS (optional customer address)'}<br/>TAX IDENTIFICATION NUMBER:<br/>EMAIL<br/>"
+    _cust = (
+        f"Customer # {context.get('codigo_cliente') or '—'}<br/>"
+        if context.get("importer_show_customer_number", True)
+        else ""
+    )
+    _nm_imp = (context.get("cliente_nombre") or "").strip()
+    _imp_addr = (context.get("importer_address") or "").strip()
+    if _nm_imp.upper() == "VARIOS" and _imp_addr.upper() == "VARIOS":
+        _imp_addr = ""  # Una sola línea VARIOS (nombre); no duplicar en dirección
+    _imp_addr_html = f"{_imp_addr}<br/>" if _imp_addr else ""
+    importer_block = (
+        "<b>4.- IMPORTER NAME, ADDRESS AND EMAIL.</b><br/>"
+        + f"<b>{context.get('cliente_nombre') or '—'}</b><br/>"
+        + _cust
+        + _imp_addr_html
+        + "TAX IDENTIFICATION NUMBER:<br/>EMAIL<br/>"
+    )
     t2 = Table([[Paragraph(producer_block, body_style), Paragraph(importer_block, body_style)]], colWidths=[3.25 * inch, 3.25 * inch])
     t2.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (1, 0), (1, 0), 20)]))
     story.append(t2)
@@ -1396,8 +1412,24 @@ def _render_certificado_co_xlsx(context: dict) -> bytes:
         except Exception as e:
             logger.warning("No se pudo ajustar ancho de columnas: %s", e)
 
-    cliente_nombre = (context.get("cliente_nombre") or "").strip() or "VARIOUS (optional customer address)"
-    _set_cell(ws, 16, 5, cliente_nombre)
+    cliente_nombre = (context.get("cliente_nombre") or "").strip() or "—"
+    codigo_cli = context.get("codigo_cliente")
+    show_cust = context.get("importer_show_customer_number", True)
+    cust_line = ""
+    if show_cust:
+        cust_line = (
+            f"Customer # {codigo_cli}"
+            if codigo_cli is not None and str(codigo_cli).strip() and str(codigo_cli).strip() != "—"
+            else "Customer # —"
+        )
+    importer_line = (context.get("importer_address") or "").strip()
+    if cliente_nombre.strip().upper() == "VARIOS" and importer_line.upper() == "VARIOS":
+        importer_line = ""  # Una sola celda con VARIOS (fila 14)
+    # Bloque importador (columna E): nombre, opcional Customer #, línea de dirección.
+    # None borra el texto de plantilla (p. ej. «VARIOUS…» en fila 16) al elegir solo VARIOS.
+    _set_cell(ws, 14, 5, cliente_nombre)
+    _set_cell(ws, 15, 5, cust_line if cust_line else None)
+    _set_cell(ws, 16, 5, importer_line if importer_line else None)
 
     # Blanket period en plantilla C.O.: fila 41 col 5 = FROM, fila 42 col 5 = TO (ver Plantilla calificados.xlsx)
     bd_f = context.get("_blanket_period_from_date")
@@ -1805,6 +1837,51 @@ def _render_no_calificados_pdf(context: dict) -> bytes:
         )
 
 
+def _icr_importer_address_para_certificado(
+    incluir_direccion: bool,
+    domicilio: Optional[str],
+    pais: Optional[str],
+) -> str:
+    """Texto del importador (bloque dirección). Si no se incluye o no hay datos: VARIOS."""
+    if not incluir_direccion:
+        return "VARIOS"
+    parts = []
+    d = (domicilio or "").strip()
+    if d:
+        parts.append(d)
+    p = (pais or "").strip()
+    if p:
+        parts.append(p)
+    return " — ".join(parts) if parts else "VARIOS"
+
+
+def _icr_certificado_importer_campos(
+    incluir_direccion_cliente: bool,
+    detalle: dict,
+    codigo_cliente: int,
+) -> dict:
+    """
+    Bloque importador en certificado C.O. desde Análisis ICR.
+    - Sí: nombre real y dirección (domicilio/país); sin línea «Customer #».
+    - No: una sola línea «VARIOS» (nombre); dirección en blanco; sin «Customer #».
+    """
+    if incluir_direccion_cliente:
+        nombre = (detalle.get("cliente_nombre") or "").strip() or str(codigo_cliente)
+        addr = _icr_importer_address_para_certificado(
+            True,
+            detalle.get("cliente_domicilio"),
+            detalle.get("cliente_pais"),
+        )
+    else:
+        nombre = "VARIOS"
+        addr = None  # Un solo «VARIOS» en el nombre; sin segunda línea de dirección
+    return {
+        "cliente_nombre": nombre,
+        "importer_address": addr,
+        "importer_show_customer_number": False,
+    }
+
+
 def _analisis_icr_cert_filename_stem(
     codigo_cliente: int,
     cliente_nombre: Optional[str],
@@ -1846,6 +1923,10 @@ async def api_analisis_icr_certificado_pdf(
     numero_parte: List[str] = Query(default=[], description="Números de parte seleccionados (columna Select)"),
     blanket_from: Optional[str] = Query(None, description="Inicio blanket period certificado (YYYY-MM-DD)"),
     blanket_to: Optional[str] = Query(None, description="Fin blanket period certificado (YYYY-MM-DD)"),
+    incluir_direccion_cliente: bool = Query(
+        False,
+        description="Si es true, incluye domicilio y país del maestro de clientes en el certificado; si no, VARIOS",
+    ),
 ):
     """
     Genera el certificado C.O. (cumplimiento) en PDF para las partes seleccionadas (ICR >= 60%).
@@ -1896,11 +1977,13 @@ async def api_analisis_icr_certificado_pdf(
         return f"{d.month}/{d.day}/{d.strftime('%y')}"
 
     certification_date = _fmt_date(ahora)
+    imp_fields = _icr_certificado_importer_campos(incluir_direccion_cliente, detalle, codigo_cliente)
     context = {
         **_CERT_CO_LEONI,
         "codigo_cliente": codigo_cliente,
-        "cliente_nombre": detalle.get("cliente_nombre") or str(codigo_cliente),
-        "importer_address": None,
+        "cliente_nombre": imp_fields["cliente_nombre"],
+        "importer_address": imp_fields["importer_address"],
+        "importer_show_customer_number": imp_fields["importer_show_customer_number"],
         "partes": partes_para_certificado,
         "blanket_period_from": s_bf,
         "blanket_period_to": s_bt,
@@ -1936,6 +2019,10 @@ async def api_analisis_icr_certificado_excel(
     numero_parte: List[str] = Query(default=[], description="Números de parte seleccionados (columna Select)"),
     blanket_from: Optional[str] = Query(None, description="Inicio blanket period certificado (YYYY-MM-DD)"),
     blanket_to: Optional[str] = Query(None, description="Fin blanket period certificado (YYYY-MM-DD)"),
+    incluir_direccion_cliente: bool = Query(
+        False,
+        description="Si es true, incluye domicilio y país del maestro de clientes en el certificado; si no, VARIOS",
+    ),
 ):
     """
     Genera el certificado C.O. (cumplimiento) en Excel (.xlsx) para las partes seleccionadas (ICR >= 60%).
@@ -1984,11 +2071,13 @@ async def api_analisis_icr_certificado_excel(
     def _fmt_date(d):
         return f"{d.month}/{d.day}/{d.strftime('%y')}"
 
+    imp_fields = _icr_certificado_importer_campos(incluir_direccion_cliente, detalle, codigo_cliente)
     context = {
         **_CERT_CO_LEONI,
         "codigo_cliente": codigo_cliente,
-        "cliente_nombre": detalle.get("cliente_nombre") or str(codigo_cliente),
-        "importer_address": None,
+        "cliente_nombre": imp_fields["cliente_nombre"],
+        "importer_address": imp_fields["importer_address"],
+        "importer_show_customer_number": imp_fields["importer_show_customer_number"],
         "partes": partes_para_certificado,
         "blanket_period_from": s_bf,
         "blanket_period_to": s_bt,
@@ -2214,6 +2303,10 @@ async def api_analisis_icr_certificado_pack(
     numero_parte: List[str] = Query(default=[], description="Números de parte seleccionados (columna Select)"),
     blanket_from: Optional[str] = Query(None, description="Inicio blanket period certificado C.O. (YYYY-MM-DD)"),
     blanket_to: Optional[str] = Query(None, description="Fin blanket period certificado C.O. (YYYY-MM-DD)"),
+    incluir_direccion_cliente: bool = Query(
+        False,
+        description="Si es true, incluye domicilio y país del maestro de clientes en el certificado C.O.; si no, VARIOS",
+    ),
 ):
     """
     Genera un ZIP con los documentos según la selección:
@@ -2273,11 +2366,13 @@ async def api_analisis_icr_certificado_pack(
             def _fmt_date(d):
                 return f"{d.month}/{d.day}/{d.strftime('%y')}"
 
+            imp_fields = _icr_certificado_importer_campos(incluir_direccion_cliente, detalle, codigo_cliente)
             cert_context = {
                 **_CERT_CO_LEONI,
                 "codigo_cliente": codigo_cliente,
-                "cliente_nombre": detalle.get("cliente_nombre") or str(codigo_cliente),
-                "importer_address": None,
+                "cliente_nombre": imp_fields["cliente_nombre"],
+                "importer_address": imp_fields["importer_address"],
+                "importer_show_customer_number": imp_fields["importer_show_customer_number"],
                 "partes": partes_que_califican,
                 "blanket_period_from": s_bf,
                 "blanket_period_to": s_bt,
@@ -7739,6 +7834,12 @@ async def actualizar_paises_origen_desde_compras(
             db=db,
             user_id=current_user.id
         )
+        resultado_desc = await crud.actualizar_descripciones_materiales_desde_compras(
+            db=db,
+            user_id=current_user.id,
+        )
+        descripciones_actualizadas = resultado_desc.get("actualizados", 0)
+        todos_errores = list(resultado["errores"]) + list(resultado_desc.get("errores", []))
         
         # Determinar el mensaje según el resultado
         if resultado["nuevos_creados"] > 0:
@@ -7754,17 +7855,23 @@ async def actualizar_paises_origen_desde_compras(
         else:
             mensaje = "✓ Sincronización completada. No se encontraron datos válidos en compras."
         
-        if resultado["errores"]:
-            mensaje += f" Se encontraron {len(resultado['errores'])} error(es)."
+        if descripciones_actualizadas > 0:
+            mensaje += (
+                f" Se actualizó la descripción de {descripciones_actualizadas} material(es) "
+                "desde compras (descripcion_material)."
+            )
         
-        # Considerar exitoso si no hay errores críticos
-        success = len(resultado["errores"]) == 0 or resultado["nuevos_creados"] > 0
+        if todos_errores:
+            mensaje += f" Se encontraron {len(todos_errores)} error(es)."
+        
+        success = len(todos_errores) == 0
         
         return JSONResponse({
             "success": success,
             "total_encontrados": resultado["total_encontrados"],
             "nuevos_creados": resultado["nuevos_creados"],
-            "errores": resultado["errores"],
+            "descripciones_actualizadas": descripciones_actualizadas,
+            "errores": todos_errores,
             "mensaje": mensaje
         })
     except Exception as e:

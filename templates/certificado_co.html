@@ -74,11 +74,11 @@
       <div class="section-label">4.- IMPORTER NAME, ADDRESS AND EMAIL.</div>
       <div class="address-block">
         <p><strong>{{ cliente_nombre or '—' }}</strong></p>
+        {% if importer_show_customer_number is not defined or importer_show_customer_number %}
         <p>Customer # {{ codigo_cliente or '—' }}</p>
+        {% endif %}
         {% if importer_address %}
         <p>{{ importer_address }}</p>
-        {% else %}
-        <p>VARIOUS (optional customer address)</p>
         {% endif %}
       </div>
     </td>

@@ -3678,6 +3678,73 @@ async def sincronizar_materiales_desde_compras(
         }
 
 
+async def actualizar_descripciones_materiales_desde_compras(
+    db: AsyncSession,
+    user_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """
+    Actualiza Material.descripcion_material desde Compra.descripcion_material
+    (func.max por numero_material, igual que en sincronizar_materiales_desde_compras).
+    """
+    errores: List[str] = []
+    actualizados = 0
+    try:
+        query_codigos = (
+            select(
+                Compra.numero_material,
+                func.max(Compra.descripcion_material).label("descripcion_material"),
+            )
+            .where(
+                Compra.numero_material.isnot(None),
+                Compra.numero_material != "",
+                Compra.descripcion_material.isnot(None),
+            )
+            .group_by(Compra.numero_material)
+        )
+        result = await db.execute(query_codigos)
+        for numero_material_raw, descripcion_material in result.all():
+            if descripcion_material is None or str(descripcion_material).strip() == "":
+                continue
+            if not numero_material_raw:
+                continue
+            numero_material = _normalizar_numero_material(numero_material_raw)
+            if not numero_material:
+                continue
+            material = await get_material_by_numero(db, numero_material)
+            if not material:
+                continue
+            nueva = str(descripcion_material).strip()
+            actual = (material.descripcion_material or "").strip()
+            if actual == nueva:
+                continue
+            try:
+                await update_material(
+                    db, material.id, descripcion_material=nueva, user_id=user_id
+                )
+                actualizados += 1
+            except Exception as e:
+                errores.append(f"Material {numero_material}: {e}")
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+        return {
+            "actualizados": actualizados,
+            "errores": errores,
+            "exitoso": len(errores) == 0,
+        }
+    except Exception as e:
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        return {
+            "actualizados": actualizados,
+            "errores": errores + [str(e)],
+            "exitoso": False,
+        }
+
+
 def _es_notacion_cientifica(val: Any) -> bool:
     """True si el valor está en notación científica (ej. 3.4241E+11)."""
     if val is None:
@@ -6675,11 +6742,19 @@ async def get_analisis_icr_detalle(
     con part_number, description, tariff_schedule (fracción de Parte), origin, icr.
     Solo ventas con precios ICR no null ni 0.
     """
-    # Nombre del cliente: primero desde tabla clientes, si no desde ventas
+    # Nombre y domicilio: primero desde tabla clientes, si no desde ventas (sin domicilio en ventas)
     cliente_row = await db.execute(
-        select(Cliente.nombre).where(Cliente.codigo_cliente == codigo_cliente)
+        select(Cliente.nombre, Cliente.domicilio, Cliente.pais).where(Cliente.codigo_cliente == codigo_cliente)
     )
-    cliente_nombre = cliente_row.scalar_one_or_none()
+    cr_cliente = cliente_row.one_or_none()
+    cliente_domicilio = None
+    cliente_pais = None
+    if cr_cliente is not None:
+        cliente_nombre = cr_cliente[0]
+        cliente_domicilio = cr_cliente[1]
+        cliente_pais = cr_cliente[2]
+    else:
+        cliente_nombre = None
     if cliente_nombre is None:
         venta_nombre = await db.execute(
             select(Venta.cliente)
@@ -6789,6 +6864,8 @@ async def get_analisis_icr_detalle(
     return {
         "codigo_cliente": codigo_cliente,
         "cliente_nombre": cliente_nombre,
+        "cliente_domicilio": cliente_domicilio,
+        "cliente_pais": cliente_pais,
         "partes": partes_list,
         "total": total_partes,
         "completion_pct": completion_pct,
