@@ -332,6 +332,7 @@
         <div class="border-b border-gray-200 px-5 py-4">
           <h3 id="modal-resumen-sap-titulo" class="text-base font-semibold text-gray-900">Resultado — Actualizar SAP</h3>
           <p id="modal-resumen-sap-parte" class="mt-1 font-mono text-sm text-gray-800"></p>
+          <p class="mt-2 text-xs text-gray-500">Pulsa Aceptar para recargar la página y ver datos actualizados.</p>
         </div>
         <div class="px-5 py-4 space-y-3">
           <div id="modal-resumen-sap-caja" class="rounded-lg border px-4 py-3 border-gray-200 bg-gray-50">
@@ -341,7 +342,7 @@
           </div>
         </div>
         <div class="border-t border-gray-200 px-5 py-3 flex justify-end">
-          <button type="button" id="modal-resumen-sap-cerrar" class="rounded-md bg-[#003D89] px-4 py-2 text-sm font-semibold text-white hover:bg-[#003366]">
+          <button type="button" id="modal-resumen-sap-aceptar" class="rounded-md bg-[#003D89] px-4 py-2 text-sm font-semibold text-white hover:bg-[#003366]">
             Aceptar
           </button>
         </div>
@@ -396,7 +397,7 @@
   const modalSinBomBuscar = document.getElementById('modal-sin-bom-buscar');
   const modalResumenSap = document.getElementById('modal-resumen-sap');
   const modalResumenSapBackdrop = document.getElementById('modal-resumen-sap-backdrop');
-  const modalResumenSapCerrar = document.getElementById('modal-resumen-sap-cerrar');
+  const modalResumenSapAceptar = document.getElementById('modal-resumen-sap-aceptar');
   const modalResumenSapTitulo = document.getElementById('modal-resumen-sap-titulo');
   const modalResumenSapParte = document.getElementById('modal-resumen-sap-parte');
   const modalResumenSapEstado = document.getElementById('modal-resumen-sap-estado');
@@ -451,10 +452,6 @@
 
   function cerrarModalSinBom() {
     if (modalSinBom) modalSinBom.classList.add('hidden');
-  }
-
-  function cerrarModalResumenSap() {
-    if (modalResumenSap) modalResumenSap.classList.add('hidden');
   }
 
   /**
@@ -1176,18 +1173,16 @@
 
   modalParteCerrarBtn.addEventListener('click', cerrarModalParte);
   modalParteBackdrop.addEventListener('click', cerrarModalParte);
-  if (modalResumenSapCerrar) {
-    modalResumenSapCerrar.addEventListener('click', cerrarModalResumenSap);
-  }
-  if (modalResumenSapBackdrop) {
-    modalResumenSapBackdrop.addEventListener('click', cerrarModalResumenSap);
+  if (modalResumenSapAceptar) {
+    modalResumenSapAceptar.addEventListener('click', function() {
+      window.location.reload();
+    });
   }
 
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') {
       cerrarModalParte();
       cerrarModalSinBom();
-      cerrarModalResumenSap();
     }
   });
 
