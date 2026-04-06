@@ -12,7 +12,7 @@
 
   <!-- Tarjetas de Estadísticas -->
   <div>
-    <dl class="grid grid-cols-1 gap-5 sm:grid-cols-3">
+    <dl class="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
       <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
         <dt class="truncate text-sm font-medium text-gray-500">Total de Clientes</dt>
         <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900">{{ "{:,}".format(total_clientes) }}</dd>
@@ -24,6 +24,20 @@
       <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
         <dt class="truncate text-sm font-medium text-gray-500">Última Actualización</dt>
         <dd class="mt-1 text-lg font-semibold tracking-tight text-gray-600">{{ ultima_actualizacion or 'N/A' }}</dd>
+      </div>
+      <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
+        <dt class="truncate text-sm font-medium text-gray-500">Sin cross reference</dt>
+        <dd class="mt-1 flex flex-wrap items-center justify-between gap-2">
+          <span class="text-3xl font-semibold tracking-tight text-amber-700">{{ "{:,}".format(clientes_sin_cross_reference) }}</span>
+          <button
+            type="button"
+            id="btn-ver-sin-cross-reference"
+            class="shrink-0 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-900 hover:bg-amber-100"
+          >
+            Ver lista
+          </button>
+        </dd>
+        <p class="mt-2 text-xs text-gray-500">Clientes sin ningún registro en la tabla de cross reference</p>
       </div>
     </dl>
   </div>
@@ -126,12 +140,15 @@
                 </svg>
               </div>
             </th>
+            <th scope="col" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Acciones
+            </th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-200 bg-white" id="tabla-clientes-body">
           <!-- Los datos se cargarán dinámicamente -->
           <tr id="fila-sin-datos">
-            <td colspan="4" class="px-6 py-12 text-center text-sm text-gray-500">
+            <td colspan="5" class="px-6 py-12 text-center text-sm text-gray-500">
               <div class="flex flex-col items-center">
                 <svg class="h-12 w-12 text-gray-400 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
@@ -208,6 +225,47 @@
   </div>
 </div>
 
+<!-- Modal: clientes sin cross reference -->
+<div id="modal-sin-cross-reference" class="hidden fixed inset-0 z-50 items-center justify-center p-4" aria-modal="true" role="dialog">
+  <div id="modal-sin-cross-reference-backdrop" class="absolute inset-0 bg-gray-900/50"></div>
+  <div class="relative z-10 flex max-h-[90vh] w-full max-w-4xl flex-col rounded-lg bg-white shadow-xl">
+    <div class="flex items-start justify-between border-b border-gray-200 px-6 py-4">
+      <div>
+        <h2 class="text-lg font-semibold text-gray-900">Clientes sin cross reference</h2>
+        <p id="modal-sin-xref-subtitle" class="mt-1 text-sm text-gray-500">Cargando…</p>
+      </div>
+      <button
+        type="button"
+        id="btn-cerrar-modal-sin-cross-reference"
+        class="rounded-md p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+        aria-label="Cerrar"
+      >
+        <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+    <div class="overflow-auto px-6 py-4">
+      <table class="min-w-full divide-y divide-gray-200 text-sm">
+        <thead class="bg-gray-50">
+          <tr>
+            <th class="px-3 py-2 text-left font-medium text-gray-700">Código</th>
+            <th class="px-3 py-2 text-left font-medium text-gray-700">Nombre</th>
+            <th class="px-3 py-2 text-left font-medium text-gray-700">País</th>
+            <th class="px-3 py-2 text-left font-medium text-gray-700">Domicilio</th>
+            <th class="px-3 py-2 text-left font-medium text-gray-700">Acciones</th>
+          </tr>
+        </thead>
+        <tbody id="modal-sin-xref-tbody" class="divide-y divide-gray-200 bg-white">
+          <tr>
+            <td colspan="5" class="px-3 py-8 text-center text-gray-500">Cargando…</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 <!-- Datos ocultos del backend -->
 <div id="datos-clientes" style="display: none;">
 {% for cliente in clientes %}
@@ -240,6 +298,8 @@
     
     // Configurar eventos
     configurarEventos();
+    configurarModalSinCrossReference();
+    configurarActualizarCrossReferencePorCliente();
     
     // Renderizar la primera página
     if (todosLosClientes.length > 0) {
@@ -410,7 +470,7 @@
     if (datosPagina.length === 0) {
       tbody.innerHTML = `
         <tr id="fila-sin-datos">
-          <td colspan="4" class="px-6 py-12 text-center text-sm text-gray-500">
+          <td colspan="5" class="px-6 py-12 text-center text-sm text-gray-500">
             <div class="flex flex-col items-center">
               <svg class="h-12 w-12 text-gray-400 mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
@@ -423,12 +483,16 @@
       `;
     } else {
       tbody.innerHTML = datosPagina.map(cliente => {
+        const codigo = cliente.codigo_cliente != null ? String(cliente.codigo_cliente) : '';
         return `
           <tr class="hover:bg-gray-50">
             <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">${escapeHtml(cliente.codigo_cliente || 'N/A')}</td>
             <td class="whitespace-nowrap px-4 py-3 text-sm font-medium text-gray-900">${escapeHtml(cliente.nombre || 'N/A')}</td>
             <td class="px-4 py-3 text-sm text-gray-500 max-w-md truncate" title="${escapeHtml(cliente.domicilio || '')}">${escapeHtml(cliente.domicilio || 'N/A')}</td>
             <td class="whitespace-nowrap px-4 py-3 text-sm text-gray-500">${escapeHtml(cliente.pais || 'N/A')}</td>
+            <td class="whitespace-nowrap px-4 py-3 text-sm">
+              <button type="button" class="btn-actualizar-xref-cliente rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50" data-codigo-cliente="${escapeHtml(codigo)}" ${codigo ? '' : 'disabled'}>Actualizar CR</button>
+            </td>
           </tr>
         `;
       }).join('');
@@ -472,6 +536,143 @@
     if (pagina >= 1 && pagina <= totalPaginas) {
       paginaActual = pagina;
       renderizarTabla();
+    }
+  }
+
+  function configurarModalSinCrossReference() {
+    const modal = document.getElementById('modal-sin-cross-reference');
+    const btnAbrir = document.getElementById('btn-ver-sin-cross-reference');
+    const btnCerrar = document.getElementById('btn-cerrar-modal-sin-cross-reference');
+    const backdrop = document.getElementById('modal-sin-cross-reference-backdrop');
+    const tbody = document.getElementById('modal-sin-xref-tbody');
+    const subtitle = document.getElementById('modal-sin-xref-subtitle');
+
+    function cerrar() {
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+      document.body.classList.remove('overflow-hidden');
+    }
+
+    function abrir() {
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      document.body.classList.add('overflow-hidden');
+      subtitle.textContent = 'Cargando…';
+      tbody.innerHTML = '<tr><td colspan="5" class="px-3 py-8 text-center text-gray-500">Cargando…</td></tr>';
+
+      fetch('/api/clientes/sin-cross-reference?limit=5000&offset=0', { credentials: 'same-origin' })
+        .then(function (res) {
+          if (!res.ok) throw new Error('No se pudo cargar la lista');
+          return res.json();
+        })
+        .then(function (data) {
+          if (!data.ok) throw new Error('Respuesta inválida');
+          const total = data.total || 0;
+          const rows = data.rows || [];
+          const mostrados = rows.length;
+          if (mostrados < total) {
+            subtitle.textContent = 'Mostrando ' + mostrados.toLocaleString() + ' de ' + total.toLocaleString() + ' clientes';
+          } else {
+            subtitle.textContent = total === 0 ? 'No hay clientes en esta situación' : total.toLocaleString() + ' cliente' + (total === 1 ? '' : 's');
+          }
+          if (rows.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" class="px-3 py-8 text-center text-gray-500">No hay clientes sin cross reference</td></tr>';
+            return;
+          }
+          tbody.innerHTML = rows.map(function (r) {
+            var cod = String(r.codigo_cliente);
+            return (
+              '<tr class="hover:bg-gray-50">' +
+              '<td class="whitespace-nowrap px-3 py-2 font-medium text-gray-900">' + escapeHtml(cod) + '</td>' +
+              '<td class="px-3 py-2 text-gray-900">' + escapeHtml(r.nombre || 'N/A') + '</td>' +
+              '<td class="whitespace-nowrap px-3 py-2 text-gray-600">' + escapeHtml(r.pais || 'N/A') + '</td>' +
+              '<td class="max-w-md truncate px-3 py-2 text-gray-600" title="' + escapeHtml(r.domicilio || '') + '">' + escapeHtml(r.domicilio || 'N/A') + '</td>' +
+              '<td class="whitespace-nowrap px-3 py-2">' +
+              '<button type="button" class="btn-actualizar-xref-cliente rounded-md bg-emerald-600 px-2 py-1 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-50" data-codigo-cliente="' + escapeHtml(cod) + '">Actualizar CR</button>' +
+              '</td>' +
+              '</tr>'
+            );
+          }).join('');
+        })
+        .catch(function (err) {
+          subtitle.textContent = 'Error al cargar';
+          tbody.innerHTML = '<tr><td colspan="5" class="px-3 py-8 text-center text-red-600">' + escapeHtml(err.message || 'Error') + '</td></tr>';
+        });
+    }
+
+    btnAbrir.addEventListener('click', abrir);
+    btnCerrar.addEventListener('click', cerrar);
+    backdrop.addEventListener('click', cerrar);
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && !modal.classList.contains('hidden')) cerrar();
+    });
+  }
+
+  function actualizarCrossReferenceClienteSap(codigoCliente, triggerBtn) {
+    if (!codigoCliente) return;
+    if (!window.confirm(
+      '¿Actualizar Cross Reference en SAP solo para el cliente ' + codigoCliente + '?\n\n' +
+      'Debe tener SAP GUI abierto en esta misma sesión.'
+    )) return;
+    var prev = triggerBtn ? triggerBtn.textContent : '';
+    if (triggerBtn) {
+      triggerBtn.disabled = true;
+      triggerBtn.textContent = 'Actualizando...';
+    }
+    fetch('/api/cross-reference/actualizar-cliente', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ codigo_cliente: codigoCliente })
+    })
+      .then(function (res) {
+        return res.json().then(function (data) {
+          return { res: res, data: data };
+        });
+      })
+      .then(function (o) {
+        if (triggerBtn) {
+          triggerBtn.disabled = false;
+          triggerBtn.textContent = prev;
+        }
+        var data = o.data;
+        if (!o.res.ok || !data.ok) {
+          window.alert(data.mensaje || 'Error al actualizar cross reference.');
+          return;
+        }
+        var msg = data.mensaje || 'Listo.';
+        if (data.filas != null) {
+          msg += ' Filas: ' + data.filas + ' (nuevos: ' + (data.insertados || 0) + ', actualizados: ' + (data.actualizados || 0) + ').';
+        }
+        window.alert(msg);
+      })
+      .catch(function (e) {
+        if (triggerBtn) {
+          triggerBtn.disabled = false;
+          triggerBtn.textContent = prev;
+        }
+        window.alert('Error de red: ' + (e.message || String(e)));
+      });
+  }
+
+  function configurarActualizarCrossReferencePorCliente() {
+    var tabla = document.getElementById('tabla-clientes');
+    if (tabla) {
+      tabla.addEventListener('click', function (e) {
+        var btn = e.target.closest('.btn-actualizar-xref-cliente');
+        if (!btn || btn.disabled) return;
+        e.preventDefault();
+        actualizarCrossReferenceClienteSap(btn.getAttribute('data-codigo-cliente'), btn);
+      });
+    }
+    var modalRoot = document.getElementById('modal-sin-cross-reference');
+    if (modalRoot) {
+      modalRoot.addEventListener('click', function (e) {
+        var btn = e.target.closest('.btn-actualizar-xref-cliente');
+        if (!btn || btn.disabled) return;
+        e.preventDefault();
+        actualizarCrossReferenceClienteSap(btn.getAttribute('data-codigo-cliente'), btn);
+      });
     }
   }
 </script>

@@ -3489,7 +3489,8 @@ async def clientes(request: Request, current_user: User = Depends(get_current_us
     
     # Calcular estadísticas
     total_clientes = await crud.count_clientes(db)
-    
+    clientes_sin_cross_reference = await crud.count_clientes_sin_cross_reference(db)
+
     # Obtener países únicos para filtros
     paises = await crud.get_paises_clientes(db)
     total_paises = len(paises)
@@ -3510,11 +3511,38 @@ async def clientes(request: Request, current_user: User = Depends(get_current_us
             "current_user": current_user,
             "clientes": clientes_data,
             "total_clientes": total_clientes,
+            "clientes_sin_cross_reference": clientes_sin_cross_reference,
             "paises": paises,
             "total_paises": total_paises,
             "ultima_actualizacion": ultima_actualizacion
         }
     )
+
+
+@app.get("/api/clientes/sin-cross-reference")
+async def api_clientes_sin_cross_reference(
+    limit: int = Query(500, ge=1, le=5000),
+    offset: int = Query(0, ge=0),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Lista clientes que no tienen ningún registro en cross_reference."""
+    rows, total = await crud.list_clientes_sin_cross_reference(db, limit=limit, offset=offset)
+    return {
+        "ok": True,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "rows": [
+            {
+                "codigo_cliente": int(r.codigo_cliente),
+                "nombre": r.nombre,
+                "pais": r.pais,
+                "domicilio": r.domicilio,
+            }
+            for r in rows
+        ],
+    }
 
 
 @app.get("/grupos-clientes")
@@ -5998,6 +6026,178 @@ async def api_actualizar_cross_reference_desde_sap(
             "detalle_errores": errores[:50],
         },
     }
+
+
+@app.post("/api/cross-reference/actualizar-cliente")
+async def api_actualizar_cross_reference_cliente(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Ejecuta VD59 vía cross_reference.vbs para un solo cliente, importa el TXT y hace upsert en cross_reference.
+    Cierra SAP al terminar (misma convención que actualizar una parte en BOM).
+    """
+    from sqlalchemy import text
+
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"ok": False, "mensaje": "JSON inválido."})
+
+    codigo_raw = data.get("codigo_cliente")
+    if codigo_raw is None:
+        return JSONResponse(status_code=400, content={"ok": False, "mensaje": "codigo_cliente es requerido."})
+    try:
+        codigo_int = int(str(codigo_raw).strip())
+    except (TypeError, ValueError):
+        return JSONResponse(status_code=400, content={"ok": False, "mensaje": "codigo_cliente debe ser numérico."})
+    codigo_cliente = str(codigo_int)
+
+    cliente_row = await crud.get_cliente_by_codigo(db, codigo_int)
+    if not cliente_row:
+        return JSONResponse(
+            status_code=404,
+            content={"ok": False, "mensaje": f"No existe el cliente {codigo_cliente}."},
+        )
+
+    vbs_path = Path(
+        settings.CROSS_REFERENCE_VBS_PATH or str(Path(__file__).resolve().parent / "cross_reference.vbs")
+    ).resolve()
+    export_dir_raw = settings.CROSS_REFERENCE_EXPORT_DIR or ""
+    export_dir = str(Path(export_dir_raw).resolve()) if export_dir_raw else ""
+    timeout_sec = settings.CROSS_REFERENCE_VBS_TIMEOUT_SEC
+
+    if not export_dir_raw or not Path(export_dir).is_dir():
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "mensaje": "Configura CROSS_REFERENCE_EXPORT_DIR y asegúrate de que exista."},
+        )
+    if platform.system() != "Windows":
+        return JSONResponse(
+            status_code=501,
+            content={"ok": False, "mensaje": "La ejecución de cross_reference.vbs solo está soportada en Windows."},
+        )
+
+    upsert_sql = text(
+        """
+        INSERT INTO cross_reference (customer, material, customer_material, updated_at)
+        VALUES (:customer, :material, :customer_material, now())
+        ON CONFLICT (customer, material, customer_material) DO UPDATE
+        SET updated_at = now()
+        RETURNING (xmax = 0) AS inserted
+        """
+    )
+
+    async def _registrar_historial(estado: str, detalle: str, upserts: int, err_list: Optional[list] = None):
+        try:
+            await crud.create_cross_reference_historial(
+                db=db,
+                user_id=getattr(current_user, "id", None),
+                estado=estado,
+                detalle=detalle,
+                clientes_total=1,
+                clientes_ok=1 if estado == "SUCCESS" else 0,
+                upserts=upserts,
+                errores=0 if estado == "SUCCESS" else 1,
+                detalle_errores=err_list,
+            )
+        except Exception:
+            await db.rollback()
+            logger.exception("[cross_reference] No se pudo registrar historial (cliente %s)", codigo_cliente)
+
+    try:
+        result = await asyncio.to_thread(
+            subprocess.run,
+            ["cscript", "//nologo", str(vbs_path), codigo_cliente, export_dir, "1"],
+            capture_output=True,
+            timeout=timeout_sec,
+            cwd=str(vbs_path.parent),
+            text=True,
+        )
+        if result.returncode != 0:
+            err = (result.stderr or "").strip() or (result.stdout or "").strip()
+            mensaje = f"Script VBS falló (código {result.returncode}): {err[:250]}"
+            await _registrar_historial(
+                "FAILED",
+                f"Cliente {codigo_cliente}: {mensaje}",
+                0,
+                [{"cliente": codigo_cliente, "mensaje": mensaje}],
+            )
+            return JSONResponse(status_code=400, content={"ok": False, "mensaje": mensaje})
+
+        archivo = Path(export_dir) / f"{codigo_cliente}.txt"
+        for _ in range(10):
+            await asyncio.sleep(1)
+            if archivo.is_file():
+                break
+        if not archivo.is_file():
+            mensaje = "No se generó el archivo TXT de salida."
+            await _registrar_historial(
+                "FAILED",
+                f"Cliente {codigo_cliente}: {mensaje}",
+                0,
+                [{"cliente": codigo_cliente, "mensaje": mensaje}],
+            )
+            return JSONResponse(status_code=400, content={"ok": False, "mensaje": mensaje})
+
+        contenido = archivo.read_text(encoding="utf-8", errors="replace")
+        rows = _parse_cross_reference_txt(contenido)
+        if not rows:
+            mensaje = "Sin filas parseables en el TXT exportado."
+            await _registrar_historial(
+                "FAILED",
+                f"Cliente {codigo_cliente}: {mensaje}",
+                0,
+                [{"cliente": codigo_cliente, "mensaje": mensaje}],
+            )
+            return JSONResponse(status_code=400, content={"ok": False, "mensaje": mensaje})
+
+        inserted_count = 0
+        updated_count = 0
+        for row in rows:
+            r = await db.execute(upsert_sql, row)
+            was_inserted = bool(r.scalar_one())
+            if was_inserted:
+                inserted_count += 1
+            else:
+                updated_count += 1
+        await db.commit()
+
+        detalle_ok = (
+            f"Cliente {codigo_cliente}: filas={len(rows)}, insertados={inserted_count}, actualizados={updated_count}."
+        )
+        await _registrar_historial("SUCCESS", detalle_ok, len(rows), None)
+
+        return {
+            "ok": True,
+            "codigo_cliente": codigo_cliente,
+            "mensaje": f"Cross reference actualizado para el cliente {codigo_cliente}.",
+            "filas": len(rows),
+            "insertados": inserted_count,
+            "actualizados": updated_count,
+        }
+    except subprocess.TimeoutExpired:
+        await db.rollback()
+        mensaje = f"Timeout del script ({timeout_sec}s)."
+        await _registrar_historial(
+            "FAILED",
+            f"Cliente {codigo_cliente}: {mensaje}",
+            0,
+            [{"cliente": codigo_cliente, "mensaje": mensaje}],
+        )
+        return JSONResponse(status_code=400, content={"ok": False, "mensaje": mensaje})
+    except Exception as e:
+        await db.rollback()
+        logger.exception("[cross_reference] Cliente %s: error", codigo_cliente)
+        mensaje = str(e)[:240]
+        await _registrar_historial(
+            "FAILED",
+            f"Cliente {codigo_cliente}: {mensaje}",
+            0,
+            [{"cliente": codigo_cliente, "mensaje": mensaje}],
+        )
+        return JSONResponse(status_code=500, content={"ok": False, "mensaje": mensaje})
 
 
 @app.get("/api/cross-reference")

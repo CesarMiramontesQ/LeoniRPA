@@ -1,7 +1,7 @@
 """Operaciones CRUD para usuarios, ejecuciones y BOM."""
 import json
 import math
-from sqlalchemy import select, desc, func, or_, and_, String, text, delete, update, cast, tuple_
+from sqlalchemy import select, desc, func, or_, and_, String, text, delete, update, cast, tuple_, exists
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -10018,6 +10018,49 @@ async def count_clientes(
     
     result = await db.execute(query)
     return result.scalar() or 0
+
+
+async def count_clientes_sin_cross_reference(db: AsyncSession) -> int:
+    """Cuenta clientes sin ninguna fila en cross_reference (customer = codigo_cliente como texto)."""
+    stmt = (
+        select(func.count())
+        .select_from(Cliente)
+        .where(
+            ~exists(
+                select(1)
+                .select_from(CrossReference)
+                .where(CrossReference.customer == cast(Cliente.codigo_cliente, String))
+            )
+        )
+    )
+    result = await db.execute(stmt)
+    return int(result.scalar() or 0)
+
+
+async def list_clientes_sin_cross_reference(
+    db: AsyncSession,
+    limit: int = 500,
+    offset: int = 0,
+) -> Tuple[List[Cliente], int]:
+    """Lista clientes sin cross_reference y el total que cumplen la condición."""
+    sin_xref = ~exists(
+        select(1)
+        .select_from(CrossReference)
+        .where(CrossReference.customer == cast(Cliente.codigo_cliente, String))
+    )
+    count_q = select(func.count()).select_from(Cliente).where(sin_xref)
+    total_result = await db.execute(count_q)
+    total = int(total_result.scalar() or 0)
+
+    q = (
+        select(Cliente)
+        .where(sin_xref)
+        .order_by(Cliente.codigo_cliente)
+        .limit(limit)
+        .offset(offset)
+    )
+    result = await db.execute(q)
+    return list(result.scalars().all()), total
 
 
 async def get_cliente_by_codigo(db: AsyncSession, codigo_cliente: int) -> Optional[Cliente]:
