@@ -3648,13 +3648,19 @@ async def boms(request: Request, current_user: User = Depends(get_current_user),
 async def actualizar_boms(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Página Actualizar BOMs - requiere autenticación."""
     from app.db.models import Parte, Bom, BomRevision
-    from sqlalchemy import select, func, distinct
-    # Contar partes y última actualización real desde tabla partes
+    from sqlalchemy import select, func, distinct, exists
+    # Contar partes
     total_partes = await db.execute(select(func.count()).select_from(Parte))
     cantidad_numeros_parte = total_partes.scalar() or 0
-    ultima = await db.execute(select(func.max(Parte.created_at)).select_from(Parte))
-    ultima_ts = ultima.scalar()
-    ultima_actualizacion = ultima_ts.strftime("%d/%m/%Y %H:%M") if ultima_ts else "—"
+
+    # Partes válidas sin ningún registro en bom (sin BOM cargado)
+    sin_bom_subq = exists(select(Bom.id).where(Bom.parte_id == Parte.id))
+    partes_sin_bom_validos_q = await db.execute(
+        select(func.count())
+        .select_from(Parte)
+        .where(Parte.valido.is_(True), ~sin_bom_subq)
+    )
+    numeros_parte_sin_bom_validos = partes_sin_bom_validos_q.scalar() or 0
 
     # Estadística: partes que ya tienen al menos una revisión de BOM
     partes_con_bom_q = await db.execute(
@@ -3719,7 +3725,7 @@ async def actualizar_boms(request: Request, current_user: User = Depends(get_cur
             "active_page": "actualizar_boms",
             "current_user": current_user,
             "cantidad_numeros_parte": cantidad_numeros_parte,
-            "ultima_actualizacion": ultima_actualizacion,
+            "numeros_parte_sin_bom_validos": numeros_parte_sin_bom_validos,
             "numeros_parte_con_bom": numeros_parte_con_bom,
             "numeros_parte_no_validos": numeros_parte_no_validos,
             "numeros_parte_diferencia_gt0": numeros_parte_diferencia_gt0,
@@ -4837,6 +4843,113 @@ async def api_actualizar_boms_partes(
         "sort_direction": sort_direction,
         "total": int(total),
         "rows": rows,
+    }
+
+
+@app.get("/api/actualizar-boms/partes-sin-bom")
+async def api_actualizar_boms_partes_sin_bom(
+    q: Optional[str] = None,
+    limit: int = 200,
+    offset: int = 0,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Lista números de parte con valido=true y sin fila en bom (sin BOM cargado)."""
+    from sqlalchemy import select, func, exists, or_
+    from app.db.models import Parte, Bom
+
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+    q = (q or "").strip()
+
+    sin_bom = ~exists(select(Bom.id).where(Bom.parte_id == Parte.id))
+    filtros = [Parte.valido.is_(True), sin_bom]
+
+    count_query = select(func.count()).select_from(Parte).where(*filtros)
+    query = (
+        select(Parte.numero_parte, Parte.descripcion, Parte.created_at)
+        .where(*filtros)
+        .order_by(Parte.numero_parte)
+    )
+    if q:
+        like_q = f"%{q}%"
+        count_query = count_query.where(
+            or_(Parte.numero_parte.ilike(like_q), Parte.descripcion.ilike(like_q))
+        )
+        query = query.where(
+            or_(Parte.numero_parte.ilike(like_q), Parte.descripcion.ilike(like_q))
+        )
+
+    query = query.offset(offset).limit(limit)
+    total_result = await db.execute(count_query)
+    total = total_result.scalar_one()
+    result = await db.execute(query)
+
+    rows = []
+    for numero_parte, descripcion, created_at in result.all():
+        rows.append({
+            "numero_parte": numero_parte,
+            "descripcion": descripcion,
+            "created_at": created_at.isoformat() if created_at else None,
+        })
+
+    return {
+        "ok": True,
+        "q": q or None,
+        "limit": limit,
+        "offset": offset,
+        "total": int(total),
+        "rows": rows,
+    }
+
+
+@app.post("/api/actualizar-boms/marcar-no-valida")
+async def api_marcar_parte_no_valida(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Marca una parte como no válida (valido=false). Usado desde el modal de partes sin BOM."""
+    from sqlalchemy import select, func, exists
+    from app.db.models import Parte, Bom
+
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"ok": False, "mensaje": "JSON inválido."})
+    parte_no = (data.get("parte_no") or "").strip()
+    if not parte_no:
+        return JSONResponse(status_code=400, content={"ok": False, "mensaje": "parte_no es requerido."})
+
+    parte = await crud.get_parte_by_numero(db, parte_no)
+    if not parte:
+        return JSONResponse(status_code=404, content={"ok": False, "mensaje": "Número de parte no encontrado."})
+    if parte.valido is False:
+        return JSONResponse(
+            status_code=400,
+            content={"ok": False, "mensaje": "La parte ya está marcada como no válida."},
+        )
+
+    await crud.set_parte_valido(db, parte_no, False)
+    await db.commit()
+
+    sin_bom_subq = exists(select(Bom.id).where(Bom.parte_id == Parte.id))
+    count_sin_bom = await db.execute(
+        select(func.count())
+        .select_from(Parte)
+        .where(Parte.valido.is_(True), ~sin_bom_subq)
+    )
+    numeros_parte_sin_bom_validos = int(count_sin_bom.scalar() or 0)
+    count_no_validos = await db.execute(
+        select(func.count()).select_from(Parte).where(Parte.valido.is_(False))
+    )
+    numeros_parte_no_validos = int(count_no_validos.scalar() or 0)
+
+    return {
+        "ok": True,
+        "mensaje": f"Parte {parte_no} marcada como no válida.",
+        "numeros_parte_sin_bom_validos": numeros_parte_sin_bom_validos,
+        "numeros_parte_no_validos": numeros_parte_no_validos,
     }
 
 

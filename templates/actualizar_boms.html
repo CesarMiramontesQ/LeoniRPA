@@ -84,8 +84,14 @@
       <dd class="mt-1 text-3xl font-semibold tracking-tight text-blue-700">{{ "{:,}".format(numeros_parte_con_bom) }}</dd>
     </div>
     <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
-      <dt class="truncate text-sm font-medium text-gray-500">Última actualización</dt>
-      <dd class="mt-1 text-3xl font-semibold tracking-tight text-gray-900">{{ ultima_actualizacion }}</dd>
+      <dt class="truncate text-sm font-medium text-gray-500">Sin BOM (válidos)</dt>
+      <dd class="mt-1 flex flex-wrap items-end justify-between gap-2">
+        <span id="stat-sin-bom-validos" class="text-3xl font-semibold tracking-tight text-slate-800">{{ "{:,}".format(numeros_parte_sin_bom_validos) }}</span>
+        <button type="button" id="btn-ver-partes-sin-bom" class="shrink-0 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
+          Ver
+        </button>
+      </dd>
+      <p class="mt-2 text-xs text-gray-500">Partes con <span class="font-medium">valido = true</span> y sin registro en BOM.</p>
     </div>
     <div class="overflow-hidden rounded-lg bg-white px-4 py-5 shadow-sm sm:p-6">
       <dt class="truncate text-sm font-medium text-gray-500">Diferencia &gt; 0</dt>
@@ -272,6 +278,78 @@
   </div>
 </div>
 
+<!-- Modal: partes válidas sin BOM -->
+<div id="modal-sin-bom" class="relative z-50 hidden" role="dialog" aria-modal="true" aria-labelledby="modal-sin-bom-title">
+  <div class="fixed inset-0 bg-gray-900/70" id="modal-sin-bom-backdrop"></div>
+  <div class="fixed inset-0 z-10 overflow-y-auto">
+    <div class="flex min-h-full items-end justify-center p-4 text-center sm:items-center sm:p-0">
+      <div class="relative transform overflow-hidden rounded-lg bg-white text-left shadow-xl transition-all sm:my-8 w-11/12 max-w-4xl max-h-[90vh] flex flex-col">
+        <div class="flex items-start justify-between border-b border-gray-200 px-5 py-4">
+          <div>
+            <h3 id="modal-sin-bom-title" class="text-base font-semibold text-gray-900">Partes sin BOM (válidas)</h3>
+            <p class="mt-1 text-sm text-gray-600">Números de parte con valido = true y sin fila en la tabla BOM.</p>
+          </div>
+          <button type="button" id="modal-sin-bom-cerrar" class="rounded-md bg-white text-gray-400 hover:text-gray-600">
+            <span class="sr-only">Cerrar</span>
+            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div class="border-b border-gray-100 px-5 py-3 flex flex-wrap items-center gap-2">
+          <input type="text" id="modal-sin-bom-search" placeholder="Filtrar número o descripción..." class="min-w-[12rem] flex-1 rounded-md border border-gray-300 px-2 py-1.5 text-sm" />
+          <button type="button" id="modal-sin-bom-buscar" class="rounded-md bg-[#003D89] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#003366]">
+            Buscar
+          </button>
+        </div>
+        <p id="modal-sin-bom-msg" class="px-5 pt-2 text-xs text-gray-500"></p>
+        <div class="p-5 overflow-y-auto flex-1 min-h-0">
+          <div class="max-h-[min(60vh,28rem)] overflow-y-auto rounded border border-gray-200">
+            <table class="min-w-full text-sm">
+              <thead class="bg-gray-50 sticky top-0">
+                <tr class="border-b text-left text-gray-500">
+                  <th class="py-2 px-3">Nº parte</th>
+                  <th class="py-2 px-3">Descripción</th>
+                  <th class="py-2 px-3">Alta en catálogo</th>
+                  <th class="py-2 px-3 text-right min-w-[11rem]">Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="modal-sin-bom-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: resumen Actualizar SAP (una parte) -->
+<div id="modal-resumen-sap" class="relative z-[60] hidden" role="dialog" aria-modal="true" aria-labelledby="modal-resumen-sap-titulo">
+  <div class="fixed inset-0 bg-gray-900/70" id="modal-resumen-sap-backdrop"></div>
+  <div class="fixed inset-0 z-10 overflow-y-auto">
+    <div class="flex min-h-full items-center justify-center p-4">
+      <div class="relative w-full max-w-lg rounded-lg bg-white shadow-xl">
+        <div class="border-b border-gray-200 px-5 py-4">
+          <h3 id="modal-resumen-sap-titulo" class="text-base font-semibold text-gray-900">Resultado — Actualizar SAP</h3>
+          <p id="modal-resumen-sap-parte" class="mt-1 font-mono text-sm text-gray-800"></p>
+        </div>
+        <div class="px-5 py-4 space-y-3">
+          <div id="modal-resumen-sap-caja" class="rounded-lg border px-4 py-3 border-gray-200 bg-gray-50">
+            <p id="modal-resumen-sap-estado" class="text-sm font-medium text-gray-900"></p>
+            <p id="modal-resumen-sap-mensaje" class="mt-2 text-sm text-gray-700 whitespace-pre-wrap"></p>
+            <p id="modal-resumen-sap-items" class="mt-2 text-sm text-gray-600 hidden"></p>
+          </div>
+        </div>
+        <div class="border-t border-gray-200 px-5 py-3 flex justify-end">
+          <button type="button" id="modal-resumen-sap-cerrar" class="rounded-md bg-[#003D89] px-4 py-2 text-sm font-semibold text-white hover:bg-[#003366]">
+            Aceptar
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 (function() {
   const btn = document.getElementById('btn-actualizar-boms');
@@ -308,6 +386,23 @@
   const modalParteCerrarBtn = document.getElementById('modal-parte-cerrar');
   const bomMovBody = document.getElementById('bom-mov-body');
   const bomMovMsg = document.getElementById('bom-mov-msg');
+  const modalSinBom = document.getElementById('modal-sin-bom');
+  const modalSinBomBackdrop = document.getElementById('modal-sin-bom-backdrop');
+  const modalSinBomCerrar = document.getElementById('modal-sin-bom-cerrar');
+  const btnVerPartesSinBom = document.getElementById('btn-ver-partes-sin-bom');
+  const modalSinBomBody = document.getElementById('modal-sin-bom-body');
+  const modalSinBomMsg = document.getElementById('modal-sin-bom-msg');
+  const modalSinBomSearch = document.getElementById('modal-sin-bom-search');
+  const modalSinBomBuscar = document.getElementById('modal-sin-bom-buscar');
+  const modalResumenSap = document.getElementById('modal-resumen-sap');
+  const modalResumenSapBackdrop = document.getElementById('modal-resumen-sap-backdrop');
+  const modalResumenSapCerrar = document.getElementById('modal-resumen-sap-cerrar');
+  const modalResumenSapTitulo = document.getElementById('modal-resumen-sap-titulo');
+  const modalResumenSapParte = document.getElementById('modal-resumen-sap-parte');
+  const modalResumenSapEstado = document.getElementById('modal-resumen-sap-estado');
+  const modalResumenSapMensaje = document.getElementById('modal-resumen-sap-mensaje');
+  const modalResumenSapItems = document.getElementById('modal-resumen-sap-items');
+  const modalResumenSapCaja = document.getElementById('modal-resumen-sap-caja');
   let abortController = null;
   let partesRows = [];
   let partesCurrentPage = 1;
@@ -352,6 +447,103 @@
     const n = Number(value);
     if (!Number.isFinite(n)) return esc(value);
     return n.toLocaleString('es-MX');
+  }
+
+  function cerrarModalSinBom() {
+    if (modalSinBom) modalSinBom.classList.add('hidden');
+  }
+
+  function cerrarModalResumenSap() {
+    if (modalResumenSap) modalResumenSap.classList.add('hidden');
+  }
+
+  /**
+   * info: { ok: boolean, estado?: string, mensaje?: string, items_insertados?: number|string }
+   */
+  function mostrarModalResumenActualizarSap(parteNo, info) {
+    if (!modalResumenSap) return;
+    var ok = info && info.ok;
+    if (modalResumenSapTitulo) {
+      modalResumenSapTitulo.textContent = ok ? 'Actualización SAP correcta' : 'Error — Actualizar SAP';
+    }
+    if (modalResumenSapParte) {
+      modalResumenSapParte.textContent = 'Nº parte: ' + parteNo;
+    }
+    if (modalResumenSapEstado) {
+      if (ok && info.estado) {
+        var estLabel = info.estado === 'actualizado' ? 'Actualizado en base de datos' :
+          info.estado === 'sin_cambios' ? 'Sin cambios respecto al BOM guardado' :
+          String(info.estado);
+        modalResumenSapEstado.textContent = estLabel;
+        modalResumenSapEstado.classList.remove('hidden');
+      } else if (!ok) {
+        modalResumenSapEstado.textContent = 'No se completó la carga desde SAP.';
+        modalResumenSapEstado.classList.remove('hidden');
+      } else {
+        modalResumenSapEstado.textContent = '';
+        modalResumenSapEstado.classList.add('hidden');
+      }
+    }
+    if (modalResumenSapMensaje) {
+      modalResumenSapMensaje.textContent = (info && info.mensaje) ? String(info.mensaje) : (ok ? 'Operación finalizada.' : 'Error desconocido.');
+    }
+    if (modalResumenSapItems) {
+      if (ok && info.items_insertados != null && info.items_insertados !== '') {
+        modalResumenSapItems.textContent = 'Ítems (BOM): ' + info.items_insertados;
+        modalResumenSapItems.classList.remove('hidden');
+      } else {
+        modalResumenSapItems.textContent = '';
+        modalResumenSapItems.classList.add('hidden');
+      }
+    }
+    if (modalResumenSapCaja) {
+      modalResumenSapCaja.className = 'rounded-lg border px-4 py-3 ' + (ok
+        ? 'border-emerald-200 bg-emerald-50'
+        : 'border-red-200 bg-red-50');
+    }
+    modalResumenSap.classList.remove('hidden');
+  }
+
+  function abrirModalSinBom() {
+    if (!modalSinBom) return;
+    modalSinBom.classList.remove('hidden');
+    cargarModalSinBom();
+  }
+
+  async function cargarModalSinBom() {
+    if (!modalSinBomBody || !modalSinBomMsg) return;
+    const q = modalSinBomSearch && modalSinBomSearch.value ? modalSinBomSearch.value.trim() : '';
+    modalSinBomMsg.textContent = 'Cargando...';
+    modalSinBomBody.innerHTML = '';
+    try {
+      const params = new URLSearchParams({ limit: '500', offset: '0' });
+      if (q) params.set('q', q);
+      const res = await fetch('/api/actualizar-boms/partes-sin-bom?' + params.toString(), { credentials: 'same-origin' });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.mensaje || 'Error al cargar');
+      const rows = data.rows || [];
+      const total = data.total || 0;
+      modalSinBomMsg.textContent = 'Mostrando ' + rows.length + ' de ' + total + ' (máx. 500 por consulta).';
+      if (!rows.length) {
+        modalSinBomBody.innerHTML = '<tr><td colspan="4" class="py-4 px-3 text-gray-400">Sin resultados.</td></tr>';
+        return;
+      }
+      modalSinBomBody.innerHTML = rows.map(function(r) {
+        return '<tr class="border-b border-gray-100">' +
+          '<td class="py-2 px-3 font-mono">' + esc(r.numero_parte) + '</td>' +
+          '<td class="py-2 px-3">' + esc(r.descripcion || '—') + '</td>' +
+          '<td class="py-2 px-3 text-gray-600">' + fmtDate(r.created_at) + '</td>' +
+          '<td class="py-2 px-3 text-right">' +
+          '<div class="flex flex-wrap items-center justify-end gap-2">' +
+          '<button type="button" class="btn-sin-bom-actualizar-sap rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-60" data-parte-no="' + esc(r.numero_parte) + '">Actualizar SAP</button>' +
+          '<button type="button" class="btn-sin-bom-marcar-no-valida rounded-md border border-red-600 bg-white px-2.5 py-1 text-xs font-semibold text-red-700 shadow-sm hover:bg-red-50 disabled:opacity-60" data-parte-no="' + esc(r.numero_parte) + '">No válido</button>' +
+          '</div></td>' +
+          '</tr>';
+      }).join('');
+    } catch (e) {
+      modalSinBomMsg.textContent = 'Error: ' + (e.message || e);
+      modalSinBomBody.innerHTML = '<tr><td colspan="4" class="py-4 px-3 text-red-600">No se pudo cargar la lista.</td></tr>';
+    }
   }
 
   function renderMovimientos(rows) {
@@ -430,6 +622,110 @@
     }
   }
 
+  async function marcarParteNoValida(parteNo, triggerBtn) {
+    if (!parteNo) return;
+    const ok = window.confirm(
+      '¿Marcar la parte ' + parteNo + ' como no válida (valido = false)? Dejará de aparecer en esta lista.'
+    );
+    if (!ok) return;
+    var prev = '';
+    if (triggerBtn) {
+      prev = triggerBtn.textContent;
+      triggerBtn.disabled = true;
+      triggerBtn.textContent = 'Guardando...';
+    }
+    if (modalSinBomMsg && modalSinBom && !modalSinBom.classList.contains('hidden')) {
+      modalSinBomMsg.textContent = 'Actualizando ' + parteNo + '...';
+    }
+    try {
+      const res = await fetch('/api/actualizar-boms/marcar-no-valida', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parte_no: parteNo })
+      });
+      const data = await res.json().catch(function() { return {}; });
+      if (!res.ok || !data.ok) throw new Error(data.mensaje || 'No se pudo actualizar el estado.');
+      addLog(parteNo + ' — Marcada como no válida.', 'text-amber-700');
+      var statEl = document.getElementById('stat-sin-bom-validos');
+      if (statEl && data.numeros_parte_sin_bom_validos != null) {
+        statEl.textContent = Number(data.numeros_parte_sin_bom_validos).toLocaleString('es-MX');
+      }
+      await cargarModalSinBom();
+    } catch (e) {
+      addLog(parteNo + ' — Error al marcar no válida: ' + (e.message || e), 'text-red-700');
+      if (modalSinBomMsg && modalSinBom && !modalSinBom.classList.contains('hidden')) {
+        modalSinBomMsg.textContent = 'Error: ' + (e.message || e);
+      }
+    } finally {
+      if (triggerBtn) {
+        triggerBtn.disabled = false;
+        triggerBtn.textContent = prev;
+      }
+    }
+  }
+
+  async function actualizarSapUnaParte(parteNo, triggerBtn) {
+    if (!parteNo) return;
+    const ok = window.confirm('¿Actualizar en SAP solo la parte ' + parteNo + '?');
+    if (!ok) return;
+    var prev = '';
+    if (triggerBtn) {
+      prev = triggerBtn.textContent;
+      triggerBtn.disabled = true;
+      triggerBtn.textContent = 'Actualizando...';
+    }
+    if (partesMsg) partesMsg.textContent = 'Actualizando ' + parteNo + '...';
+    if (modalSinBomMsg && modalSinBom && !modalSinBom.classList.contains('hidden')) {
+      modalSinBomMsg.textContent = 'Actualizando ' + parteNo + ' en SAP...';
+    }
+    try {
+      const res = await fetch('/api/actualizar-boms/actualizar-parte', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parte_no: parteNo })
+      });
+      const data = await res.json().catch(function() { return {}; });
+      if (!res.ok || !data.ok) {
+        var errMsg = data.mensaje || 'Error al actualizar la parte.';
+        mostrarModalResumenActualizarSap(parteNo, { ok: false, mensaje: errMsg });
+        if (partesMsg) partesMsg.textContent = 'Error en ' + parteNo + ': ' + errMsg;
+        addLog(parteNo + ' — Error: ' + errMsg, 'text-red-700');
+        if (modalSinBomMsg && modalSinBom && !modalSinBom.classList.contains('hidden')) {
+          modalSinBomMsg.textContent = 'Error: ' + errMsg;
+        }
+        return;
+      }
+      const estado = data.estado || 'actualizado';
+      mostrarModalResumenActualizarSap(parteNo, {
+        ok: true,
+        estado: estado,
+        mensaje: data.mensaje || '',
+        items_insertados: data.items_insertados
+      });
+      addLog(parteNo + ' — ' + estado + ': ' + (data.mensaje || ''), estado === 'actualizado' ? 'text-green-700' : 'text-gray-700');
+      if (partesMsg) partesMsg.textContent = 'Parte ' + parteNo + ' actualizada.';
+      await cargarResumenPartes(false);
+      if (modalSinBom && !modalSinBom.classList.contains('hidden')) {
+        await cargarModalSinBom();
+      }
+    } catch (e) {
+      var msg = e.message || String(e);
+      mostrarModalResumenActualizarSap(parteNo, { ok: false, mensaje: msg });
+      if (partesMsg) partesMsg.textContent = 'Error en ' + parteNo + ': ' + msg;
+      addLog(parteNo + ' — Error: ' + msg, 'text-red-700');
+      if (modalSinBomMsg && modalSinBom && !modalSinBom.classList.contains('hidden')) {
+        modalSinBomMsg.textContent = 'Error: ' + msg;
+      }
+    } finally {
+      if (triggerBtn) {
+        triggerBtn.disabled = false;
+        triggerBtn.textContent = prev;
+      }
+    }
+  }
+
   function renderPartesRows(rows) {
     const rowsToRender = getSortedPartesRows(rows);
     partesBody.innerHTML = '';
@@ -463,35 +759,9 @@
       });
     });
     partesBody.querySelectorAll('.btn-actualizar-parte').forEach(function(btnActualizarParte) {
-      btnActualizarParte.addEventListener('click', async function() {
+      btnActualizarParte.addEventListener('click', function() {
         const parteNo = this.getAttribute('data-parte-no');
-        if (!parteNo) return;
-        const ok = window.confirm('¿Actualizar en SAP solo la parte ' + parteNo + '?');
-        if (!ok) return;
-        this.disabled = true;
-        const prev = this.textContent;
-        this.textContent = 'Actualizando...';
-        partesMsg.textContent = 'Actualizando ' + parteNo + '...';
-        try {
-          const res = await fetch('/api/actualizar-boms/actualizar-parte', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ parte_no: parteNo })
-          });
-          const data = await res.json().catch(function() { return {}; });
-          if (!res.ok || !data.ok) throw new Error(data.mensaje || 'Error al actualizar la parte');
-          const estado = data.estado || 'actualizado';
-          addLog(parteNo + ' — ' + estado + ': ' + (data.mensaje || ''), estado === 'actualizado' ? 'text-green-700' : 'text-gray-700');
-          partesMsg.textContent = 'Parte ' + parteNo + ' actualizada.';
-          await cargarResumenPartes(false);
-        } catch (e) {
-          partesMsg.textContent = 'Error en ' + parteNo + ': ' + (e.message || e);
-          addLog(parteNo + ' — Error: ' + (e.message || e), 'text-red-700');
-        } finally {
-          this.disabled = false;
-          this.textContent = prev;
-        }
+        actualizarSapUnaParte(parteNo, this);
       });
     });
 
@@ -604,6 +874,24 @@
     } catch (e) {
       addLog('No se pudo abrir detalle de ' + parteNo + ': ' + (e.message || e), 'text-red-700');
     }
+  }
+
+  if (modalSinBomBody) {
+    modalSinBomBody.addEventListener('click', function(ev) {
+      const tSap = ev.target.closest('.btn-sin-bom-actualizar-sap');
+      if (tSap) {
+        const partNo = tSap.getAttribute('data-parte-no');
+        if (!partNo) return;
+        actualizarSapUnaParte(partNo, tSap);
+        return;
+      }
+      const tNv = ev.target.closest('.btn-sin-bom-marcar-no-valida');
+      if (tNv) {
+        const partNo = tNv.getAttribute('data-parte-no');
+        if (!partNo) return;
+        marcarParteNoValida(partNo, tNv);
+      }
+    });
   }
 
   async function iniciarActualizacion(onlyInvalid, onlyDiffGt0) {
@@ -761,6 +1049,29 @@
     window.location.href = '/api/actualizar-boms/descargar-diferencia-gt0';
   });
 
+  if (btnVerPartesSinBom) {
+    btnVerPartesSinBom.addEventListener('click', abrirModalSinBom);
+  }
+  if (modalSinBomCerrar) {
+    modalSinBomCerrar.addEventListener('click', cerrarModalSinBom);
+  }
+  if (modalSinBomBackdrop) {
+    modalSinBomBackdrop.addEventListener('click', cerrarModalSinBom);
+  }
+  if (modalSinBomBuscar) {
+    modalSinBomBuscar.addEventListener('click', function() {
+      cargarModalSinBom();
+    });
+  }
+  if (modalSinBomSearch) {
+    modalSinBomSearch.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        cargarModalSinBom();
+      }
+    });
+  }
+
   const btnEncontrarNuevoNp = document.getElementById('btn-encontrar-nuevo-np');
   if (btnEncontrarNuevoNp) {
     btnEncontrarNuevoNp.addEventListener('click', async function() {
@@ -865,8 +1176,19 @@
 
   modalParteCerrarBtn.addEventListener('click', cerrarModalParte);
   modalParteBackdrop.addEventListener('click', cerrarModalParte);
+  if (modalResumenSapCerrar) {
+    modalResumenSapCerrar.addEventListener('click', cerrarModalResumenSap);
+  }
+  if (modalResumenSapBackdrop) {
+    modalResumenSapBackdrop.addEventListener('click', cerrarModalResumenSap);
+  }
+
   document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') cerrarModalParte();
+    if (e.key === 'Escape') {
+      cerrarModalParte();
+      cerrarModalSinBom();
+      cerrarModalResumenSap();
+    }
   });
 
   cargarResumenPartes(true);
