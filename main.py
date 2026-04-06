@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse, FileResponse, StreamingResponse, Response
 from datetime import datetime, timedelta, date, time, timezone
 from contextlib import asynccontextmanager
-from typing import Any, Optional, List, Tuple
+from typing import Any, Optional, List, Tuple, Dict
 from decimal import Decimal, InvalidOperation
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.router import router as auth_router, get_current_user, AuthenticationError, require_roles
@@ -950,6 +950,41 @@ async def api_analisis_icr_clientes(
     return JSONResponse(clientes)
 
 
+@app.get("/api/analisis-icr/grupos")
+async def api_analisis_icr_grupos(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    q: Optional[str] = None,
+):
+    """
+    Lista nombres de grupo (cliente_grupo) que tienen al menos un cliente con ventas ICR.
+    """
+    grupos = await crud.list_grupos_con_ventas_icr(db, search=q, limit=200)
+    return JSONResponse(grupos)
+
+
+@app.get("/api/analisis-icr/partes-grupo")
+async def api_analisis_icr_partes_grupo(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    grupo: Optional[str] = None,
+):
+    """
+    Análisis ICR agregado por grupo: una fila por (cliente, número de parte), con customer_part_number.
+    """
+    if grupo is None or not str(grupo).strip():
+        return JSONResponse({"error": "Falta el parámetro grupo"}, status_code=400)
+    detalle = await crud.get_analisis_icr_detalle_grupo(db, grupo=str(grupo).strip())
+    partes_over_60 = detalle.get("partes_icr_over_60", 0)
+    total_partes = detalle.get("total", 0)
+    detalle["original_components"] = partes_over_60
+    detalle["non_original_components"] = total_partes - partes_over_60
+    detalle["conforming_part_numbers"] = detalle["total"]
+    return JSONResponse(detalle)
+
+
 # Datos fijos para el certificado C.O. (LEONI)
 _CERT_CO_LEONI = {
     "certifier_company": "LEONI Cable S.A. de C.V.",
@@ -1100,6 +1135,8 @@ def _render_certificado_co_pdf_reportlab(context: dict) -> bytes:
     for p in partes:
         # En PDF (fallback reportlab), mostramos "part_number — description" si existe.
         desc = (p.get("part_number") or "—")
+        if context.get("certificado_grupo_unificado") and p.get("codigo_cliente") is not None:
+            desc = f"[Cliente {p.get('codigo_cliente')}] " + desc
         if not context.get("certificado_simulacion") and p.get("description"):
             d = (p.get("description") or "")[:80]
             desc += " — " + (d + "..." if len((p.get("description") or "")) > 80 else d)
@@ -1585,6 +1622,9 @@ def _render_certificado_co_xlsx(context: dict) -> bytes:
                 descripcion = (p.get("description") or "").strip()
                 if descripcion:
                     descripcion = descripcion[:120].strip()
+                if context.get("certificado_grupo_unificado") and p.get("codigo_cliente") is not None:
+                    pref = f"Cód. cliente {p.get('codigo_cliente')}: "
+                    descripcion = (pref + descripcion)[:200].strip()
             _set_cell(ws_co3, row, 5, descripcion or "")
             _set_cell(
                 ws_co3,
@@ -1826,10 +1866,16 @@ def _render_no_calificados_docx(context: dict) -> bytes:
                 cells[2].text = customer_part
                 cells[3].text = "Electrical Cable"
                 cells[4].text = tariff
-                cells[5].text = "Not USMCA Complaint"
+                coment = "Not USMCA Complaint"
+                if context.get("certificado_grupo_unificado") and p.get("codigo_cliente") is not None:
+                    coment = f"Cliente {p.get('codigo_cliente')} — Not USMCA Complaint"
+                cells[5].text = coment
         else:
             new_row = tbl0.add_row()
-            vals = [part_number, descripcion, customer_part, "Electrical Cable", tariff, "Not USMCA Complaint"]
+            coment = "Not USMCA Complaint"
+            if context.get("certificado_grupo_unificado") and p.get("codigo_cliente") is not None:
+                coment = f"Cliente {p.get('codigo_cliente')} — Not USMCA Complaint"
+            vals = [part_number, descripcion, customer_part, "Electrical Cable", tariff, coment]
             for c in range(min(num_cols, len(new_row.cells))):
                 new_row.cells[c].text = vals[c]
 
@@ -1972,6 +2018,224 @@ def _analisis_icr_cert_filename_stem(
         safe = str(codigo_cliente)
     safe = safe[:80]
     return f"CU_{codigo_cliente}_{safe}_{seg}_{y}_erob1001"
+
+
+def _analisis_icr_cert_filename_stem_grupo(
+    grupo: str,
+    year: Optional[int] = None,
+    *,
+    segment: str = "USMCA",
+) -> str:
+    """Nombre base para certificado C.O. unificado por grupo (sin código de cliente único)."""
+    import re
+    import unicodedata
+
+    y = int(year) if year is not None else datetime.now().year
+    seg = (segment or "USMCA").strip()
+    if not seg or not re.match(r"^[A-Za-z0-9_-]+$", seg):
+        seg = "USMCA"
+    raw = (grupo or "").strip() or "grupo"
+    nfkd = unicodedata.normalize("NFKD", raw)
+    ascii_str = "".join(c for c in nfkd if unicodedata.category(c) != "Mn")
+    safe = re.sub(r"[^a-zA-Z0-9._-]+", "_", ascii_str).strip("._-")
+    if not safe:
+        safe = "grupo"
+    safe = safe[:80]
+    return f"CU_grupo_{safe}_{seg}_{y}_erob1001"
+
+
+def _icr_califica_parte_60(p: dict) -> bool:
+    icr = p.get("icr")
+    if icr is None:
+        return False
+    try:
+        return float(icr) >= 60
+    except (TypeError, ValueError):
+        return False
+
+
+async def _icr_resolve_items_grupo_seleccion(
+    db: AsyncSession,
+    items: List[dict],
+) -> Tuple[List[dict], List[dict]]:
+    """
+    A partir de items [{codigo_cliente, numero_parte}, ...] devuelve
+    (partes_que_califican, partes_no_calificadas) con copia de datos ICR + customer_part_number + codigo_cliente.
+    """
+    cal: List[dict] = []
+    nc: List[dict] = []
+    seen = set()
+    for raw in items:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            cc = int(raw.get("codigo_cliente"))
+        except (TypeError, ValueError):
+            continue
+        np = str(raw.get("numero_parte") or "").strip()
+        if not np:
+            continue
+        key = (cc, np)
+        if key in seen:
+            continue
+        seen.add(key)
+        detalle = await crud.get_analisis_icr_detalle(db, cc)
+        by_pn = {str(x.get("part_number") or "").strip(): x for x in (detalle.get("partes") or [])}
+        p = by_pn.get(np)
+        if not p:
+            continue
+        row = dict(p)
+        row["codigo_cliente"] = cc
+        xref = await crud.get_cross_reference_por_cliente_materiales(db, str(cc), [np])
+        row["customer_part_number"] = (xref.get(np) or np or "").strip()
+        if _icr_califica_parte_60(row):
+            cal.append(row)
+        else:
+            nc.append(row)
+    return cal, nc
+
+
+async def _icr_importer_campos_grupo(
+    db: AsyncSession,
+    grupo: str,
+    codigos_cliente: List[int],
+    incluir_direccion_cliente: bool,
+) -> Dict[str, Any]:
+    """Bloque importador para certificado unificado de un grupo de clientes."""
+    nombre_grupo = (grupo or "").strip() or "—"
+    if not incluir_direccion_cliente:
+        return {
+            "cliente_nombre": f"Grupo: {nombre_grupo}",
+            "importer_address": None,
+            "importer_show_customer_number": False,
+        }
+    lines_addr: List[str] = []
+    for cc in sorted(set(codigos_cliente)):
+        d = await crud.get_analisis_icr_detalle(db, cc)
+        nm = (d.get("cliente_nombre") or "").strip() or str(cc)
+        dom = (d.get("cliente_domicilio") or "").strip()
+        pais = (d.get("cliente_pais") or "").strip()
+        line1 = f"Cliente {cc} — {nm}"
+        line2 = " — ".join(x for x in [dom, pais] if x)
+        lines_addr.append(line1 + (("\n" + line2) if line2 else ""))
+    return {
+        "cliente_nombre": f"Grupo: {nombre_grupo}",
+        "importer_address": "\n\n".join(lines_addr) if lines_addr else "VARIOS",
+        "importer_show_customer_number": False,
+    }
+
+
+async def _build_context_certificado_co_grupo_unificado(
+    db: AsyncSession,
+    grupo: str,
+    partes_cal: List[dict],
+    blanket_from: Optional[str],
+    blanket_to: Optional[str],
+    incluir_direccion_cliente: bool,
+    ahora: datetime,
+) -> dict:
+    if not partes_cal:
+        raise ValueError("No hay partes que califiquen (ICR ≥ 60%) en la selección del grupo.")
+    err_bp, d_bf, d_bt, s_bf, s_bt = _resolve_blanket_period_certificado(blanket_from, blanket_to, ref=ahora)
+    if err_bp:
+        raise ValueError(err_bp)
+    codigos = [int(p["codigo_cliente"]) for p in partes_cal if p.get("codigo_cliente") is not None]
+    imp = await _icr_importer_campos_grupo(db, grupo, codigos, incluir_direccion_cliente)
+
+    def _fmt_date(d):
+        return f"{d.month}/{d.day}/{d.strftime('%y')}"
+
+    return {
+        **_CERT_CO_LEONI,
+        "codigo_cliente": "—",
+        "cliente_nombre": imp["cliente_nombre"],
+        "importer_address": imp["importer_address"],
+        "importer_show_customer_number": False,
+        "partes": partes_cal,
+        "blanket_period_from": s_bf,
+        "blanket_period_to": s_bt,
+        "_blanket_period_from_date": d_bf,
+        "_blanket_period_to_date": d_bt,
+        "certification_date": _fmt_date(ahora),
+        "num_pages": 2,
+        "_ahora": ahora,
+        "certificado_grupo_unificado": True,
+    }
+
+
+async def _icr_certificado_pack_zip_bytes_grupo_unificado(
+    db: AsyncSession,
+    grupo: str,
+    items: List[dict],
+    blanket_from: Optional[str],
+    blanket_to: Optional[str],
+    incluir_direccion_cliente: bool,
+) -> Tuple[Optional[bytes], Optional[str]]:
+    """
+    Un solo ZIP: un certificado C.O. (xlsx+pdf) con todas las partes que califican del grupo
+    y, si aplica, un affidavit Word+PDF con todas las no calificadas de la selección.
+    """
+    partes_cal, partes_nc = await _icr_resolve_items_grupo_seleccion(db, items)
+    if not partes_cal and not partes_nc:
+        return (None, None)
+    ahora = datetime.now()
+    stem = _analisis_icr_cert_filename_stem_grupo(grupo, ahora.year, segment="USMCA")
+    stem_affidavit = _analisis_icr_cert_filename_stem_grupo(grupo, ahora.year, segment="AFFIDAVIT")
+
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        if partes_cal:
+            cert_context = await _build_context_certificado_co_grupo_unificado(
+                db, grupo, partes_cal, blanket_from, blanket_to, incluir_direccion_cliente, ahora
+            )
+            xlsx_bytes = await asyncio.to_thread(_render_certificado_co_xlsx, cert_context)
+            zf.writestr(f"{stem}.xlsx", xlsx_bytes)
+            pdf_bytes = await asyncio.to_thread(_render_certificado_co_pdf, cert_context)
+            zf.writestr(f"{stem}.pdf", pdf_bytes)
+        if partes_nc:
+            no_cert_context = {
+                "codigo_cliente": "Grupo",
+                "cliente_nombre": f"Grupo: {(grupo or '').strip() or '—'}",
+                "partes": partes_nc,
+                "certificado_grupo_unificado": True,
+            }
+            docx_bytes = await asyncio.to_thread(_render_no_calificados_docx, no_cert_context)
+            zf.writestr(f"{stem_affidavit}.docx", docx_bytes)
+            try:
+                pdf_nc_bytes = await asyncio.to_thread(_render_no_calificados_pdf, no_cert_context)
+                zf.writestr(f"{stem_affidavit}.pdf", pdf_nc_bytes)
+            except Exception as e:
+                logger.warning("No se pudo incluir PDF no calificados en el pack grupo: %s", e)
+
+    buf.seek(0)
+    return (buf.getvalue(), stem)
+
+
+def _parse_body_certificado_grupo(body: Any) -> Tuple[Optional[str], Optional[List[dict]], Optional[str]]:
+    """Devuelve (grupo, items, error_message)."""
+    if not isinstance(body, dict):
+        return (None, None, "Se esperaba un objeto JSON.")
+    grupo = body.get("grupo")
+    grupo_s = str(grupo).strip() if grupo is not None else ""
+    if not grupo_s:
+        return (None, None, "Falta el campo 'grupo'.")
+    items = body.get("items")
+    if not isinstance(items, list) or not items:
+        return (None, None, "Se requiere 'items' no vacío.")
+    out: List[dict] = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        try:
+            cc = int(it.get("codigo_cliente"))
+        except (TypeError, ValueError):
+            continue
+        np = str(it.get("numero_parte") or "").strip()
+        if np:
+            out.append({"codigo_cliente": cc, "numero_parte": np})
+    if not out:
+        return (None, None, "No hay ítems válidos en 'items'.")
+    return (grupo_s, out, None)
 
 
 @app.get("/api/analisis-icr/certificado-pdf")
@@ -2354,34 +2618,18 @@ async def api_simulacion_icr_analisis_pdf(
     )
 
 
-@app.get("/api/analisis-icr/certificado-pack")
-async def api_analisis_icr_certificado_pack(
-    request: Request,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-    codigo_cliente: Optional[int] = None,
-    numero_parte: List[str] = Query(default=[], description="Números de parte seleccionados (columna Select)"),
-    blanket_from: Optional[str] = Query(None, description="Inicio blanket period certificado C.O. (YYYY-MM-DD)"),
-    blanket_to: Optional[str] = Query(None, description="Fin blanket period certificado C.O. (YYYY-MM-DD)"),
-    incluir_direccion_cliente: bool = Query(
-        False,
-        description="Si es true, incluye domicilio y país del maestro de clientes en el certificado C.O.; si no, VARIOS",
-    ),
-):
+async def _icr_certificado_pack_zip_bytes_for_cliente(
+    db: AsyncSession,
+    codigo_cliente: int,
+    selected: List[str],
+    blanket_from: Optional[str],
+    blanket_to: Optional[str],
+    incluir_direccion_cliente: bool,
+) -> Tuple[Optional[bytes], Optional[str]]:
     """
-    Genera un ZIP con los documentos según la selección:
-    - Si dentro de la selección hay partes (ICR >= 60%): incluye certificado C.O. Excel+PDF de cumplimiento (solo esas partes seleccionadas).
-    - Si dentro de la selección hay partes (< 60% o sin ICR): incluye además no_calificados Word+PDF (solo esas partes seleccionadas).
-    Si la selección contiene ambos casos: se descargan ambos.
+    Genera el ZIP de certificado C.O. + affidavit para un cliente y lista de números de parte.
+    Devuelve (bytes, stem base para nombre .zip) o (None, None) si no hay nada que incluir.
     """
-    if codigo_cliente is None:
-        return JSONResponse({"error": "Falta el parámetro codigo_cliente"}, status_code=400)
-    selected = [str(n).strip() for n in numero_parte if n is not None and str(n).strip()]
-    if not selected:
-        return JSONResponse(
-            {"error": "No hay números de parte seleccionados."},
-            status_code=400,
-        )
     detalle = await crud.get_analisis_icr_detalle(db, codigo_cliente=codigo_cliente)
     todas_partes = detalle.get("partes") or []
 
@@ -2397,15 +2645,16 @@ async def api_analisis_icr_certificado_pack(
     by_part_number = {str(p.get("part_number") or "").strip(): p for p in todas_partes}
     selected_parts = [by_part_number.get(np) for np in selected if by_part_number.get(np)]
 
-    # CO: solo partes seleccionadas que califican (ICR >= 60%).
     partes_que_califican = [p for p in selected_parts if _califica(p)]
-    # No calificados: seleccionadas que no califican (ICR < 60% o sin ICR).
     partes_no_calificados = [p for p in selected_parts if not _califica(p)]
+
+    if not partes_que_califican and not partes_no_calificados:
+        return (None, None)
 
     ahora = datetime.now()
     err_bp, d_bf, d_bt, s_bf, s_bt = _resolve_blanket_period_certificado(blanket_from, blanket_to, ref=ahora)
     if err_bp:
-        return JSONResponse({"error": err_bp}, status_code=400)
+        raise ValueError(err_bp)
 
     stem = _analisis_icr_cert_filename_stem(
         codigo_cliente, detalle.get("cliente_nombre"), ahora.year
@@ -2467,11 +2716,359 @@ async def api_analisis_icr_certificado_pack(
                 logger.warning("No se pudo incluir PDF no calificados en el pack: %s", e)
 
     buf.seek(0)
+    return (buf.getvalue(), stem)
+
+
+@app.get("/api/analisis-icr/certificado-pack")
+async def api_analisis_icr_certificado_pack(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    codigo_cliente: Optional[int] = None,
+    numero_parte: List[str] = Query(default=[], description="Números de parte seleccionados (columna Select)"),
+    blanket_from: Optional[str] = Query(None, description="Inicio blanket period certificado C.O. (YYYY-MM-DD)"),
+    blanket_to: Optional[str] = Query(None, description="Fin blanket period certificado C.O. (YYYY-MM-DD)"),
+    incluir_direccion_cliente: bool = Query(
+        False,
+        description="Si es true, incluye domicilio y país del maestro de clientes en el certificado C.O.; si no, VARIOS",
+    ),
+):
+    """
+    Genera un ZIP con los documentos según la selección:
+    - Si dentro de la selección hay partes (ICR >= 60%): incluye certificado C.O. Excel+PDF de cumplimiento (solo esas partes seleccionadas).
+    - Si dentro de la selección hay partes (< 60% o sin ICR): incluye además no_calificados Word+PDF (solo esas partes seleccionadas).
+    Si la selección contiene ambos casos: se descargan ambos.
+    """
+    if codigo_cliente is None:
+        return JSONResponse({"error": "Falta el parámetro codigo_cliente"}, status_code=400)
+    selected = [str(n).strip() for n in numero_parte if n is not None and str(n).strip()]
+    if not selected:
+        return JSONResponse(
+            {"error": "No hay números de parte seleccionados."},
+            status_code=400,
+        )
+    try:
+        zip_bytes, stem = await _icr_certificado_pack_zip_bytes_for_cliente(
+            db,
+            codigo_cliente,
+            selected,
+            blanket_from,
+            blanket_to,
+            incluir_direccion_cliente,
+        )
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    if not zip_bytes or not stem:
+        return JSONResponse(
+            {"error": "No hay documentos que generar para la selección (partes no encontradas o sin datos ICR)."},
+            status_code=400,
+        )
     filename_zip = f"{stem}.zip"
     return Response(
-        content=buf.getvalue(),
+        content=zip_bytes,
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{filename_zip}"'},
+    )
+
+
+@app.post("/api/analisis-icr/certificado-grupo-co-pdf")
+async def api_analisis_icr_certificado_grupo_co_pdf(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Un solo PDF C.O. con todas las filas seleccionadas del grupo que cumplen ICR ≥ 60 %."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Cuerpo JSON inválido."}, status_code=400)
+    grupo, items, err = _parse_body_certificado_grupo(body)
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
+    partes_cal, _ = await _icr_resolve_items_grupo_seleccion(db, items)
+    if not partes_cal:
+        return JSONResponse(
+            {"error": "No hay componentes que califiquen (ICR ≥ 60%) en la selección del grupo."},
+            status_code=400,
+        )
+    ahora = datetime.now()
+    try:
+        ctx = await _build_context_certificado_co_grupo_unificado(
+            db,
+            grupo,
+            partes_cal,
+            body.get("blanket_from") if isinstance(body.get("blanket_from"), str) else None,
+            body.get("blanket_to") if isinstance(body.get("blanket_to"), str) else None,
+            bool(body.get("incluir_direccion_cliente")),
+            ahora,
+        )
+        pdf_bytes = await asyncio.to_thread(_render_certificado_co_pdf, ctx)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except Exception as e:
+        logger.exception("Error generando PDF certificado C.O. grupo")
+        return JSONResponse({"error": f"Error al generar el PDF: {e!s}"}, status_code=500)
+    stem = _analisis_icr_cert_filename_stem_grupo(grupo, ahora.year)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{stem}.pdf"'},
+    )
+
+
+@app.post("/api/analisis-icr/certificado-grupo-co-excel")
+async def api_analisis_icr_certificado_grupo_co_excel(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Un solo Excel C.O. con todas las filas seleccionadas del grupo que cumplen ICR ≥ 60 %."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Cuerpo JSON inválido."}, status_code=400)
+    grupo, items, err = _parse_body_certificado_grupo(body)
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
+    partes_cal, _ = await _icr_resolve_items_grupo_seleccion(db, items)
+    if not partes_cal:
+        return JSONResponse(
+            {"error": "No hay componentes que califiquen (ICR ≥ 60%) en la selección del grupo."},
+            status_code=400,
+        )
+    ahora = datetime.now()
+    try:
+        ctx = await _build_context_certificado_co_grupo_unificado(
+            db,
+            grupo,
+            partes_cal,
+            body.get("blanket_from") if isinstance(body.get("blanket_from"), str) else None,
+            body.get("blanket_to") if isinstance(body.get("blanket_to"), str) else None,
+            bool(body.get("incluir_direccion_cliente")),
+            ahora,
+        )
+        xlsx_bytes = await asyncio.to_thread(_render_certificado_co_xlsx, ctx)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except Exception as e:
+        logger.exception("Error generando Excel certificado C.O. grupo")
+        return JSONResponse({"error": f"Error al generar el Excel: {e!s}"}, status_code=500)
+    stem = _analisis_icr_cert_filename_stem_grupo(grupo, ahora.year)
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{stem}.xlsx"'},
+    )
+
+
+@app.post("/api/analisis-icr/certificado-grupo-co-pack")
+async def api_analisis_icr_certificado_grupo_co_pack(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Un solo ZIP: certificado C.O. único (xlsx + pdf) con todas las partes del grupo que califican;
+    si en la selección hay partes sin calificar, incluye un único affidavit (docx + pdf) con todas ellas.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Cuerpo JSON inválido."}, status_code=400)
+    grupo, items, err = _parse_body_certificado_grupo(body)
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
+    try:
+        zip_bytes, stem = await _icr_certificado_pack_zip_bytes_grupo_unificado(
+            db,
+            grupo,
+            items,
+            body.get("blanket_from") if isinstance(body.get("blanket_from"), str) else None,
+            body.get("blanket_to") if isinstance(body.get("blanket_to"), str) else None,
+            bool(body.get("incluir_direccion_cliente")),
+        )
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    if not zip_bytes or not stem:
+        return JSONResponse(
+            {"error": "No hay documentos que generar para la selección del grupo."},
+            status_code=400,
+        )
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{stem}.zip"'},
+    )
+
+
+@app.post("/api/analisis-icr/certificado-grupo-no-calificados-docx")
+async def api_analisis_icr_certificado_grupo_no_calificados_docx(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Un solo Word de no calificados para la selección del grupo (ICR &lt; 60 %)."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Cuerpo JSON inválido."}, status_code=400)
+    grupo, items, err = _parse_body_certificado_grupo(body)
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
+    _, partes_nc = await _icr_resolve_items_grupo_seleccion(db, items)
+    if not partes_nc:
+        return JSONResponse(
+            {"error": "No hay componentes con ICR < 60% en la selección del grupo."},
+            status_code=400,
+        )
+    ahora = datetime.now()
+    ctx = {
+        "codigo_cliente": "Grupo",
+        "cliente_nombre": f"Grupo: {(grupo or '').strip() or '—'}",
+        "partes": partes_nc,
+        "certificado_grupo_unificado": True,
+    }
+    try:
+        docx_bytes = await asyncio.to_thread(_render_no_calificados_docx, ctx)
+    except Exception as e:
+        logger.exception("Error generando Word no calificados grupo")
+        return JSONResponse({"error": f"Error al generar el documento: {e!s}"}, status_code=500)
+    stem = _analisis_icr_cert_filename_stem_grupo(grupo, ahora.year, segment="AFFIDAVIT")
+    return Response(
+        content=docx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{stem}.docx"'},
+    )
+
+
+@app.post("/api/analisis-icr/certificado-grupo-no-calificados-pdf")
+async def api_analisis_icr_certificado_grupo_no_calificados_pdf(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Un solo PDF de no calificados para la selección del grupo."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Cuerpo JSON inválido."}, status_code=400)
+    grupo, items, err = _parse_body_certificado_grupo(body)
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
+    _, partes_nc = await _icr_resolve_items_grupo_seleccion(db, items)
+    if not partes_nc:
+        return JSONResponse(
+            {"error": "No hay componentes con ICR < 60% en la selección del grupo."},
+            status_code=400,
+        )
+    ahora = datetime.now()
+    ctx = {
+        "codigo_cliente": "Grupo",
+        "cliente_nombre": f"Grupo: {(grupo or '').strip() or '—'}",
+        "partes": partes_nc,
+        "certificado_grupo_unificado": True,
+    }
+    try:
+        pdf_bytes = await asyncio.to_thread(_render_no_calificados_pdf, ctx)
+    except Exception as e:
+        logger.exception("Error generando PDF no calificados grupo")
+        return JSONResponse({"error": f"Error al generar el PDF: {e!s}"}, status_code=500)
+    stem = _analisis_icr_cert_filename_stem_grupo(grupo, ahora.year, segment="AFFIDAVIT")
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{stem}.pdf"'},
+    )
+
+
+@app.post("/api/analisis-icr/certificado-multi-pack")
+async def api_analisis_icr_certificado_multi_pack(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    ZIP maestro con un subdirectorio por código de cliente: cada uno contiene el mismo pack
+    que /api/analisis-icr/certificado-pack (C.O. + affidavit según selección).
+    Body JSON: {"items": [{"codigo_cliente": int, "numero_parte": str}, ...],
+    "blanket_from", "blanket_to", "incluir_direccion_cliente": bool}
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "Cuerpo JSON inválido."}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "Se esperaba un objeto JSON."}, status_code=400)
+    items = body.get("items")
+    if not isinstance(items, list) or not items:
+        return JSONResponse({"error": "Se requiere 'items' no vacío."}, status_code=400)
+
+    grouped = {}
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        cc_raw = it.get("codigo_cliente")
+        np_raw = it.get("numero_parte")
+        if cc_raw is None or np_raw is None:
+            continue
+        try:
+            cc = int(cc_raw)
+        except (TypeError, ValueError):
+            continue
+        np = str(np_raw).strip()
+        if not np:
+            continue
+        grouped.setdefault(cc, []).append(np)
+
+    if not grouped:
+        return JSONResponse({"error": "No hay ítems válidos (codigo_cliente, numero_parte)."}, status_code=400)
+
+    blanket_from = body.get("blanket_from")
+    blanket_to = body.get("blanket_to")
+    incluir = bool(body.get("incluir_direccion_cliente"))
+
+    master = BytesIO()
+    any_inner = False
+    try:
+        with zipfile.ZipFile(master, "w", zipfile.ZIP_DEFLATED) as mzf:
+            for cc in sorted(grouped.keys()):
+                partes_u = []
+                seen = set()
+                for np in grouped[cc]:
+                    if np not in seen:
+                        seen.add(np)
+                        partes_u.append(np)
+                try:
+                    inner_bytes, _stem = await _icr_certificado_pack_zip_bytes_for_cliente(
+                        db,
+                        cc,
+                        partes_u,
+                        blanket_from if isinstance(blanket_from, str) else None,
+                        blanket_to if isinstance(blanket_to, str) else None,
+                        incluir,
+                    )
+                except ValueError as e:
+                    return JSONResponse({"error": str(e)}, status_code=400)
+                if not inner_bytes:
+                    continue
+                any_inner = True
+                with zipfile.ZipFile(BytesIO(inner_bytes), "r") as inner_z:
+                    for name in inner_z.namelist():
+                        mzf.writestr(f"{cc}/{name}", inner_z.read(name))
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+    if not any_inner:
+        return JSONResponse(
+            {"error": "No se pudo generar ningún certificado para los clientes seleccionados."},
+            status_code=400,
+        )
+    master.seek(0)
+    fn = f"analisis_icr_certificados_multi_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+    return Response(
+        content=master.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{fn}"'},
     )
 
 

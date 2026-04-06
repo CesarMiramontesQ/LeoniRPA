@@ -6716,6 +6716,87 @@ async def list_clientes_con_ventas_icr(
     return out[:limit]
 
 
+async def _codigos_con_ventas_icr_distinct(db: AsyncSession) -> List[int]:
+    """Códigos de cliente con al menos una venta que cumple el filtro ICR (_ventas_icr_filter)."""
+    subq = select(Venta.codigo_cliente).where(_ventas_icr_filter).distinct()
+    result = await db.execute(subq)
+    return [int(r[0]) for r in result.all() if r[0] is not None]
+
+
+async def map_grupo_actual_por_codigos(db: AsyncSession, codigos: List[int]) -> Dict[int, str]:
+    """
+    Para cada código, el valor de `grupo` de la fila más reciente en cliente_grupo
+    (misma lógica que precios de venta).
+    """
+    if not codigos:
+        return {}
+    result = await db.execute(
+        select(ClienteGrupo.codigo_cliente, ClienteGrupo.grupo)
+        .where(ClienteGrupo.codigo_cliente.in_(codigos))
+        .order_by(
+            ClienteGrupo.codigo_cliente.asc(),
+            ClienteGrupo.updated_at.desc(),
+            ClienteGrupo.id.desc(),
+        )
+    )
+    out: Dict[int, str] = {}
+    for codigo_cliente, grupo in result.all():
+        if codigo_cliente is None:
+            continue
+        c = int(codigo_cliente)
+        if c not in out:
+            out[c] = (grupo or "").strip()
+    return out
+
+
+async def list_grupos_con_ventas_icr(
+    db: AsyncSession,
+    search: Optional[str] = None,
+    limit: int = 200,
+) -> List[Dict[str, Any]]:
+    """
+    Nombres de grupo (cliente_grupo.grupo) con al menos un cliente con ventas ICR,
+    usando el grupo actual por cliente (última fila en cliente_grupo).
+    """
+    codigos_icr = await _codigos_con_ventas_icr_distinct(db)
+    if not codigos_icr:
+        return []
+    m = await map_grupo_actual_por_codigos(db, codigos_icr)
+    grupos = sorted({m[c] for c in codigos_icr if m.get(c)})
+    search_clean = (search or "").strip().lower() if search else ""
+    if search_clean:
+        grupos = [g for g in grupos if search_clean in g.lower()]
+    lim = max(1, min(limit, 500))
+    return [{"grupo": g} for g in grupos[:lim]]
+
+
+async def list_codigos_cliente_grupo_actual_con_icr(db: AsyncSession, grupo: str) -> List[int]:
+    """
+    Códigos de cliente cuyo grupo actual coincide con `grupo` y que tienen ventas ICR.
+    """
+    grupo_clean = (grupo or "").strip()
+    if not grupo_clean:
+        return []
+    codigos_icr_set = set(await _codigos_con_ventas_icr_distinct(db))
+    result = await db.execute(
+        select(ClienteGrupo.codigo_cliente, ClienteGrupo.grupo)
+        .order_by(
+            ClienteGrupo.codigo_cliente.asc(),
+            ClienteGrupo.updated_at.desc(),
+            ClienteGrupo.id.desc(),
+        )
+    )
+    current: Dict[int, str] = {}
+    for codigo_cliente, g in result.all():
+        if codigo_cliente is None:
+            continue
+        c = int(codigo_cliente)
+        if c not in current:
+            current[c] = (g or "").strip()
+    out = sorted([c for c, g in current.items() if g == grupo_clean and c in codigos_icr_set])
+    return out
+
+
 # Números de parte con ICR 100 % por regla de negocio (cualquier cliente / donde aparezcan en análisis ICR).
 ICR_NUMEROS_PARTE_100_POR_DEFECTO: FrozenSet[str] = frozenset({
     "05C13113B",
@@ -6994,6 +7075,53 @@ async def get_analisis_icr_detalle(
         "total": total_partes,
         "completion_pct": completion_pct,
         "partes_icr_over_60": partes_icr_over_60,
+    }
+
+
+async def get_analisis_icr_detalle_grupo(db: AsyncSession, grupo: str) -> Dict[str, Any]:
+    """
+    Análisis ICR por nombre de grupo: una fila por (cliente, número de parte).
+    Incluye customer_part_number según cross_reference por cliente.
+    """
+    grupo_clean = (grupo or "").strip()
+    codigos = await list_codigos_cliente_grupo_actual_con_icr(db, grupo_clean)
+    partes_flat: List[Dict[str, Any]] = []
+    for c in codigos:
+        d = await get_analisis_icr_detalle(db, c)
+        for p in d.get("partes") or []:
+            row = dict(p)
+            row["codigo_cliente"] = c
+            row["cliente_nombre"] = d.get("cliente_nombre") or str(c)
+            partes_flat.append(row)
+    partes_flat.sort(key=lambda x: (x["codigo_cliente"], (x.get("part_number") or "")))
+
+    pares: List[Tuple[str, str]] = []
+    for r in partes_flat:
+        pn = (r.get("part_number") or "").strip()
+        if pn:
+            pares.append((str(r["codigo_cliente"]), pn))
+    xref = await map_cross_reference_por_pares_customer_material(db, pares)
+    for r in partes_flat:
+        pn = (r.get("part_number") or "").strip()
+        cm = xref.get((str(r["codigo_cliente"]), pn)) if pn else None
+        r["customer_part_number"] = (cm or pn or "").strip()
+
+    total = len(partes_flat)
+    partes_over_60 = sum(
+        1 for r in partes_flat if r.get("icr") is not None and float(r["icr"]) > 60
+    )
+    completion_pct = round((partes_over_60 / total * 100), 2) if total else 0
+
+    return {
+        "modo_grupo": True,
+        "grupo": grupo_clean,
+        "codigos_cliente": codigos,
+        "partes": partes_flat,
+        "total": total,
+        "completion_pct": completion_pct,
+        "partes_icr_over_60": partes_over_60,
+        "cliente_nombre": None,
+        "codigo_cliente": None,
     }
 
 

@@ -5,7 +5,7 @@
   <div>
     <h1 class="text-2xl font-semibold text-gray-900">Análisis ICR</h1>
     <p class="mt-1 text-sm text-gray-600">
-      Consulta los números de parte que ha adquirido un cliente según los registros de ventas del año pasado y del año actual (solo ventas con precios ICR definidos).
+      Consulta números de parte con ventas ICR (año pasado y año actual, precios ICR definidos). Puedes buscar por <strong>cliente</strong> o por <strong>grupo</strong> (varios clientes del mismo grupo; el mismo número de parte puede repetirse con distinto ICR y cross reference por cliente).
     </p>
     <div class="mt-4">
       <button
@@ -21,7 +21,20 @@
   </div>
 
   <div id="icr-busqueda" class="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
-    <div class="flex flex-wrap items-end gap-4">
+    <fieldset class="mb-4">
+      <legend class="text-sm font-medium text-gray-900">Modo de búsqueda</legend>
+      <div class="mt-2 flex flex-wrap gap-4">
+        <label class="inline-flex cursor-pointer items-center gap-2 text-sm text-gray-700">
+          <input type="radio" name="icr-modo-busqueda" value="cliente" class="text-[#003D89] focus:ring-[#003D89]" checked />
+          Por cliente
+        </label>
+        <label class="inline-flex cursor-pointer items-center gap-2 text-sm text-gray-700">
+          <input type="radio" name="icr-modo-busqueda" value="grupo" class="text-[#003D89] focus:ring-[#003D89]" />
+          Por grupo
+        </label>
+      </div>
+    </fieldset>
+    <div id="icr-busqueda-cliente" class="flex flex-wrap items-end gap-4">
       <div class="relative min-w-[280px] flex-1 max-w-xl">
         <label for="icr-codigo-cliente" class="block text-sm font-medium text-gray-900">Cliente</label>
         <input
@@ -46,6 +59,30 @@
         Buscar
       </button>
     </div>
+    <div id="icr-busqueda-grupo" class="hidden flex flex-wrap items-end gap-4">
+      <div class="relative min-w-[280px] flex-1 max-w-xl">
+        <label for="icr-nombre-grupo" class="block text-sm font-medium text-gray-900">Grupo de cliente</label>
+        <input
+          id="icr-nombre-grupo"
+          type="text"
+          autocomplete="off"
+          placeholder="Escriba para filtrar grupos con ventas ICR..."
+          class="mt-2 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+          aria-expanded="false"
+          aria-haspopup="listbox"
+          role="combobox"
+          aria-controls="icr-grupo-dropdown"
+        />
+        <div id="icr-grupo-dropdown" class="absolute z-10 mt-1 hidden w-full rounded-md border border-gray-200 bg-white py-1 shadow-lg max-h-60 overflow-auto" role="listbox" aria-label="Lista de grupos"></div>
+      </div>
+      <button
+        id="icr-buscar-grupo"
+        type="button"
+        class="rounded-md bg-[#003D89] px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-[#003366]"
+      >
+        Buscar
+      </button>
+    </div>
     <p id="icr-msg" class="mt-3 text-sm text-gray-500">Seleccione un cliente del listado o escriba código/nombre para filtrar y pulse Buscar.</p>
   </div>
 
@@ -53,7 +90,7 @@
   <div id="icr-vista-cliente" class="hidden space-y-6">
     <div>
       <button type="button" id="icr-buscar-otro" class="rounded-md bg-orange-500 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-orange-600">
-        ← Buscar otro cliente
+        ← Nueva búsqueda
       </button>
     </div>
     <!-- Encabezado del cliente -->
@@ -159,7 +196,9 @@
         <table class="min-w-full divide-y divide-gray-200">
           <thead class="bg-gray-50">
             <tr>
+              <th scope="col" class="icr-col-grupo hidden px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Cliente</th>
               <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Part Number</th>
+              <th scope="col" class="icr-col-grupo hidden px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Customer Part #</th>
               <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Description</th>
               <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Tariff Schedule</th>
               <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">ICR</th>
@@ -214,11 +253,52 @@
   const emptyState = document.getElementById('icr-empty');
   const registrosMostrados = document.getElementById('icr-registros-mostrados');
   const totalRegistros = document.getElementById('icr-total-registros');
+  const inputGrupo = document.getElementById('icr-nombre-grupo');
+  const dropdownGrupo = document.getElementById('icr-grupo-dropdown');
+  const btnBuscarGrupo = document.getElementById('icr-buscar-grupo');
+  const busquedaCliente = document.getElementById('icr-busqueda-cliente');
+  const busquedaGrupo = document.getElementById('icr-busqueda-grupo');
+  /** Separador en clave fila (cliente + parte); evita ambigüedad si el material tuviera "|". */
+  var ROW_SEP = '\x1f';
+  var vistaModo = 'cliente';
+  var currentGrupoNombre = null;
   let allPartes = [];
   let currentCodigoCliente = null;
-  var selectedPartNumbers = new Set();
+  var selectedRowKeys = new Set();
   var selectedCodigoCliente = null;
+  var selectedGrupoNombre = null;
   var clientesFetchTimeout = null;
+  var gruposFetchTimeout = null;
+
+  function getIcrModoBusqueda() {
+    var r = document.querySelector('input[name="icr-modo-busqueda"]:checked');
+    return r && r.value === 'grupo' ? 'grupo' : 'cliente';
+  }
+
+  function syncBusquedaPanels() {
+    var m = getIcrModoBusqueda();
+    if (!busquedaCliente || !busquedaGrupo) return;
+    if (m === 'grupo') {
+      busquedaCliente.classList.add('hidden');
+      busquedaGrupo.classList.remove('hidden');
+      setMsg('Seleccione un grupo del listado o filtre por nombre y pulse Buscar.', false);
+    } else {
+      busquedaCliente.classList.remove('hidden');
+      busquedaGrupo.classList.add('hidden');
+      setMsg('Seleccione un cliente del listado o escriba código/nombre para filtrar y pulse Buscar.', false);
+    }
+  }
+
+  function toggleGrupoColumns(show) {
+    document.querySelectorAll('.icr-col-grupo').forEach(function (el) {
+      if (show) el.classList.remove('hidden');
+      else el.classList.add('hidden');
+    });
+  }
+
+  document.querySelectorAll('input[name="icr-modo-busqueda"]').forEach(function (radio) {
+    radio.addEventListener('change', syncBusquedaPanels);
+  });
 
   const processingModal = document.getElementById('icr-processing-modal');
   const processingTitle = document.getElementById('icr-processing-title');
@@ -334,6 +414,57 @@
     }, 280);
   }
 
+  function showGrupoDropdown(items) {
+    if (!dropdownGrupo) return;
+    dropdownGrupo.innerHTML = '';
+    if (!items || items.length === 0) {
+      dropdownGrupo.classList.add('hidden');
+      return;
+    }
+    items.forEach(function (g, idx) {
+      var opt = document.createElement('div');
+      opt.setAttribute('role', 'option');
+      opt.id = 'icr-grupo-opt-' + idx;
+      opt.className = 'cursor-pointer px-3 py-2 text-sm text-gray-900 hover:bg-[#003D89] hover:text-white';
+      opt.textContent = g.grupo || '';
+      opt.dataset.grupo = g.grupo || '';
+      opt.addEventListener('click', function () {
+        selectedGrupoNombre = (this.dataset.grupo || '').trim();
+        if (inputGrupo) inputGrupo.value = selectedGrupoNombre;
+        dropdownGrupo.classList.add('hidden');
+        if (inputGrupo) inputGrupo.setAttribute('aria-expanded', 'false');
+      });
+      dropdownGrupo.appendChild(opt);
+    });
+    dropdownGrupo.classList.remove('hidden');
+    if (inputGrupo) inputGrupo.setAttribute('aria-expanded', 'true');
+  }
+
+  function hideGrupoDropdown() {
+    if (!dropdownGrupo) return;
+    dropdownGrupo.classList.add('hidden');
+    dropdownGrupo.innerHTML = '';
+    if (inputGrupo) inputGrupo.setAttribute('aria-expanded', 'false');
+  }
+
+  function fetchGrupos(q) {
+    var url = '/api/analisis-icr/grupos';
+    if (q && q.trim()) url += '?q=' + encodeURIComponent(q.trim());
+    fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.ok ? r.json() : []; })
+      .then(function (data) { showGrupoDropdown(data); })
+      .catch(function () { showGrupoDropdown([]); });
+  }
+
+  function scheduleGruposFetch() {
+    if (gruposFetchTimeout) clearTimeout(gruposFetchTimeout);
+    gruposFetchTimeout = setTimeout(function () {
+      gruposFetchTimeout = null;
+      var q = (inputGrupo && inputGrupo.value) ? inputGrupo.value.trim() : '';
+      fetchGrupos(q);
+    }, 280);
+  }
+
   function escapeHtml(s) {
     const div = document.createElement('div');
     div.textContent = s;
@@ -346,6 +477,13 @@
     renderTableRows(allPartes);
   }
 
+  function rowKeyForParte(p) {
+    var pn = p.part_number || '';
+    if (vistaModo === 'grupo' && p.codigo_cliente != null)
+      return String(p.codigo_cliente) + ROW_SEP + pn;
+    return pn;
+  }
+
   function renderTableRows(partes) {
     if (partes.length === 0) {
       tbody.innerHTML = '';
@@ -353,20 +491,31 @@
       return;
     }
     emptyState.classList.add('hidden');
+    var isGrupo = vistaModo === 'grupo';
     tbody.innerHTML = partes.map(function (p) {
       var partNum = (p.part_number || '').replace(/"/g, '&quot;');
+      var rk = rowKeyForParte(p);
+      var ccDet = isGrupo && p.codigo_cliente != null ? String(p.codigo_cliente) : (currentCodigoCliente != null ? String(currentCodigoCliente) : '');
       var hasBom = p.has_bom_items === true;
       var selectCell = hasBom
-        ? '<input type="checkbox" class="icr-select-checkbox h-4 w-4 rounded border-gray-300 text-[#003D89] focus:ring-[#003D89]" data-part-number="' + escapeHtml(partNum) + '"' + (selectedPartNumbers.has(p.part_number || '') ? ' checked' : '') + ' />'
+        ? '<input type="checkbox" class="icr-select-checkbox h-4 w-4 rounded border-gray-300 text-[#003D89] focus:ring-[#003D89]" data-row-key="' + escapeHtml(rk) + '" data-part-number="' + escapeHtml(partNum) + '"' + (selectedRowKeys.has(rk) ? ' checked' : '') + ' />'
         : '<span class="text-gray-400">—</span>';
-      return '<tr data-part-number="' + escapeHtml(partNum) + '" class="hover:bg-gray-50">' +
+      var icrCell =
+        (p.icr != null && p.icr !== '' ? (typeof p.icr === 'number' ? p.icr.toFixed(2) + '%' : p.icr) : '—') +
+        (p.icr != null && Number(p.icr) === 0 && p.icr_zero_reason ? ' <span class="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800" title="Razón ICR 0%">' + escapeHtml(p.icr_zero_reason) + '</span>' : '');
+      var clienteCell = isGrupo
+        ? '<td class="icr-col-grupo whitespace-nowrap px-6 py-4 text-sm text-gray-900">' + escapeHtml(String(p.codigo_cliente || '—')) + ' — ' + escapeHtml(p.cliente_nombre || '') + '</td>'
+        : '';
+      var custPartCell = isGrupo
+        ? '<td class="icr-col-grupo max-w-[10rem] truncate px-6 py-4 text-sm text-gray-600" title="' + escapeHtml(p.customer_part_number || '') + '">' + escapeHtml(p.customer_part_number || '—') + '</td>'
+        : '';
+      return '<tr data-part-number="' + escapeHtml(partNum) + '" data-codigo-cliente="' + escapeHtml(ccDet) + '" class="hover:bg-gray-50">' +
+        clienteCell +
         '<td class="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900">' + escapeHtml(p.part_number || '—') + '</td>' +
+        custPartCell +
         '<td class="max-w-xs truncate px-6 py-4 text-sm text-gray-600" title="' + escapeHtml(p.description || '') + '">' + escapeHtml(p.description || '—') + '</td>' +
         '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + escapeHtml(p.tariff_schedule || '—') + '</td>' +
-        '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' +
-          (p.icr != null && p.icr !== '' ? (typeof p.icr === 'number' ? p.icr.toFixed(2) + '%' : p.icr) : '—') +
-          (p.icr != null && Number(p.icr) === 0 && p.icr_zero_reason ? ' <span class="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800" title="Razón ICR 0%">' + escapeHtml(p.icr_zero_reason) + '</span>' : '') +
-        '</td>' +
+        '<td class="whitespace-nowrap px-6 py-4 text-sm text-gray-600">' + icrCell + '</td>' +
         '<td class="whitespace-nowrap px-6 py-4">' + selectCell + '</td>' +
         '<td class="whitespace-nowrap px-6 py-4"><button type="button" class="icr-ver-detalle rounded-md bg-[#003D89] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#003366]">Ver detalle</button></td>' +
         '</tr>';
@@ -374,29 +523,38 @@
 
     tbody.querySelectorAll('tr').forEach(function (tr) {
       var partNumber = tr.getAttribute('data-part-number');
+      var ccAttr = tr.getAttribute('data-codigo-cliente');
       var btnDetalle = tr.querySelector('.icr-ver-detalle');
-      if (btnDetalle && currentCodigoCliente != null && partNumber) {
+      if (btnDetalle && ccAttr && partNumber) {
         btnDetalle.addEventListener('click', function (e) {
           e.stopPropagation();
-          window.location = '/analisis-icr/material?codigo_cliente=' + encodeURIComponent(currentCodigoCliente) + '&numero_parte=' + encodeURIComponent(partNumber);
+          window.location = '/analisis-icr/material?codigo_cliente=' + encodeURIComponent(ccAttr) + '&numero_parte=' + encodeURIComponent(partNumber);
         });
       }
       var cb = tr.querySelector('.icr-select-checkbox');
-      if (cb && partNumber) {
+      if (cb) {
         cb.addEventListener('change', function () {
-          var pn = this.getAttribute('data-part-number') || partNumber;
-          if (this.checked) selectedPartNumbers.add(pn);
-          else selectedPartNumbers.delete(pn);
+          var rk = this.getAttribute('data-row-key') || '';
+          if (this.checked) selectedRowKeys.add(rk);
+          else selectedRowKeys.delete(rk);
         });
       }
     });
   }
 
   function showVistaCliente(data) {
+    vistaModo = data.modo_grupo ? 'grupo' : 'cliente';
+    currentGrupoNombre = vistaModo === 'grupo' ? ((data.grupo || '').trim() || null) : null;
+    toggleGrupoColumns(vistaModo === 'grupo');
     currentCodigoCliente = data.codigo_cliente != null ? data.codigo_cliente : null;
     allPartes = data.partes || [];
-    selectedPartNumbers.clear();
-    clienteHeader.textContent = (data.codigo_cliente || '') + ' ' + (data.cliente_nombre || '');
+    selectedRowKeys.clear();
+    if (vistaModo === 'grupo') {
+      var nCli = (data.codigos_cliente && data.codigos_cliente.length) || 0;
+      clienteHeader.textContent = 'Grupo: ' + (data.grupo || '') + ' — ' + nCli + ' cliente(s), ' + (data.total || 0) + ' fila(s) (cliente × parte)';
+    } else {
+      clienteHeader.textContent = (data.codigo_cliente || '') + ' ' + (data.cliente_nombre || '');
+    }
     document.getElementById('icr-completion-label').textContent = (data.completion_pct != null ? data.completion_pct + '%' : '100%');
     document.getElementById('icr-original-value').textContent = String(data.original_components != null ? data.original_components : 0);
     document.getElementById('icr-non-original-value').textContent = String(data.non_original_components != null ? data.non_original_components : 0);
@@ -447,6 +605,47 @@
       });
   });
 
+  if (btnBuscarGrupo) btnBuscarGrupo.addEventListener('click', function () {
+    var g = selectedGrupoNombre;
+    if (!g || !g.trim()) {
+      var raw = (inputGrupo && inputGrupo.value) ? inputGrupo.value.trim() : '';
+      if (!raw) {
+        setMsg('Seleccione un grupo de la lista o escriba el nombre exacto del grupo.', true);
+        return;
+      }
+      g = raw;
+    }
+    setMsg('Buscando...');
+    hideVistaCliente();
+    hideGrupoDropdown();
+    fetch('/api/analisis-icr/partes-grupo?grupo=' + encodeURIComponent(g.trim()), { method: 'GET', headers: { 'Accept': 'application/json' } })
+      .then(function (r) {
+        if (!r.ok) return r.json().then(function (d) { throw new Error(d.error || 'Error en la petición'); });
+        return r.json();
+      })
+      .then(function (data) {
+        setMsg('Grupo cargado: ' + (data.partes && data.partes.length) + ' fila(s) (cliente × parte).');
+        showVistaCliente(data);
+      })
+      .catch(function (err) {
+        setMsg(err.message || 'Error al consultar.', true);
+      });
+  });
+
+  if (inputGrupo) {
+    inputGrupo.addEventListener('focus', function () { scheduleGruposFetch(); });
+    inputGrupo.addEventListener('input', function () {
+      selectedGrupoNombre = null;
+      scheduleGruposFetch();
+    });
+    inputGrupo.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        btnBuscarGrupo.click();
+      }
+    });
+  }
+
   input.addEventListener('focus', function () {
     scheduleClientesFetch();
   });
@@ -463,6 +662,7 @@
 
   document.addEventListener('click', function (e) {
     if (dropdown && !dropdown.contains(e.target) && e.target !== input) hideClienteDropdown();
+    if (dropdownGrupo && inputGrupo && !dropdownGrupo.contains(e.target) && e.target !== inputGrupo) hideGrupoDropdown();
   });
 
   function appendIncluirDireccionClienteCertificado(params) {
@@ -471,10 +671,82 @@
     params.set('incluir_direccion_cliente', on ? 'true' : 'false');
   }
 
+  function incluirDireccionClienteBool() {
+    var sel = document.getElementById('icr-incluir-direccion-cliente');
+    return !!(sel && String(sel.value) === '1');
+  }
+
+  function groupedSelections() {
+    var m = {};
+    selectedRowKeys.forEach(function (key) {
+      if (vistaModo === 'grupo') {
+        var i = key.indexOf(ROW_SEP);
+        if (i < 0) return;
+        var cc = parseInt(key.slice(0, i), 10);
+        var pn = key.slice(i + ROW_SEP.length);
+        if (isNaN(cc) || !pn) return;
+        if (!m[cc]) m[cc] = [];
+        m[cc].push(pn);
+      } else {
+        if (currentCodigoCliente == null) return;
+        if (!m[currentCodigoCliente]) m[currentCodigoCliente] = [];
+        m[currentCodigoCliente].push(key);
+      }
+    });
+    return m;
+  }
+
+  function getBlanketDatesForBody() {
+    var fromEl = document.getElementById('icr-cert-blanket-from');
+    var toEl = document.getElementById('icr-cert-blanket-to');
+    var fromV = fromEl && fromEl.value ? String(fromEl.value).trim() : '';
+    var toV = toEl && toEl.value ? String(toEl.value).trim() : '';
+    if (!fromV || !toV) {
+      alert('Indique las fechas From y To del periodo del certificado.');
+      return null;
+    }
+    if (fromV > toV) {
+      alert('La fecha From no puede ser posterior a To.');
+      return null;
+    }
+    return { blanket_from: fromV, blanket_to: toV };
+  }
+
+  /** Modo grupo: ambas fechas, o ninguna (el servidor usa año calendario). */
+  function blanketForGrupoPost() {
+    var fromEl = document.getElementById('icr-cert-blanket-from');
+    var toEl = document.getElementById('icr-cert-blanket-to');
+    var fromV = fromEl && fromEl.value ? String(fromEl.value).trim() : '';
+    var toV = toEl && toEl.value ? String(toEl.value).trim() : '';
+    if (!fromV && !toV) return {};
+    if (!fromV || !toV) {
+      alert('Indique ambas fechas From y To, o déjelas vacías para usar el año calendario completo en el certificado.');
+      return null;
+    }
+    if (fromV > toV) {
+      alert('La fecha From no puede ser posterior a To.');
+      return null;
+    }
+    return { blanket_from: fromV, blanket_to: toV };
+  }
+
+  function buildGrupoItemsArray() {
+    var g = groupedSelections();
+    var items = [];
+    Object.keys(g).forEach(function (k) {
+      var cc = parseInt(k, 10);
+      if (isNaN(cc)) return;
+      g[k].forEach(function (pn) {
+        items.push({ codigo_cliente: cc, numero_parte: pn });
+      });
+    });
+    return items;
+  }
+
   document.getElementById('icr-seleccionar-todos').addEventListener('click', function () {
     tbody.querySelectorAll('.icr-select-checkbox').forEach(function (cb) {
-      var pn = cb.getAttribute('data-part-number') || '';
-      if (pn) selectedPartNumbers.add(pn);
+      var rk = cb.getAttribute('data-row-key') || '';
+      if (rk) selectedRowKeys.add(rk);
       cb.checked = true;
     });
   });
@@ -482,22 +754,82 @@
   document.getElementById('icr-buscar-otro').addEventListener('click', function () {
     hideVistaCliente();
     selectedCodigoCliente = null;
+    selectedGrupoNombre = null;
+    currentGrupoNombre = null;
+    vistaModo = 'cliente';
+    toggleGrupoColumns(false);
     input.value = '';
     input.placeholder = 'Escriba código o nombre del cliente...';
+    if (inputGrupo) inputGrupo.value = '';
     input.focus();
     hideClienteDropdown();
+    hideGrupoDropdown();
+    syncBusquedaPanels();
   });
 
   function descargarCertificadoPack() {
-    if (currentCodigoCliente == null) return;
-    var selected = Array.from(selectedPartNumbers);
-    if (selected.length === 0) {
-      alert('Seleccione al menos un número de parte en la columna Select para generar el certificado.');
+    if (vistaModo === 'cliente' && currentCodigoCliente == null) return;
+    if (vistaModo === 'grupo' && !currentGrupoNombre) {
+      alert('No se identificó el nombre del grupo. Vuelva a cargar la búsqueda por grupo.');
       return;
     }
+    if (selectedRowKeys.size === 0) {
+      alert('Seleccione al menos una fila en la columna Select para generar el certificado.');
+      return;
+    }
+    if (vistaModo === 'grupo') {
+      var bdPack = blanketForGrupoPost();
+      if (bdPack === null) return;
+      var itemsG = buildGrupoItemsArray();
+      if (itemsG.length === 0) {
+        alert('No hay selección válida.');
+        return;
+      }
+      showProcessingModal('Procesando Generar Certificado', 'Generando un solo ZIP (certificado unificado del grupo). Espere...');
+      fetch('/api/analisis-icr/certificado-grupo-co-pack', {
+        method: 'POST',
+        headers: { 'Accept': 'application/zip', 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.assign({
+          grupo: currentGrupoNombre,
+          items: itemsG,
+          incluir_direccion_cliente: incluirDireccionClienteBool(),
+        }, bdPack)),
+      })
+        .then(function (r) {
+          if (!r.ok) {
+            return r.json().then(function (d) { throw new Error(d.error || 'Error al generar el certificado'); });
+          }
+          var fn = icrFilenameFromDisposition(
+            r.headers.get('Content-Disposition'),
+            'certificado_grupo.zip'
+          );
+          return r.blob().then(function (blob) { return { blob: blob, fn: fn }; });
+        })
+        .then(function (o) {
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(o.blob);
+          a.download = o.fn;
+          a.click();
+          URL.revokeObjectURL(a.href);
+        })
+        .catch(function (err) {
+          alert(err.message || 'Error al generar el certificado');
+        })
+        .finally(function () {
+          hideProcessingModal();
+        });
+      return;
+    }
+    var g = groupedSelections();
+    var cks = Object.keys(g);
+    if (cks.length === 0) {
+      alert('No hay selección válida.');
+      return;
+    }
+    var cc0 = parseInt(cks[0], 10);
     var params = new URLSearchParams();
-    params.set('codigo_cliente', String(currentCodigoCliente));
-    selected.forEach(function (np) { params.append('numero_parte', np); });
+    params.set('codigo_cliente', String(cc0));
+    g[cks[0]].forEach(function (np) { params.append('numero_parte', np); });
     if (!appendCertificadoBlanketQueryParams(params)) return;
     appendIncluirDireccionClienteCertificado(params);
     var url = '/api/analisis-icr/certificado-pack?' + params.toString();
@@ -509,7 +841,7 @@
         }
         var fn = icrFilenameFromDisposition(
           r.headers.get('Content-Disposition'),
-          'certificado_pack_' + currentCodigoCliente + '.zip'
+          'certificado_pack_' + cc0 + '.zip'
         );
         return r.blob().then(function (blob) { return { blob: blob, fn: fn }; });
       })
@@ -529,36 +861,92 @@
   }
 
   function descargarCertificado(formato) {
-    if (currentCodigoCliente == null) return;
-    var selected = Array.from(selectedPartNumbers);
-    if (selected.length === 0) {
-      alert('Seleccione al menos un número de parte en la columna Select para generar el certificado.');
+    if (vistaModo === 'cliente' && currentCodigoCliente == null) return;
+    if (vistaModo === 'grupo' && !currentGrupoNombre) {
+      alert('No se identificó el nombre del grupo. Vuelva a cargar la búsqueda por grupo.');
       return;
     }
-    var params = new URLSearchParams();
-    params.set('codigo_cliente', String(currentCodigoCliente));
-    selected.forEach(function (np) { params.append('numero_parte', np); });
-    if (!appendCertificadoBlanketQueryParams(params)) return;
-    appendIncluirDireccionClienteCertificado(params);
+    if (selectedRowKeys.size === 0) {
+      alert('Seleccione al menos una fila en la columna Select para generar el certificado.');
+      return;
+    }
     var isPdf = formato === 'pdf';
-    var url = isPdf ? '/api/analisis-icr/certificado-pdf?' + params.toString() : '/api/analisis-icr/certificado-excel?' + params.toString();
     var accept = isPdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     var ext = isPdf ? 'pdf' : 'xlsx';
-    showProcessingModal(
-      formato === 'pdf' ? 'Procesando Solo PDF' : 'Procesando Solo Excel',
-      formato === 'pdf' ? 'Generando certificado en PDF. Espere un momento...' : 'Generando certificado en Excel. Espere un momento...'
-    );
-    fetch(url, { method: 'GET', headers: { 'Accept': accept } })
-      .then(function (r) {
+
+    if (vistaModo === 'grupo') {
+      var bdG = blanketForGrupoPost();
+      if (bdG === null) return;
+      var itemsG2 = buildGrupoItemsArray();
+      if (itemsG2.length === 0) return;
+      var urlG = isPdf ? '/api/analisis-icr/certificado-grupo-co-pdf' : '/api/analisis-icr/certificado-grupo-co-excel';
+      showProcessingModal(
+        formato === 'pdf' ? 'Procesando Solo PDF' : 'Procesando Solo Excel',
+        'Generando certificado unificado del grupo...'
+      );
+      fetch(urlG, {
+        method: 'POST',
+        headers: { 'Accept': accept, 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.assign({
+          grupo: currentGrupoNombre,
+          items: itemsG2,
+          incluir_direccion_cliente: incluirDireccionClienteBool(),
+        }, bdG)),
+      })
+        .then(function (r) {
+          if (!r.ok) {
+            return r.json().then(function (d) { throw new Error(d.error || 'Error al generar el certificado'); });
+          }
+          var fn = icrFilenameFromDisposition(
+            r.headers.get('Content-Disposition'),
+            'certificado_grupo_co.' + ext
+          );
+          return r.blob().then(function (blob) { return { blob: blob, fn: fn }; });
+        })
+        .then(function (o) {
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(o.blob);
+          a.download = o.fn;
+          a.click();
+          URL.revokeObjectURL(a.href);
+        })
+        .catch(function (err) {
+          alert(err.message || 'Error al generar el certificado');
+        })
+        .finally(function () {
+          hideProcessingModal();
+        });
+      return;
+    }
+
+    var g = groupedSelections();
+    var cks = Object.keys(g);
+    if (cks.length === 0) return;
+
+    function fetchOneCliente(cc, partes) {
+      var params = new URLSearchParams();
+      params.set('codigo_cliente', String(cc));
+      partes.forEach(function (np) { params.append('numero_parte', np); });
+      if (!appendCertificadoBlanketQueryParams(params)) return Promise.reject(new Error('blanket'));
+      appendIncluirDireccionClienteCertificado(params);
+      var url = isPdf ? '/api/analisis-icr/certificado-pdf?' + params.toString() : '/api/analisis-icr/certificado-excel?' + params.toString();
+      return fetch(url, { method: 'GET', headers: { 'Accept': accept } }).then(function (r) {
         if (!r.ok) {
           return r.json().then(function (d) { throw new Error(d.error || 'Error al generar el certificado'); });
         }
         var fn = icrFilenameFromDisposition(
           r.headers.get('Content-Disposition'),
-          'certificado_co_' + currentCodigoCliente + '.' + ext
+          'certificado_co_' + cc + '.' + ext
         );
         return r.blob().then(function (blob) { return { blob: blob, fn: fn }; });
-      })
+      });
+    }
+
+    showProcessingModal(
+      formato === 'pdf' ? 'Procesando Solo PDF' : 'Procesando Solo Excel',
+      formato === 'pdf' ? 'Generando certificado en PDF. Espere un momento...' : 'Generando certificado en Excel. Espere un momento...'
+    );
+    fetchOneCliente(parseInt(cks[0], 10), g[cks[0]])
       .then(function (o) {
         var a = document.createElement('a');
         a.href = URL.createObjectURL(o.blob);
@@ -567,7 +955,7 @@
         URL.revokeObjectURL(a.href);
       })
       .catch(function (err) {
-        alert(err.message || 'Error al generar el certificado');
+        if (err && err.message !== 'blanket') alert(err.message || 'Error al generar el certificado');
       })
       .finally(function () {
         hideProcessingModal();
@@ -575,18 +963,67 @@
   }
 
   function descargarNoCalificados(formato) {
-    if (currentCodigoCliente == null) return;
-    var selected = Array.from(selectedPartNumbers);
-    if (selected.length === 0) {
-      alert('Seleccione al menos un número de parte en la columna Select para generar el documento.');
+    if (vistaModo === 'cliente' && currentCodigoCliente == null) return;
+    if (vistaModo === 'grupo' && !currentGrupoNombre) {
+      alert('No se identificó el nombre del grupo. Vuelva a cargar la búsqueda por grupo.');
       return;
     }
-    var params = new URLSearchParams();
-    params.set('codigo_cliente', String(currentCodigoCliente));
-    selected.forEach(function (np) { params.append('numero_parte', np); });
-    var url = '/api/analisis-icr/no-calificados-' + (formato === 'pdf' ? 'pdf' : 'docx') + '?' + params.toString();
+    if (selectedRowKeys.size === 0) {
+      alert('Seleccione al menos una fila en la columna Select para generar el documento.');
+      return;
+    }
     var accept = formato === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
     var ext = formato === 'pdf' ? 'pdf' : 'docx';
+
+    if (vistaModo === 'grupo') {
+      var itemsNc = buildGrupoItemsArray();
+      if (itemsNc.length === 0) return;
+      var urlNc = formato === 'pdf'
+        ? '/api/analisis-icr/certificado-grupo-no-calificados-pdf'
+        : '/api/analisis-icr/certificado-grupo-no-calificados-docx';
+      showProcessingModal(
+        formato === 'pdf' ? 'Procesando Affidavit PDF' : 'Procesando Affidavit Word',
+        'Generando declaración jurada unificada del grupo...'
+      );
+      fetch(urlNc, {
+        method: 'POST',
+        headers: { 'Accept': accept, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ grupo: currentGrupoNombre, items: itemsNc }),
+      })
+        .then(function (r) {
+          if (!r.ok) {
+            return r.json().then(function (d) { throw new Error(d.error || 'Error al generar el documento'); });
+          }
+          var fn = icrFilenameFromDisposition(
+            r.headers.get('Content-Disposition'),
+            'no_calificados_grupo.' + ext
+          );
+          return r.blob().then(function (blob) { return { blob: blob, fn: fn }; });
+        })
+        .then(function (o) {
+          var a = document.createElement('a');
+          a.href = URL.createObjectURL(o.blob);
+          a.download = o.fn;
+          a.click();
+          URL.revokeObjectURL(a.href);
+        })
+        .catch(function (err) {
+          alert(err.message || 'Error al generar el documento');
+        })
+        .finally(function () {
+          hideProcessingModal();
+        });
+      return;
+    }
+
+    var g = groupedSelections();
+    var cks = Object.keys(g);
+    if (cks.length === 0) return;
+    var cc = parseInt(cks[0], 10);
+    var params = new URLSearchParams();
+    params.set('codigo_cliente', String(cc));
+    g[cks[0]].forEach(function (np) { params.append('numero_parte', np); });
+    var url = '/api/analisis-icr/no-calificados-' + (formato === 'pdf' ? 'pdf' : 'docx') + '?' + params.toString();
     showProcessingModal(
       formato === 'pdf' ? 'Procesando Affidavit PDF' : 'Procesando Affidavit Word',
       'Generando declaración jurada. Espere un momento...'
@@ -598,7 +1035,7 @@
         }
         var fn = icrFilenameFromDisposition(
           r.headers.get('Content-Disposition'),
-          'no_calificados_' + currentCodigoCliente + '.' + ext
+          'no_calificados_' + cc + '.' + ext
         );
         return r.blob().then(function (blob) { return { blob: blob, fn: fn }; });
       })
@@ -658,9 +1095,19 @@
       });
   });
 
-  // Si la URL trae codigo_cliente, cargar ese cliente al entrar (ej. volver desde página de material)
+  // URL: ?codigo_cliente= o ?grupo= (nombre exacto del grupo)
   (function () {
     var params = new URLSearchParams(window.location.search);
+    var grupo = params.get('grupo');
+    if (grupo && grupo.trim()) {
+      var rGrupo = document.querySelector('input[name="icr-modo-busqueda"][value="grupo"]');
+      if (rGrupo) rGrupo.checked = true;
+      syncBusquedaPanels();
+      selectedGrupoNombre = grupo.trim();
+      if (inputGrupo) inputGrupo.value = grupo.trim();
+      if (btnBuscarGrupo) btnBuscarGrupo.click();
+      return;
+    }
     var codigo = params.get('codigo_cliente');
     if (codigo && codigo.trim()) {
       var num = parseInt(codigo.trim(), 10);
