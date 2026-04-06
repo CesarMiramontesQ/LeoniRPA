@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List, Dict, Any, Set, Tuple, FrozenSet
-from datetime import datetime, timedelta, timezone, date
+from datetime import datetime, timedelta, timezone, date, time
 from decimal import Decimal, InvalidOperation
 from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaProveedoresNacional, CargaProveedoresNacionalHistorial, CargaCliente, MasterUnificadoVirtuales, MasterUnificadoVirtualHistorial, MasterUnificadoVirtualOperacion, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente, Parte, TradingGood, TradingGoodHistorial, Bom, BomRevision, BomItem, BomHistorial, PesoNeto, PesoNetoHistorial, CrossReference, CrossReferenceHistorial, PrecioVenta, PrecioVentaHistorial, FraccionArancelariaHistorial
 from app.core.security import hash_password
@@ -946,6 +946,130 @@ async def recalcular_qty_total_partes(db: AsyncSession) -> Dict[str, int]:
     return {
         "qty_total_actualizado_con_bom": int(update_with_bom.rowcount or 0),
         "qty_total_en_cero_sin_bom": int(update_without_bom.rowcount or 0),
+    }
+
+
+async def encontrar_y_agregar_nuevos_np_desde_compras(
+    db: AsyncSession,
+    dias: int = 30,
+) -> Dict[str, Any]:
+    """
+    Números de material distintos en compras entre (hoy - dias) y hoy.
+    Inserta en `partes` los que no existan aún (descripción desde compras si hay).
+    Los ya presentes en `partes` se clasifican: con al menos un BOM vs sin BOM.
+    """
+    hoy = date.today()
+    desde_dt = datetime.combine(hoy - timedelta(days=dias), time.min, tzinfo=timezone.utc)
+    hasta_dt = datetime.combine(hoy, time.max, tzinfo=timezone.utc)
+
+    stmt = (
+        select(
+            func.trim(Compra.numero_material).label("nm"),
+            func.max(Compra.descripcion_material).label("desc"),
+        )
+        .where(
+            Compra.posting_date.isnot(None),
+            Compra.posting_date >= desde_dt,
+            Compra.posting_date <= hasta_dt,
+            Compra.numero_material.isnot(None),
+            func.trim(Compra.numero_material) != "",
+        )
+        .group_by(func.trim(Compra.numero_material))
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    nm_to_desc: Dict[str, Optional[str]] = {}
+    for row in rows:
+        nm = (row.nm or "").strip()
+        if not nm:
+            continue
+        raw_desc = row.desc
+        if raw_desc is not None:
+            s = str(raw_desc).strip()
+            nm_to_desc[nm] = s if s else None
+        else:
+            nm_to_desc[nm] = None
+
+    nms = list(nm_to_desc.keys())
+    materiales_distintos = len(nms)
+
+    if not nms:
+        return {
+            "ok": True,
+            "dias": dias,
+            "desde": desde_dt.isoformat(),
+            "hasta": hasta_dt.isoformat(),
+            "materiales_distintos_en_compras": 0,
+            "nuevos_insertados": 0,
+            "insertados_muestra": [],
+            "ya_en_partes_con_bom": 0,
+            "ya_en_partes_sin_bom": 0,
+        }
+
+    r_partes = await db.execute(select(Parte).where(Parte.numero_parte.in_(nms)))
+    partes_map = {p.numero_parte: p for p in r_partes.scalars().all()}
+
+    parte_ids = [p.id for p in partes_map.values()]
+    bom_counts: Dict[int, int] = {}
+    if parte_ids:
+        r_bom = await db.execute(
+            select(Bom.parte_id, func.count(Bom.id))
+            .where(Bom.parte_id.in_(parte_ids))
+            .group_by(Bom.parte_id)
+        )
+        bom_counts = {int(pid): int(c or 0) for pid, c in r_bom.all()}
+
+    insertados: List[str] = []
+    ya_en_partes_con_bom = 0
+    ya_en_partes_sin_bom = 0
+
+    try:
+        for nm in nms:
+            p = partes_map.get(nm)
+            if p:
+                if bom_counts.get(p.id, 0) > 0:
+                    ya_en_partes_con_bom += 1
+                else:
+                    ya_en_partes_sin_bom += 1
+                continue
+            desc = nm_to_desc.get(nm)
+            db.add(
+                Parte(
+                    numero_parte=nm,
+                    descripcion=desc,
+                    valido=True,
+                    qty_total=Decimal("0"),
+                )
+            )
+            insertados.append(nm)
+
+        await db.commit()
+    except IntegrityError as e:
+        await db.rollback()
+        return {
+            "ok": False,
+            "error": str(e),
+            "dias": dias,
+            "desde": desde_dt.isoformat(),
+            "hasta": hasta_dt.isoformat(),
+            "materiales_distintos_en_compras": materiales_distintos,
+            "nuevos_insertados": 0,
+            "insertados_muestra": [],
+            "ya_en_partes_con_bom": 0,
+            "ya_en_partes_sin_bom": 0,
+        }
+
+    return {
+        "ok": True,
+        "dias": dias,
+        "desde": desde_dt.isoformat(),
+        "hasta": hasta_dt.isoformat(),
+        "materiales_distintos_en_compras": materiales_distintos,
+        "nuevos_insertados": len(insertados),
+        "insertados_muestra": insertados[:200],
+        "ya_en_partes_con_bom": ya_en_partes_con_bom,
+        "ya_en_partes_sin_bom": ya_en_partes_sin_bom,
     }
 
 
@@ -7041,6 +7165,26 @@ async def obtener_fecha_ultimo_cambio_estatus_proveedor(db: AsyncSession, codigo
     return None
 
 
+async def _sync_carga_proveedores_id_sequence(db: AsyncSession) -> None:
+    """Alinea la secuencia de PK con MAX(id). Evita UniqueViolationError si la secuencia quedó atrás (importes, etc.)."""
+    await db.execute(
+        text(
+            "SELECT setval(pg_get_serial_sequence('carga_proveedores', 'id'), "
+            "COALESCE((SELECT MAX(id) FROM carga_proveedores), 0) + 1, false)"
+        )
+    )
+
+
+async def _sync_carga_proveedores_nacional_id_sequence(db: AsyncSession) -> None:
+    """Igual que _sync_carga_proveedores_id_sequence para carga_proveedores_nacional."""
+    await db.execute(
+        text(
+            "SELECT setval(pg_get_serial_sequence('carga_proveedores_nacional', 'id'), "
+            "COALESCE((SELECT MAX(id) FROM carga_proveedores_nacional), 0) + 1, false)"
+        )
+    )
+
+
 async def actualizar_estatus_carga_proveedores_por_compras(
     db: AsyncSession
 ) -> Dict[str, Any]:
@@ -7263,6 +7407,7 @@ async def actualizar_estatus_carga_proveedores_por_compras(
         
         # 6. Agregar proveedores nuevos (están en compras recientes pero no en carga_proveedores)
         # Solo proveedores extranjeros
+        await _sync_carga_proveedores_id_sequence(db)
         proveedores_nuevos_codigos = proveedores_con_compras_recientes - codigos_en_carga
         
         for codigo_proveedor in proveedores_nuevos_codigos:
@@ -7338,6 +7483,18 @@ async def actualizar_estatus_carga_proveedores_por_compras(
                 )
                 db.add(historial)
                 proveedores_nuevos += 1
+            except IntegrityError as e:
+                await db.rollback()
+                return {
+                    "exitoso": False,
+                    "error": str(e),
+                    "proveedores_marcados_baja": proveedores_marcados_baja,
+                    "proveedores_sin_modificacion": proveedores_sin_modificacion,
+                    "proveedores_nuevos": proveedores_nuevos,
+                    "proveedores_omitidos_mx": proveedores_omitidos_mx,
+                    "proveedores_eliminados": proveedores_eliminados,
+                    "proveedores_sin_cambios": proveedores_sin_cambios,
+                }
             except Exception as e:
                 errores.append(f"Error creando proveedor nuevo {codigo_proveedor}: {str(e)}")
         
@@ -7535,6 +7692,7 @@ async def actualizar_estatus_carga_proveedores_nacional_por_compras(db: AsyncSes
                 errores.append(f"Error eliminando proveedor nacional {getattr(carga_prov, 'codigo_proveedor', '?')}: {str(e)}")
 
         # Nuevos: en compras recientes MX y no en carga_proveedores_nacional
+        await _sync_carga_proveedores_nacional_id_sequence(db)
         proveedores_nuevos_codigos = proveedores_con_compras_recientes - codigos_en_carga
         for codigo_proveedor in proveedores_nuevos_codigos:
             try:
@@ -7574,6 +7732,17 @@ async def actualizar_estatus_carga_proveedores_nacional_por_compras(db: AsyncSes
                     motivo="Proveedor nuevo (MX) con compras en los últimos 6 meses"
                 ))
                 proveedores_nuevos += 1
+            except IntegrityError as e:
+                await db.rollback()
+                return {
+                    "exitoso": False,
+                    "error": str(e),
+                    "proveedores_marcados_baja": proveedores_marcados_baja,
+                    "proveedores_sin_modificacion": proveedores_sin_modificacion,
+                    "proveedores_nuevos": proveedores_nuevos,
+                    "proveedores_eliminados": proveedores_eliminados,
+                    "proveedores_sin_cambios": proveedores_sin_cambios,
+                }
             except Exception as e:
                 errores.append(f"Error creando proveedor nacional {codigo_proveedor}: {str(e)}")
 

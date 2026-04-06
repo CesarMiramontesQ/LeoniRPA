@@ -18,6 +18,9 @@
       <button type="button" id="btn-descargar-diferencia-gt0" class="shrink-0 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:opacity-50">
         Descargar reporte &gt;0
       </button>
+      <button type="button" id="btn-encontrar-nuevo-np" class="shrink-0 rounded-md border border-slate-600 bg-white px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-600 disabled:opacity-50" title="Compras últimos 30 días: altas en catálogo si el material no existe en partes">
+        Encontrar nuevo NP
+      </button>
       <button type="button" id="btn-parar-boms" class="hidden shrink-0 rounded-md border border-red-600 bg-white px-4 py-2 text-sm font-semibold text-red-600 shadow-sm hover:bg-red-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600">
         Parar
       </button>
@@ -757,6 +760,43 @@
   document.getElementById('btn-descargar-diferencia-gt0').addEventListener('click', function() {
     window.location.href = '/api/actualizar-boms/descargar-diferencia-gt0';
   });
+
+  const btnEncontrarNuevoNp = document.getElementById('btn-encontrar-nuevo-np');
+  if (btnEncontrarNuevoNp) {
+    btnEncontrarNuevoNp.addEventListener('click', async function() {
+      btnEncontrarNuevoNp.disabled = true;
+      estado.classList.remove('hidden');
+      estado.classList.remove('bg-red-50', 'bg-emerald-50');
+      estado.classList.add('bg-blue-50');
+      estadoTexto.textContent = 'Buscando materiales en compras (últimos 30 días hasta hoy)...';
+      progresoDiv.classList.add('hidden');
+      resultado.classList.add('hidden');
+      try {
+        const res = await fetch('/api/actualizar-boms/encontrar-nuevo-np', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}'
+        });
+        const data = await res.json().catch(function() { return {}; });
+        if (!res.ok || !data.ok) {
+          estado.classList.remove('bg-blue-50');
+          estado.classList.add('bg-red-50');
+          estadoTexto.textContent = data.mensaje || (data.data && data.data.error) || 'Error al buscar nuevos NP.';
+          return;
+        }
+        estado.classList.remove('bg-blue-50');
+        estado.classList.add('bg-emerald-50');
+        estadoTexto.textContent = data.mensaje || 'Listo.';
+      } catch (e) {
+        estado.classList.remove('bg-blue-50');
+        estado.classList.add('bg-red-50');
+        estadoTexto.textContent = 'Error: ' + (e.message || e);
+      } finally {
+        btnEncontrarNuevoNp.disabled = false;
+      }
+    });
+  }
 
   btnParar.addEventListener('click', function() {
     if (abortController) abortController.abort();

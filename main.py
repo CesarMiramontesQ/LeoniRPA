@@ -4008,6 +4008,36 @@ async def api_recalcular_diferencia_partes(
     }
 
 
+@app.post("/api/actualizar-boms/encontrar-nuevo-np")
+async def api_encontrar_nuevo_np_desde_compras(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Busca números de material en compras (últimos 30 días hasta hoy) y da de alta en `partes`
+    los que aún no existan, para poder cargar BOM desde SAP.
+    """
+    res = await crud.encontrar_y_agregar_nuevos_np_desde_compras(db, dias=30)
+    if not res.get("ok"):
+        return JSONResponse(
+            status_code=500,
+            content={
+                "ok": False,
+                "mensaje": res.get("error") or "No se pudieron registrar las partes nuevas.",
+                "data": res,
+            },
+        )
+    return {
+        "ok": True,
+        "mensaje": (
+            f"Materiales distintos en compras (ventana): {res['materiales_distintos_en_compras']}. "
+            f"Nuevos insertados en catálogo: {res['nuevos_insertados']}. "
+            f"Ya en catálogo con BOM: {res['ya_en_partes_con_bom']}; sin BOM: {res['ya_en_partes_sin_bom']}."
+        ),
+        "data": res,
+    }
+
+
 @app.post("/api/actualizar-boms/load-bom", response_model=LoadBomResponse)
 async def api_load_bom(
     payload: LoadBomInput,
