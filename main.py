@@ -2001,6 +2001,7 @@ def _render_no_calificados_docx(context: dict) -> bytes:
     from docx import Document
     from docx.shared import Pt
     from docx.enum.table import WD_TABLE_ALIGNMENT
+    from copy import deepcopy
 
     if not _CERT_PLANTILLA_NO_CALIFICADOS_DOCX.exists():
         raise FileNotFoundError(
@@ -2031,8 +2032,32 @@ def _render_no_calificados_docx(context: dict) -> bytes:
     # Tabla: fila 2 = encabezado, filas 3+ = datos. Columnas: Leoni Part Number, Leoni Part Name, Customer Part Number (cross reference), Description, HTS, Comments
     num_cols = 6
     data_start_row = 3
-    header_row = tbl0.rows[2]
-    num_data_rows_template = max(0, len(tbl0.rows) - data_start_row)
+    rows_needed = len(partes)
+    current_data_rows = max(0, len(tbl0.rows) - data_start_row)
+
+    def _clear_row_cells(row_obj) -> None:
+        for cell in row_obj.cells[:num_cols]:
+            cell.text = ""
+
+    def _append_cloned_template_row() -> None:
+        """
+        Agrega una nueva fila dentro de la tabla clonando la última fila de datos existente
+        para conservar estructura, bordes, alineación y estilo del template.
+        """
+        ref_idx = max(data_start_row, len(tbl0.rows) - 1)
+        ref_row = tbl0.rows[ref_idx]
+        new_tr = deepcopy(ref_row._tr)
+        tbl0._tbl.append(new_tr)
+        _clear_row_cells(tbl0.rows[-1])
+
+    if rows_needed > current_data_rows:
+        for _ in range(rows_needed - current_data_rows):
+            _append_cloned_template_row()
+
+    # Limpiar primero todas las filas de datos ya existentes para evitar arrastre de texto plantilla.
+    for row_idx in range(data_start_row, len(tbl0.rows)):
+        _clear_row_cells(tbl0.rows[row_idx])
+
     for i, p in enumerate(partes):
         row_idx = data_start_row + i
         part_number_full = (p.get("part_number") or "").strip()
@@ -2058,19 +2083,14 @@ def _render_no_calificados_docx(context: dict) -> bytes:
                     coment = f"Cliente {p.get('codigo_cliente')} — Not USMCA Complaint"
                 cells[5].text = coment
         else:
-            new_row = tbl0.add_row()
+            # Salvaguarda: no debería ocurrir porque arriba se pre-crean filas suficientes.
             coment = "Not USMCA Complaint"
             if context.get("certificado_grupo_unificado") and p.get("codigo_cliente") is not None:
                 coment = f"Cliente {p.get('codigo_cliente')} — Not USMCA Complaint"
             vals = [part_number, descripcion, customer_part, "Electrical Cable", tariff, coment]
-            for c in range(min(num_cols, len(new_row.cells))):
-                new_row.cells[c].text = vals[c]
-
-    # Vaciar filas de datos sobrantes si hay menos partes que filas plantilla
-    for row_idx in range(data_start_row + len(partes), len(tbl0.rows)):
-        row = tbl0.rows[row_idx]
-        for cell in row.cells[:num_cols]:
-            cell.text = ""
+            _append_cloned_template_row()
+            for c in range(min(num_cols, len(tbl0.rows[-1].cells))):
+                tbl0.rows[-1].cells[c].text = vals[c]
 
     _patch_no_calificados_docx_fechas(doc, blanket_year, date_completed_en)
 
