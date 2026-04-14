@@ -1184,6 +1184,82 @@ async def _icr_expand_partes_certificado_co3(
     return out
 
 
+async def _icr_expand_partes_por_numero_completo_grupo(
+    db: AsyncSession,
+    partes_base: List[dict],
+) -> List[dict]:
+    """
+    Expansión para selección multi-cliente: una fila por número completo y cross reference por (cliente, número completo).
+    """
+    if not partes_base:
+        return []
+
+    bases_por_cliente: Dict[int, set] = {}
+    for p in partes_base:
+        cc = p.get("codigo_cliente")
+        if cc is None:
+            continue
+        try:
+            cc_int = int(cc)
+        except (TypeError, ValueError):
+            continue
+        base = (p.get("part_number") or "").strip()
+        if not base:
+            continue
+        bases_por_cliente.setdefault(cc_int, set()).add(base)
+
+    full_map_por_cliente: Dict[int, Dict[str, List[str]]] = {}
+    for cc_int, bases in bases_por_cliente.items():
+        full_map_por_cliente[cc_int] = await _icr_map_numeros_parte_completos_por_base(
+            db,
+            cc_int,
+            sorted(bases),
+        )
+
+    pares_xref: List[Tuple[str, str]] = []
+    seen_pairs_xref = set()
+    for cc_int, mp in full_map_por_cliente.items():
+        for nums in mp.values():
+            for full in nums or []:
+                s = str(full or "").strip()
+                if not s:
+                    continue
+                key = (str(cc_int), s)
+                if key in seen_pairs_xref:
+                    continue
+                seen_pairs_xref.add(key)
+                pares_xref.append(key)
+    xref_map = await crud.map_cross_reference_por_pares_customer_material(db, pares_xref)
+
+    out: List[dict] = []
+    seen_rows = set()
+    for p in partes_base:
+        cc = p.get("codigo_cliente")
+        try:
+            cc_int = int(cc)
+        except (TypeError, ValueError):
+            continue
+        base = (p.get("part_number") or "").strip()
+        if not base:
+            continue
+        nums = (full_map_por_cliente.get(cc_int) or {}).get(base) or [base]
+        for n in nums:
+            full = str(n or "").strip()
+            if not full:
+                continue
+            row_key = (cc_int, base, full)
+            if row_key in seen_rows:
+                continue
+            seen_rows.add(row_key)
+            row = dict(p)
+            row["part_number_base"] = base
+            row["part_number"] = full
+            row["part_number_leoni"] = full[:9] if full else ""
+            row["customer_part_number"] = (xref_map.get((str(cc_int), full)) or full).strip()
+            out.append(row)
+    return out
+
+
 def _tariff_fraccion_certificado_primeros_6_digitos(value: Optional[str]) -> str:
     """Para certificados C.O. y no calificados: solo los primeros 6 dígitos de la fracción (ignora puntos, espacios, etc.)."""
     if value is None:
@@ -1959,12 +2035,13 @@ def _render_no_calificados_docx(context: dict) -> bytes:
     num_data_rows_template = max(0, len(tbl0.rows) - data_start_row)
     for i, p in enumerate(partes):
         row_idx = data_start_row + i
-        part_number = (p.get("part_number") or "").strip()
+        part_number_full = (p.get("part_number") or "").strip()
+        part_number = (p.get("part_number_leoni") or part_number_full[:9] or part_number_full).strip()
         descripcion = (p.get("description") or "").strip() or "Electrical Cable"
         if len(descripcion) > 120:
             descripcion = descripcion[:120].strip()
         # Customer Part Number: viene del cross reference (customer_part_number); si no hay, se usa part_number
-        customer_part = (p.get("customer_part_number") or part_number or "").strip()
+        customer_part = (p.get("customer_part_number") or part_number_full or part_number or "").strip()
         tariff_raw = (p.get("tariff_schedule") or "").strip()
         tariff = _tariff_fraccion_certificado_primeros_6_digitos(tariff_raw) or _tariff_fraccion_certificado_primeros_6_digitos("8544.49") or "854449"
         if row_idx < len(tbl0.rows):
@@ -2303,6 +2380,7 @@ async def _icr_certificado_pack_zip_bytes_grupo_unificado(
             pdf_bytes = await asyncio.to_thread(_render_certificado_co_pdf, cert_context)
             zf.writestr(f"{stem}.pdf", pdf_bytes)
         if partes_nc:
+            partes_nc = await _icr_expand_partes_por_numero_completo_grupo(db, partes_nc)
             no_cert_context = {
                 "codigo_cliente": "Grupo",
                 "cliente_nombre": f"Grupo: {(grupo or '').strip() or '—'}",
@@ -2824,10 +2902,17 @@ async def _icr_certificado_pack_zip_bytes_for_cliente(
 
         if partes_no_calificados:
             part_numbers = [(p.get("part_number") or "").strip() for p in partes_no_calificados]
-            cross_ref = await crud.get_cross_reference_por_cliente_materiales(db, str(codigo_cliente), part_numbers)
-            for p in partes_no_calificados:
-                np = (p.get("part_number") or "").strip()
-                p["customer_part_number"] = (cross_ref.get(np) or np or "").strip()
+            full_numbers_by_base = await _icr_map_numeros_parte_completos_por_base(
+                db,
+                int(codigo_cliente),
+                part_numbers,
+            )
+            partes_no_calificados = await _icr_expand_partes_certificado_co3(
+                db,
+                int(codigo_cliente),
+                partes_no_calificados,
+                full_numbers_by_base,
+            )
             no_cert_context = {
                 "codigo_cliente": codigo_cliente,
                 "cliente_nombre": detalle.get("cliente_nombre") or str(codigo_cliente),
@@ -3047,6 +3132,7 @@ async def api_analisis_icr_certificado_grupo_no_calificados_docx(
             {"error": "No hay componentes con ICR < 60% en la selección del grupo."},
             status_code=400,
         )
+    partes_nc = await _icr_expand_partes_por_numero_completo_grupo(db, partes_nc)
     ahora = datetime.now()
     ctx = {
         "codigo_cliente": "Grupo",
@@ -3087,6 +3173,7 @@ async def api_analisis_icr_certificado_grupo_no_calificados_pdf(
             {"error": "No hay componentes con ICR < 60% en la selección del grupo."},
             status_code=400,
         )
+    partes_nc = await _icr_expand_partes_por_numero_completo_grupo(db, partes_nc)
     ahora = datetime.now()
     ctx = {
         "codigo_cliente": "Grupo",
@@ -3232,11 +3319,17 @@ async def api_analisis_icr_no_calificados_docx(
             status_code=400,
         )
     part_numbers = [(p.get("part_number") or "").strip() for p in partes_no_calificados]
-    # Customer Part Number en la plantilla Word: se obtiene del cross reference (customer_material por material/cliente)
-    cross_ref = await crud.get_cross_reference_por_cliente_materiales(db, str(codigo_cliente), part_numbers)
-    for p in partes_no_calificados:
-        np = (p.get("part_number") or "").strip()
-        p["customer_part_number"] = (cross_ref.get(np) or np or "").strip()
+    full_numbers_by_base = await _icr_map_numeros_parte_completos_por_base(
+        db,
+        int(codigo_cliente),
+        part_numbers,
+    )
+    partes_no_calificados = await _icr_expand_partes_certificado_co3(
+        db,
+        int(codigo_cliente),
+        partes_no_calificados,
+        full_numbers_by_base,
+    )
     ahora = datetime.now()
     context = {
         "codigo_cliente": codigo_cliente,
@@ -3296,11 +3389,17 @@ async def api_analisis_icr_no_calificados_pdf(
             status_code=400,
         )
     part_numbers = [(p.get("part_number") or "").strip() for p in partes_no_calificados]
-    # Customer Part Number en la plantilla Word: se obtiene del cross reference (customer_material por material/cliente)
-    cross_ref = await crud.get_cross_reference_por_cliente_materiales(db, str(codigo_cliente), part_numbers)
-    for p in partes_no_calificados:
-        np = (p.get("part_number") or "").strip()
-        p["customer_part_number"] = (cross_ref.get(np) or np or "").strip()
+    full_numbers_by_base = await _icr_map_numeros_parte_completos_por_base(
+        db,
+        int(codigo_cliente),
+        part_numbers,
+    )
+    partes_no_calificados = await _icr_expand_partes_certificado_co3(
+        db,
+        int(codigo_cliente),
+        partes_no_calificados,
+        full_numbers_by_base,
+    )
     ahora = datetime.now()
     context = {
         "codigo_cliente": codigo_cliente,
