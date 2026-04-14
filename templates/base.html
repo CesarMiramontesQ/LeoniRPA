@@ -176,7 +176,7 @@
                                 Grupos de Clientes
                               </a>
                             </li>
-                            {% if current_user and current_user.rol == 'admin' %}
+                            {% if current_user and current_user.rol in ['admin', 'operador'] %}
                             <li>
                               <a
                                 href="/trading-goods"
@@ -612,7 +612,7 @@ class="size-6 shrink-0 {% if active_page in ['carga_proveedor', 'carga_cliente',
                           Grupos de Clientes
                         </a>
                       </li>
-                      {% if current_user and current_user.rol == 'admin' %}
+                      {% if current_user and current_user.rol in ['admin', 'operador'] %}
                       <li>
                         <a
                           href="/trading-goods"

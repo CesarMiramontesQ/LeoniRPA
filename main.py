@@ -675,10 +675,10 @@ async def ventas_registros(request: Request, current_user: User = Depends(get_cu
 @app.get("/trading-goods")
 async def trading_goods(
     request: Request,
-    current_user: User = Depends(require_roles(["admin"])),
+    current_user: User = Depends(require_roles(["admin", "operador"])),
     db: AsyncSession = Depends(get_db),
 ):
-    """Vista Trading goods (solo administradores). Lista numero_parte, is_trading_good e historial de cambios."""
+    """Vista Trading goods para administradores y operadores. Lista numero_parte, is_trading_good e historial de cambios."""
     items = await crud.list_trading_goods(db)
     historial = await crud.list_trading_goods_historial(db, limit=200)
     return templates.TemplateResponse(
