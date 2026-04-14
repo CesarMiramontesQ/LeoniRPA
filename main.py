@@ -696,10 +696,10 @@ async def trading_goods(
 @app.post("/api/trading-goods")
 async def api_trading_goods_upsert(
     request: Request,
-    current_user: User = Depends(require_roles(["admin"])),
+    current_user: User = Depends(require_roles(["admin", "operador"])),
     db: AsyncSession = Depends(get_db),
 ):
-    """Crea o actualiza un registro en trading_goods. Body: { "numero_parte": "...", "is_trading_good": true|false }. Solo administradores."""
+    """Crea o actualiza un registro en trading_goods. Body: { "numero_parte": "...", "is_trading_good": true|false }. Permitido para admin y operador."""
     try:
         body = await request.json()
     except Exception:
