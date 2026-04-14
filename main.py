@@ -1075,6 +1075,115 @@ def _resolve_blanket_period_certificado(
     )
 
 
+async def _icr_map_numeros_parte_completos_por_base(
+    db: AsyncSession,
+    codigo_cliente: int,
+    bases_numero_parte: List[str],
+) -> Dict[str, List[str]]:
+    """
+    Mapa base(=producto_condensado) -> números de parte completos (ventas.producto) por cliente.
+    Usa el mismo periodo y filtros ICR de la vista de análisis.
+    """
+    bases = sorted({str(x).strip() for x in (bases_numero_parte or []) if str(x or "").strip()})
+    if not bases:
+        return {}
+
+    año_actual = datetime.now().year
+    año_pasado = año_actual - 1
+    inicio_periodo = date(año_pasado, 1, 1)
+    fin_periodo = date(año_actual, 12, 31)
+
+    from sqlalchemy import select, desc
+
+    q = (
+        select(Venta.producto_condensado, Venta.producto)
+        .where(
+            Venta.codigo_cliente == int(codigo_cliente),
+            Venta.producto_condensado.isnot(None),
+            Venta.producto_condensado != "",
+            Venta.producto_condensado.in_(bases),
+            Venta.periodo >= inicio_periodo,
+            Venta.periodo <= fin_periodo,
+            Venta.precio_exmetal_km.isnot(None),
+            Venta.precio_exmetal_km != 0,
+            Venta.precio_exmetal_m.isnot(None),
+            Venta.precio_exmetal_m != 0,
+            Venta.precio_full_metal_km.isnot(None),
+            Venta.precio_full_metal_km != 0,
+            Venta.precio_full_metal_m.isnot(None),
+            Venta.precio_full_metal_m != 0,
+        )
+        .order_by(Venta.producto_condensado.asc(), desc(Venta.id))
+    )
+    rows = (await db.execute(q)).all()
+
+    out_sets: Dict[str, set] = {b: set() for b in bases}
+    for base_raw, full_raw in rows:
+        base = str(base_raw or "").strip()
+        if not base:
+            continue
+        full = str(full_raw or "").strip()
+        if full and full.upper() != "DUMMY":
+            out_sets.setdefault(base, set()).add(full)
+        else:
+            out_sets.setdefault(base, set()).add(base)
+
+    return {b: (sorted(vals) if vals else [b]) for b, vals in out_sets.items()}
+
+
+async def _icr_expand_partes_certificado_co3(
+    db: AsyncSession,
+    codigo_cliente: int,
+    partes_base: List[dict],
+    full_numbers_by_base: Dict[str, List[str]],
+) -> List[dict]:
+    """
+    Expande filas para C.O. 3: una fila por número de parte completo con su cross reference.
+    Mantiene orden consistente por base seleccionada y luego número completo (ordenado), sin duplicados.
+    """
+    if not partes_base:
+        return []
+
+    full_all: List[str] = []
+    seen_full_all = set()
+    for p in partes_base:
+        base = (p.get("part_number") or "").strip()
+        nums = full_numbers_by_base.get(base) or ([base] if base else [])
+        for n in nums:
+            s = str(n or "").strip()
+            if not s or s in seen_full_all:
+                continue
+            seen_full_all.add(s)
+            full_all.append(s)
+
+    xref_full = await crud.get_cross_reference_por_cliente_materiales(
+        db,
+        str(codigo_cliente),
+        full_all,
+    )
+
+    out: List[dict] = []
+    seen_pairs = set()
+    for p in partes_base:
+        base = (p.get("part_number") or "").strip()
+        nums = full_numbers_by_base.get(base) or ([base] if base else [])
+        for n in nums:
+            full = str(n or "").strip()
+            if not full:
+                continue
+            pair_key = (base, full)
+            if pair_key in seen_pairs:
+                continue
+            seen_pairs.add(pair_key)
+            row = dict(p)
+            row["part_number_base"] = base
+            row["part_number"] = full
+            row["part_number_leoni"] = full[:9] if full else ""
+            row["customer_part_number"] = (xref_full.get(full) or full).strip()
+            out.append(row)
+    return out
+
+
 def _tariff_fraccion_certificado_primeros_6_digitos(value: Optional[str]) -> str:
     """Para certificados C.O. y no calificados: solo los primeros 6 dígitos de la fracción (ignora puntos, espacios, etc.)."""
     if value is None:
@@ -1130,11 +1239,12 @@ def _render_certificado_co_pdf_reportlab(context: dict) -> bytes:
     t2.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (1, 0), (1, 0), 20)]))
     story.append(t2)
     story.append(Spacer(1, 6))
-    partes = context.get("partes") or []
+    partes = context.get("partes_co3") or context.get("partes") or []
     data = [["5.", "DESCRIPTION OF GOOD (S)", "6. HS TARIFF CLASSIFICATION NUMBER", "7. CRITERION OF ORIGIN", "8. ORIGIN COUNTRY"]]
     for p in partes:
-        # En PDF (fallback reportlab), mostramos "part_number — description" si existe.
-        desc = (p.get("part_number") or "—")
+        leoni_part = (p.get("part_number_leoni") or p.get("part_number") or "—").strip() or "—"
+        customer_part = (p.get("customer_part_number") or leoni_part).strip() or "—"
+        desc = f"{leoni_part} (Customer Part#: {customer_part})"
         if context.get("certificado_grupo_unificado") and p.get("codigo_cliente") is not None:
             desc = f"[Cliente {p.get('codigo_cliente')}] " + desc
         if not context.get("certificado_simulacion") and p.get("description"):
@@ -1562,7 +1672,7 @@ def _render_certificado_co_xlsx(context: dict) -> bytes:
         fila_fin_tabla_co3 = 17
         num_filas_co3 = 9
         columnas_co3 = (2, 3, 4, 5, 6, 8, 9)  # B=Description, C=Customer Part#, D=Leoni Part#, E=Leoni Part Name, F=NUMBER, H=B, I=origin
-        partes_co3 = context.get("partes") or []
+        partes_co3 = context.get("partes_co3") or context.get("partes") or []
         num_partes_co3 = len(partes_co3)
         filas_extra_co3 = max(0, num_partes_co3 - num_filas_co3)
         if filas_extra_co3 > 0:
@@ -1607,7 +1717,7 @@ def _render_certificado_co_xlsx(context: dict) -> bytes:
         cert_sim = context.get("certificado_simulacion")
         for i, p in enumerate(partes_co3):
             row = fila_ini_co3 + i
-            numero = (p.get("part_number") or "").strip()
+            numero = (p.get("part_number_leoni") or p.get("part_number") or "").strip()
             customer_part = (
                 ""
                 if cert_sim
@@ -2285,12 +2395,19 @@ async def api_analisis_icr_certificado_pdf(
             {"error": "No hay componentes que califiquen (ICR >= 60%) para este cliente."},
             status_code=400,
         )
-    # Customer Part Number desde cross_reference para la hoja C.O. 3
+    # C.O. 3: expandir a una fila por número completo y mapear cross reference por número completo.
     part_numbers = [(p.get("part_number") or "").strip() for p in partes_para_certificado]
-    cross_ref = await crud.get_cross_reference_por_cliente_materiales(db, str(codigo_cliente), part_numbers)
-    for p in partes_para_certificado:
-        np = (p.get("part_number") or "").strip()
-        p["customer_part_number"] = (cross_ref.get(np) or np or "").strip()
+    full_numbers_by_base = await _icr_map_numeros_parte_completos_por_base(
+        db,
+        int(codigo_cliente),
+        part_numbers,
+    )
+    partes_co3 = await _icr_expand_partes_certificado_co3(
+        db,
+        int(codigo_cliente),
+        partes_para_certificado,
+        full_numbers_by_base,
+    )
 
     ahora = datetime.now()
     err_bp, d_bf, d_bt, s_bf, s_bt = _resolve_blanket_period_certificado(blanket_from, blanket_to, ref=ahora)
@@ -2309,6 +2426,7 @@ async def api_analisis_icr_certificado_pdf(
         "importer_address": imp_fields["importer_address"],
         "importer_show_customer_number": imp_fields["importer_show_customer_number"],
         "partes": partes_para_certificado,
+        "partes_co3": partes_co3,
         "blanket_period_from": s_bf,
         "blanket_period_to": s_bt,
         "_blanket_period_from_date": d_bf,
@@ -2380,12 +2498,19 @@ async def api_analisis_icr_certificado_excel(
             {"error": "No hay componentes que califiquen (ICR >= 60%) para este cliente."},
             status_code=400,
         )
-    # Customer Part Number desde cross_reference para la hoja C.O. 3
+    # C.O. 3: expandir a una fila por número completo y mapear cross reference por número completo.
     part_numbers = [(p.get("part_number") or "").strip() for p in partes_para_certificado]
-    cross_ref = await crud.get_cross_reference_por_cliente_materiales(db, str(codigo_cliente), part_numbers)
-    for p in partes_para_certificado:
-        np = (p.get("part_number") or "").strip()
-        p["customer_part_number"] = (cross_ref.get(np) or np or "").strip()
+    full_numbers_by_base = await _icr_map_numeros_parte_completos_por_base(
+        db,
+        int(codigo_cliente),
+        part_numbers,
+    )
+    partes_co3 = await _icr_expand_partes_certificado_co3(
+        db,
+        int(codigo_cliente),
+        partes_para_certificado,
+        full_numbers_by_base,
+    )
 
     ahora = datetime.now()
     err_bp, d_bf, d_bt, s_bf, s_bt = _resolve_blanket_period_certificado(blanket_from, blanket_to, ref=ahora)
@@ -2403,6 +2528,7 @@ async def api_analisis_icr_certificado_excel(
         "importer_address": imp_fields["importer_address"],
         "importer_show_customer_number": imp_fields["importer_show_customer_number"],
         "partes": partes_para_certificado,
+        "partes_co3": partes_co3,
         "blanket_period_from": s_bf,
         "blanket_period_to": s_bt,
         "_blanket_period_from_date": d_bf,
