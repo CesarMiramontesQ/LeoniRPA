@@ -3801,8 +3801,10 @@ async def analisis_icr_material(
     # Misma regla que get_icr_para_parte: si alguna compra del BOM es anterior a 2 años → ICR 0%
     alguna_compra_antigua = bool(bom_data and bom_data.get("alguna_compra_antigua"))
 
-    # Regional index = ((Total Originating Supplies + Markup) / F.O.B USD value) * 100
-    # Reglas: si trading good, compra antigua, markup negativo, o no hay Originating, o hay CABLE/CUERDA en Non-Originating sin 310004003 en Originating → ICR 0%
+    # Regional index:
+    # - Caso general: ((Total Originating Supplies + Markup) / F.O.B USD value) * 100
+    # - Si markup < 0: ((Total Originating Supplies - Total Non-Originating Supplies) / Total Originating Supplies) * 100
+    # Reglas: si trading good, compra antigua, o hay CABLE/CUERDA en Non-Originating sin 310004003 en Originating → ICR 0%
     regional_index = None
     icr_zero_reason = None
     if crud.icr_numero_parte_forzado_100(numero_parte):
@@ -3816,8 +3818,15 @@ async def analisis_icr_material(
         icr_zero_reason = "Compra antigua (>2 años)"
     elif fob_total_value is not None and fob_total_value != 0 and markup_value is not None:
         if markup_value < 0:
-            regional_index = 0.0
-            icr_zero_reason = "Markup negativo"
+            if total_originating_value != 0:
+                regional_index = round(
+                    (total_originating_value - total_non_originating_value) / total_originating_value * 100,
+                    2,
+                )
+            else:
+                # Evita división por cero cuando se solicita fórmula especial por markup negativo.
+                regional_index = None
+            icr_zero_reason = None
         elif crud._icr_rules_force_zero(items_orig, items_non_orig):
             regional_index = 0.0
             icr_zero_reason = crud._icr_rules_force_zero_reason(items_orig, items_non_orig)

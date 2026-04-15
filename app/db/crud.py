@@ -6912,7 +6912,15 @@ async def get_icr_para_parte(
         3,
     )
     if markup_value < 0:
-        return (0.0, "Markup negativo")
+        # Regla específica para markup negativo:
+        # %ICR = ((valor_originating - valor_non_originating) / valor_originating) * 100
+        # Solo aplica si valor_originating es distinto de cero.
+        if total_originating_value == 0:
+            return (None, None)
+        regional_index_neg_markup = (
+            (total_originating_value - total_non_originating_value) / total_originating_value
+        ) * 100
+        return (round(regional_index_neg_markup, 2), None)
     if fob_total_value == 0:
         return (None, None)
     regional_index = (total_originating_value + markup_value) / fob_total_value * 100
