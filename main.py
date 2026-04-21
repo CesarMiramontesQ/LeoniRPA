@@ -34,16 +34,19 @@ import zipfile
 
 try:
     from io import BytesIO
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT
     from reportlab.lib.pagesizes import letter
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import inch
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Table, TableStyle, Spacer
+    from reportlab.platypus import PageBreak, SimpleDocTemplate, Paragraph, Table, TableStyle, Spacer
     from reportlab.lib import colors
     _REPORTLAB_AVAILABLE = True
 except ImportError:
+    TA_CENTER = None  # type: ignore
+    TA_LEFT = None  # type: ignore
     _REPORTLAB_AVAILABLE = False
 
-# Certificado C.O.: plantilla Excel + Office/LibreOffice para PDF
+# Certificado C.O.: plantilla Excel; PDF generado con ReportLab (paginación C.O. 3).
 _CERT_PLANTILLA_XLSX = Path(__file__).resolve().parent / "Plantilla calificados.xlsx"
 _CERT_FIRMA_IMG = Path(__file__).resolve().parent / "firma.png"
 # Plantilla Word para componentes con ICR < 60% (no calificados USMCA)
@@ -1271,17 +1274,222 @@ def _tariff_fraccion_certificado_primeros_6_digitos(value: Optional[str]) -> str
     return digits[:6] if digits else ""
 
 
+# --- Certificado C.O. PDF (ReportLab): márgenes y tabla C.O. 3 paginada por altura real ---
+_CERT_CO_PDF_MARGIN_L = 0.7 * inch
+_CERT_CO_PDF_MARGIN_R = 0.7 * inch
+_CERT_CO_PDF_MARGIN_T = 0.6 * inch
+_CERT_CO_PDF_MARGIN_B = 0.6 * inch
+_CERT_CO_PDF_FS_CO3_HEADER = 9
+_CERT_CO_PDF_FS_CO3_ROW = 8.5
+_CERT_CO_PDF_CO3_COL_WIDTHS_IN = [0.98, 1.1, 1.02, 2.15, 0.9, 0.5, 0.45]
+
+
+def _cert_co_pdf_escape_html(s: object) -> str:
+    from xml.sax.saxutils import escape
+
+    t = "" if s is None else str(s)
+    return escape(t, entities={"'": "&apos;", '"': "&quot;"})
+
+
+def _cert_co_pdf_co3_cell_styles(styles) -> Tuple[ParagraphStyle, ParagraphStyle, ParagraphStyle, ParagraphStyle]:
+    """Estilos con tamaño mínimo fijo (no se reduce para encajar en una sola hoja)."""
+    header = ParagraphStyle(
+        name="CertCo3Hdr",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=_CERT_CO_PDF_FS_CO3_HEADER,
+        leading=_CERT_CO_PDF_FS_CO3_HEADER + 2,
+        alignment=TA_CENTER,
+        spaceAfter=0,
+        spaceBefore=0,
+    )
+    cell = ParagraphStyle(
+        name="CertCo3Cell",
+        parent=styles["Normal"],
+        fontName="Helvetica",
+        fontSize=_CERT_CO_PDF_FS_CO3_ROW,
+        leading=_CERT_CO_PDF_FS_CO3_ROW + 2,
+        alignment=TA_CENTER,
+        wordWrap="LTR",
+        spaceAfter=0,
+        spaceBefore=0,
+    )
+    cell_left = ParagraphStyle(
+        name="CertCo3CellL",
+        parent=cell,
+        alignment=TA_LEFT,
+    )
+    header_left = ParagraphStyle(
+        name="CertCo3HdrL",
+        parent=header,
+        alignment=TA_LEFT,
+    )
+    return header, cell, cell_left, header_left
+
+
+def _cert_co_pdf_co3_header_row(header_style: ParagraphStyle, header_left: ParagraphStyle) -> List[Paragraph]:
+    return [
+        Paragraph("<b>Description</b><br/><i>Classification</i>", header_left),
+        Paragraph("<b>Customer<br/>Part Number</b>", header_style),
+        Paragraph("<b>Leoni<br/>Part Number</b>", header_style),
+        Paragraph("<b>Leoni Part Name</b>", header_left),
+        Paragraph("<b>HS Tariff</b><br/><i>6 digits</i>", header_style),
+        Paragraph("<b>Origin<br/>Criterion</b>", header_style),
+        Paragraph("<b>Origin<br/>Country</b>", header_style),
+    ]
+
+
+def _cert_co_pdf_co3_data_row(
+    p: dict, context: dict, cell_style: ParagraphStyle, cell_left: ParagraphStyle
+) -> List[Paragraph]:
+    cert_sim = bool(context.get("certificado_simulacion"))
+    leoni_part = (p.get("part_number_leoni") or p.get("part_number") or "—").strip() or "—"
+    customer_part = (
+        ""
+        if cert_sim
+        else (p.get("customer_part_number") or leoni_part or "").strip() or "—"
+    )
+    desc_classification = "Electrical Cable"
+    if cert_sim:
+        descripcion = ""
+    else:
+        descripcion = (p.get("description") or "").strip()
+        if context.get("certificado_grupo_unificado") and p.get("codigo_cliente") is not None:
+            descripcion = (f"Cód. cliente {p.get('codigo_cliente')}: " + descripcion).strip()
+    ts6 = _tariff_fraccion_certificado_primeros_6_digitos((p.get("tariff_schedule") or "").strip())
+    if cert_sim:
+        tariff_txt = ts6 or "—"
+    else:
+        tariff_txt = ts6 if ts6 else "SEE ATTACHED"
+    origin = (p.get("origin") or "MX").strip() or "MX"
+    return [
+        Paragraph(_cert_co_pdf_escape_html(desc_classification), cell_left),
+        Paragraph(_cert_co_pdf_escape_html(customer_part), cell_style),
+        Paragraph(_cert_co_pdf_escape_html(leoni_part), cell_style),
+        Paragraph(_cert_co_pdf_escape_html(descripcion), cell_left),
+        Paragraph(_cert_co_pdf_escape_html(tariff_txt), cell_style),
+        Paragraph("B", cell_style),
+        Paragraph(_cert_co_pdf_escape_html(origin), cell_style),
+    ]
+
+
+def _cert_co_pdf_table_row_height(row: List[Paragraph], col_widths: List[float], header_row: bool) -> float:
+    """Altura real de una fila de tabla (incl. padding de celdas) con el mismo TableStyle que el PDF."""
+    pad = 5 if header_row else 4
+    ts = [
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), pad),
+        ("RIGHTPADDING", (0, 0), (-1, -1), pad),
+        ("TOPPADDING", (0, 0), (-1, -1), pad),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), pad),
+    ]
+    if header_row:
+        ts.insert(0, ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f0f0f0")))
+    tbl = Table([row], colWidths=col_widths)
+    tbl.setStyle(TableStyle(ts))
+    w_sum = sum(col_widths)
+    _w, h = tbl.wrap(w_sum, 99999)
+    return float(h)
+
+
+def _cert_co_pdf_attachment_usable_height_pt() -> float:
+    """Altura útil en puntos para el cuerpo de cada página de adjunto (banner + pie reservados)."""
+    page_h = float(letter[1])
+    margins = float(_CERT_CO_PDF_MARGIN_T + _CERT_CO_PDF_MARGIN_B)
+    # Título breve del adjunto + espacio; margen para el pie "Page X of Y" (conservador)
+    reserve_pt = 0.62 * inch + 0.42 * inch
+    return page_h - margins - reserve_pt
+
+
+def render_table_with_pagination(
+    rows: List[List[Paragraph]],
+    header_row: List[Paragraph],
+    col_widths: List[float],
+    usable_height_pt: float,
+) -> List[List[List[Paragraph]]]:
+    """
+    Parte en páginas (chunks) la lista de filas de Paragraphs.
+    Cada chunk es una lista de filas de datos (sin cabecera); la cabecera se repite al renderizar.
+    No divide una fila entre dos páginas si cabe entera en una página con su cabecerado.
+    """
+    if not rows:
+        return []
+    hh = _cert_co_pdf_table_row_height(header_row, col_widths, header_row=True)
+    avail = float(usable_height_pt)
+    max_data_on_page = max(avail - hh, 1.0)
+    chunks: List[List[List[Paragraph]]] = []
+    chunk: List[List[Paragraph]] = []
+    room = avail - hh
+
+    for row in rows:
+        rh = _cert_co_pdf_table_row_height(row, col_widths, header_row=False)
+        if rh > max_data_on_page:
+            if chunk:
+                chunks.append(chunk)
+                chunk = []
+            chunks.append([row])
+            room = avail - hh
+            continue
+        if rh > room:
+            if chunk:
+                chunks.append(chunk)
+            chunk = [row]
+            room = avail - hh - rh
+        else:
+            chunk.append(row)
+            room -= rh
+    if chunk:
+        chunks.append(chunk)
+    return chunks
+
+
+def _cert_co_pdf_total_pages_for_context(context: dict) -> int:
+    """1 (cuerpo principal) + una página de adjunto por cada chunk de la tabla C.O. 3."""
+    if not _REPORTLAB_AVAILABLE:
+        return int(context.get("num_pages") or 1)
+    partes = context.get("partes_co3") or context.get("partes") or []
+    if not partes:
+        return 1
+    styles = getSampleStyleSheet()
+    header_style, cell_style, cell_left, header_left = _cert_co_pdf_co3_cell_styles(styles)
+    header_cells = _cert_co_pdf_co3_header_row(header_style, header_left)
+    cw = [w * inch for w in _CERT_CO_PDF_CO3_COL_WIDTHS_IN]
+    data_rows = [_cert_co_pdf_co3_data_row(p, context, cell_style, cell_left) for p in partes]
+    usable = _cert_co_pdf_attachment_usable_height_pt()
+    chunks = render_table_with_pagination(data_rows, header_cells, cw, usable)
+    return 1 + len(chunks)
+
+
 def _render_certificado_co_pdf_reportlab(context: dict) -> bytes:
-    """Genera el certificado C.O. en PDF con ReportLab cuando LibreOffice/Excel no están disponibles."""
+    """Genera el certificado C.O. en PDF con ReportLab (paginación real de la tabla C.O. 3)."""
     if not _REPORTLAB_AVAILABLE:
         raise RuntimeError("reportlab no está instalado; ejecute: pip install reportlab")
     out = BytesIO()
-    doc = SimpleDocTemplate(out, pagesize=letter, leftMargin=0.7 * inch, rightMargin=0.7 * inch, topMargin=0.6 * inch, bottomMargin=0.6 * inch)
+    doc = SimpleDocTemplate(
+        out,
+        pagesize=letter,
+        leftMargin=_CERT_CO_PDF_MARGIN_L,
+        rightMargin=_CERT_CO_PDF_MARGIN_R,
+        topMargin=_CERT_CO_PDF_MARGIN_T,
+        bottomMargin=_CERT_CO_PDF_MARGIN_B,
+    )
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle(name="CertTitle", parent=styles["Heading1"], fontSize=14, alignment=1, spaceAfter=2)
     sub_style = ParagraphStyle(name="CertSub", parent=styles["Normal"], fontSize=12, alignment=1, spaceAfter=1)
     body_style = ParagraphStyle(name="CertBody", parent=styles["Normal"], fontSize=9, spaceAfter=1)
     bold_style = ParagraphStyle(name="CertBold", parent=styles["Normal"], fontSize=10, fontName="Helvetica-Bold", alignment=1, spaceAfter=8)
+    partes = context.get("partes_co3") or context.get("partes") or []
+    total_pages = _cert_co_pdf_total_pages_for_context(context)
+
+    def _footer(canv, doc_):
+        canv.saveState()
+        canv.setFont("Helvetica", 8)
+        pw = doc_.pagesize[0]
+        y = float(_CERT_CO_PDF_MARGIN_B) * 0.55 + 6
+        canv.drawCentredString(pw / 2.0, y, f"Page {doc_.page} of {total_pages}")
+        canv.restoreState()
+
     story = []
     story.append(Paragraph("United States Mexico Canada Agreement – USMCA", title_style))
     story.append(Paragraph("CERTIFICATION OF ORIGEN", sub_style))
@@ -1302,7 +1510,7 @@ def _render_certificado_co_pdf_reportlab(context: dict) -> bytes:
     _nm_imp = (context.get("cliente_nombre") or "").strip()
     _imp_addr = (context.get("importer_address") or "").strip()
     if _nm_imp.upper() == "VARIOS" and _imp_addr.upper() == "VARIOS":
-        _imp_addr = ""  # Una sola línea VARIOS (nombre); no duplicar en dirección
+        _imp_addr = ""
     _imp_addr_html = f"{_imp_addr}<br/>" if _imp_addr else ""
     importer_block = (
         "<b>4.- IMPORTER NAME, ADDRESS AND EMAIL.</b><br/>"
@@ -1315,42 +1523,88 @@ def _render_certificado_co_pdf_reportlab(context: dict) -> bytes:
     t2.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (1, 0), (1, 0), 20)]))
     story.append(t2)
     story.append(Spacer(1, 6))
-    partes = context.get("partes_co3") or context.get("partes") or []
+    # Sección 5 en la primera hoja: referencia al adjunto (detalle paginado a partir de la página 2).
     data = [["5.", "DESCRIPTION OF GOOD (S)", "6. HS TARIFF CLASSIFICATION NUMBER", "7. CRITERION OF ORIGIN", "8. ORIGIN COUNTRY"]]
-    for p in partes:
-        leoni_part = (p.get("part_number_leoni") or p.get("part_number") or "—").strip() or "—"
-        customer_part = (p.get("customer_part_number") or leoni_part).strip() or "—"
-        desc = f"{leoni_part} (Customer Part#: {customer_part})"
-        if context.get("certificado_grupo_unificado") and p.get("codigo_cliente") is not None:
-            desc = f"[Cliente {p.get('codigo_cliente')}] " + desc
-        if not context.get("certificado_simulacion") and p.get("description"):
-            d = (p.get("description") or "")[:80]
-            desc += " — " + (d + "..." if len((p.get("description") or "")) > 80 else d)
-        ts_raw = (p.get("tariff_schedule") or "").strip()
-        ts6 = _tariff_fraccion_certificado_primeros_6_digitos(ts_raw)
-        if context.get("certificado_simulacion"):
-            tariff_col = ts6
-        else:
-            tariff_col = ts6 if ts6 else "SEE ATTACHED"
-        data.append(["", desc, tariff_col, "B", p.get("origin") or "MX"])
-    if not partes:
+    if partes:
+        data.append(
+            [
+                "",
+                "SEE ATTACHED — complete descriptions, part numbers and tariff classifications are listed on the following pages.",
+                "SEE ATTACHED",
+                "B",
+                "MX",
+            ]
+        )
+    else:
         data.append(["", "—", "SEE ATTACHED", "—", "—"])
     t3 = Table(data, colWidths=[0.3 * inch, 2.3 * inch, 1.3 * inch, 1.0 * inch, 1.0 * inch])
-    t3.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f0f0f0")), ("GRID", (0, 0), (-1, -1), 0.5, colors.black), ("FONTSIZE", (0, 0), (-1, -1), 9), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4)]))
+    t3.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f0f0f0")),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ]
+        )
+    )
     story.append(t3)
     story.append(Spacer(1, 6))
     story.append(Paragraph(f"<b>9. BLANKET PERIOD (MM/DD/YY)</b><br/>FROM: {context.get('blanket_period_from', '')}  TO: {context.get('blanket_period_to', '')}", body_style))
     story.append(Spacer(1, 6))
     story.append(Paragraph("I certify that the goods described in this document qualify as originating and the information contained in this document is true and accurate.", body_style))
     story.append(Paragraph("I assume responsibility for proving such representations and agree to maintain and present upon request or to make available during a verification visit, documentation necessary to support this certification.", body_style))
-    story.append(Paragraph(f"This certification consists of {context.get('num_pages', 1)} page(s), including all attachments.", body_style))
+    story.append(Paragraph(f"This certification consists of {total_pages} page(s), including all attachments.", body_style))
     story.append(Spacer(1, 12))
     left_sig = "<b>CERTIFIER'S SIGNATURE</b><br/><br/><b>CERTIFIER'S NAME (PRINT OR TYPE)</b><br/>" + (context.get("certifier_name") or "") + "<br/><br/><b>DATE (MM/DD/YY)</b><br/>" + (context.get("certification_date") or "")
     right_sig = "<b>COMPANY NAME</b><br/>" + (context.get("certifier_company") or "") + "<br/><br/><b>CERTIFIER'S TITLE</b><br/>" + (context.get("certifier_title") or "") + "<br/><br/><b>CERTIFIER TYPE (IMPORTER, EXPORTER, PRODUCER)</b><br/>" + (context.get("certifier_type") or "")
     t4 = Table([[Paragraph(left_sig, body_style), Paragraph(right_sig, body_style)]], colWidths=[3.25 * inch, 3.25 * inch])
     t4.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (1, 0), (1, 0), 20)]))
     story.append(t4)
-    doc.build(story)
+
+    if partes:
+        header_style, cell_style, cell_left, header_left = _cert_co_pdf_co3_cell_styles(styles)
+        header_cells = _cert_co_pdf_co3_header_row(header_style, header_left)
+        cw = [w * inch for w in _CERT_CO_PDF_CO3_COL_WIDTHS_IN]
+        data_rows = [_cert_co_pdf_co3_data_row(p, context, cell_style, cell_left) for p in partes]
+        chunks = render_table_with_pagination(data_rows, header_cells, cw, _cert_co_pdf_attachment_usable_height_pt())
+        attach_title_style = ParagraphStyle(
+            name="CertCo3AttachTitle",
+            parent=styles["Normal"],
+            fontSize=10,
+            fontName="Helvetica-Bold",
+            alignment=TA_CENTER,
+            spaceAfter=8,
+            spaceBefore=0,
+        )
+        co3_table_style_cmds = [
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f0f0f0")),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("TOPPADDING", (0, 1), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 1), (-1, -1), 4),
+        ]
+        for i, chunk in enumerate(chunks):
+            story.append(PageBreak())
+            story.append(
+                Paragraph(
+                    "Attachment to USMCA / T-MEC Certification of Origin — Section 5 (goods listing)",
+                    attach_title_style,
+                )
+            )
+            story.append(Spacer(1, 6))
+            tbl_data = [header_cells] + chunk
+            tbl = Table(tbl_data, colWidths=cw, repeatRows=1)
+            tbl.setStyle(TableStyle(co3_table_style_cmds))
+            story.append(tbl)
+
+    doc.build(story, onFirstPage=_footer, onLaterPages=_footer)
     return out.getvalue()
 
 
@@ -1725,8 +1979,11 @@ def _render_certificado_co_xlsx(context: dict) -> bytes:
     # En C.O. no se rellenan componentes (se deja como en plantilla, p. ej. SEE ATTACHED). Solo cliente y número de páginas.
     # La firma va ya en la plantilla; no se inserta aquí.
 
-    # Número de páginas del certificado: C.O. (1) + C.O. 3 (2) = 2 cuando existe hoja C.O. 3.
-    num_pages = int(context.get("num_pages") or (2 if "C.O. 3" in wb.sheetnames else 1))
+    # Número de páginas: alineado con el PDF ReportLab (1 + adjuntos paginados por altura).
+    if "C.O. 3" in wb.sheetnames:
+        num_pages = _cert_co_pdf_total_pages_for_context(context)
+    else:
+        num_pages = int(context.get("num_pages") or 1)
     text_pages = "This certification consists of"
     text_suffix = "page(s), including all attachments."
     for row in range(1, min(ws.max_row + 1, 120)):
@@ -1832,34 +2089,15 @@ def _render_certificado_co_xlsx(context: dict) -> bytes:
 
 def _render_certificado_co_pdf(context: dict) -> bytes:
     """
-    Genera el PDF del certificado C.O.: primero intenta Excel -> PDF con LibreOffice o
-    Microsoft Excel; si no está disponible o falla, usa ReportLab (sin instalar nada extra).
+    Genera el PDF del certificado C.O. con ReportLab (paginación real de la tabla C.O. 3).
+    El Excel/LibreOffice ya no se usa para el PDF del certificado, para evitar compresión
+    a una sola hoja y el límite artificial de dos páginas.
     """
-    import tempfile
-    xlsx_bytes = _render_certificado_co_xlsx(context)
-    libreoffice = _find_libreoffice()
-    use_excel_win = platform.system() == "Windows"
-    use_excel_mac = platform.system() == "Darwin"
-    has_office = libreoffice or use_excel_win or use_excel_mac
-
-    if has_office:
-        try:
-            return _render_certificado_co_pdf_via_office(context, xlsx_bytes, libreoffice, use_excel_win, use_excel_mac)
-        except Exception:
-            pass  # Fallback a ReportLab si Office/LibreOffice fallan
-
-    # Sin Office o falló: generar PDF con ReportLab (no requiere LibreOffice ni Excel)
-    if _REPORTLAB_AVAILABLE:
-        return _render_certificado_co_pdf_reportlab(context)
-    if has_office:
+    if not _REPORTLAB_AVAILABLE:
         raise RuntimeError(
-            "No se pudo convertir el Excel a PDF con LibreOffice/Excel. "
-            "Instale reportlab como respaldo: pip install reportlab"
+            "Para generar el PDF del certificado C.O. se requiere reportlab: pip install reportlab"
         )
-    raise RuntimeError(
-        "Para generar el PDF instale LibreOffice, use Windows/Mac con Microsoft Excel, "
-        "o instale reportlab: pip install reportlab"
-    )
+    return _render_certificado_co_pdf_reportlab(context)
 
 
 def _render_certificado_co_pdf_via_office(
