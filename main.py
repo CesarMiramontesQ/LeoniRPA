@@ -2126,7 +2126,13 @@ def _render_certificado_co_pdf_via_office(
     context: dict, xlsx_bytes: bytes, libreoffice: Optional[str], use_excel_win: bool, use_excel_mac: bool
 ) -> bytes:
     """Convierte el Excel del certificado a PDF usando LibreOffice o Microsoft Excel."""
+    from pypdf import PdfReader, PdfWriter
     import tempfile
+
+    def _copy_all_pages(reader: PdfReader, writer: PdfWriter) -> None:
+        for page in reader.pages:
+            writer.add_page(page)
+
     with tempfile.TemporaryDirectory(prefix="cert_co_") as tmpdir:
         tmpdir_path = Path(tmpdir)
         tmp_xlsx = tmpdir_path / "certificado_co.xlsx"
@@ -2144,18 +2150,15 @@ def _render_certificado_co_pdf_via_office(
                 raise RuntimeError(
                     "LibreOffice no generó el PDF. Compruebe que LibreOffice esté instalado correctamente."
                 )
-            from pypdf import PdfReader, PdfWriter
             reader = PdfReader(pdf_path)
             writer = PdfWriter()
-            # Incluir C.O. (pág 1) y C.O. 3 (pág 2) en el mismo PDF.
-            for i in range(min(2, len(reader.pages))):
-                writer.add_page(reader.pages[i])
+            # Conservar todas las páginas convertidas (C.O. + todas las del anexo C.O. 3).
+            _copy_all_pages(reader, writer)
             out = BytesIO()
             writer.write(out)
             return out.getvalue()
         if use_excel_win:
             # Exportar hoja C.O. y hoja C.O. 3 a PDFs temporales y unirlos en uno solo.
-            from pypdf import PdfReader, PdfWriter
             pdf_co = tmpdir_path / "co.pdf"
             pdf_co3 = tmpdir_path / "co3.pdf"
             ok1 = _convert_xlsx_to_pdf_with_excel(tmp_xlsx, pdf_co, "C.O.")
@@ -2163,23 +2166,20 @@ def _render_certificado_co_pdf_via_office(
             if ok1:
                 writer = PdfWriter()
                 reader1 = PdfReader(pdf_co)
-                writer.add_page(reader1.pages[0])
+                _copy_all_pages(reader1, writer)
                 if ok2 and pdf_co3.exists():
                     reader2 = PdfReader(pdf_co3)
-                    if len(reader2.pages) > 0:
-                        writer.add_page(reader2.pages[0])
+                    _copy_all_pages(reader2, writer)
                 out = BytesIO()
                 writer.write(out)
                 return out.getvalue()
         if use_excel_mac:
             ok, err_msg = _convert_xlsx_to_pdf_with_excel_mac(tmp_xlsx, pdf_path)
             if ok:
-                from pypdf import PdfReader, PdfWriter
                 reader = PdfReader(pdf_path)
                 writer = PdfWriter()
-                # Excel en Mac guarda todo el libro: incluir C.O. (pág 1) y C.O. 3 (pág 2).
-                for i in range(min(2, len(reader.pages))):
-                    writer.add_page(reader.pages[i])
+                # Excel en Mac guarda todo el libro: conservar todas las páginas.
+                _copy_all_pages(reader, writer)
                 out = BytesIO()
                 writer.write(out)
                 return out.getvalue()

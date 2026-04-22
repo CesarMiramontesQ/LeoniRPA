@@ -5,11 +5,18 @@ import unittest
 from datetime import date
 
 from main import (
+    _CERT_CO_PDF_CO3_COL_WIDTHS_IN,
     _CERT_CO_LEONI,
+    _cert_co_pdf_attachment_usable_height_pt,
+    _cert_co_pdf_co3_cell_styles,
+    _cert_co_pdf_co3_data_row,
+    _cert_co_pdf_co3_header_row,
     _cert_co_pdf_total_pages_for_context,
     _render_certificado_co_pdf_reportlab,
     render_table_with_pagination,
 )
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import inch
 
 
 def _base_ctx(**kwargs):
@@ -84,6 +91,22 @@ class TestCertificadoCoPdfPagination(unittest.TestCase):
     def test_render_table_with_pagination_exportada(self):
         """API explícita solicitada: función reutilizable."""
         self.assertTrue(callable(render_table_with_pagination))
+
+    def test_particion_no_pierde_ninguna_fila(self):
+        """La paginación debe conservar todas las filas y orden original."""
+        ctx = _base_ctx(partes_co3=[_part(i, desc_len=120) for i in range(120)])
+        styles = getSampleStyleSheet()
+        header_style, cell_style, cell_left, header_left = _cert_co_pdf_co3_cell_styles(styles)
+        header = _cert_co_pdf_co3_header_row(header_style, header_left)
+        rows = [_cert_co_pdf_co3_data_row(p, ctx, cell_style, cell_left) for p in ctx["partes_co3"]]
+        col_widths = [w * inch for w in _CERT_CO_PDF_CO3_COL_WIDTHS_IN]
+
+        chunks = render_table_with_pagination(rows, header, col_widths, _cert_co_pdf_attachment_usable_height_pt())
+        self.assertGreater(len(chunks), 1)
+        self.assertEqual(sum(len(c) for c in chunks), len(rows))
+
+        flattened = [row for chunk in chunks for row in chunk]
+        self.assertEqual(flattened, rows)
 
 
 if __name__ == "__main__":
