@@ -2089,13 +2089,35 @@ def _render_certificado_co_xlsx(context: dict) -> bytes:
 
 def _render_certificado_co_pdf(context: dict) -> bytes:
     """
-    Genera el PDF del certificado C.O. con ReportLab (paginación real de la tabla C.O. 3).
-    El Excel/LibreOffice ya no se usa para el PDF del certificado, para evitar compresión
-    a una sola hoja y el límite artificial de dos páginas.
+    Genera el PDF del certificado C.O. priorizando la plantilla Excel para conservar
+    el formato corporativo. Si la conversión falla, usa ReportLab como respaldo.
     """
+    libreoffice = _find_libreoffice()
+    use_excel_win = platform.system() == "Windows"
+    use_excel_mac = platform.system() == "Darwin"
+    has_office_converter = bool(libreoffice or use_excel_win or use_excel_mac)
+
+    if has_office_converter:
+        try:
+            xlsx_bytes = _render_certificado_co_xlsx(context)
+            return _render_certificado_co_pdf_via_office(
+                context=context,
+                xlsx_bytes=xlsx_bytes,
+                libreoffice=libreoffice,
+                use_excel_win=use_excel_win,
+                use_excel_mac=use_excel_mac,
+            )
+        except Exception as e:
+            logger.warning(
+                "No se pudo generar PDF del certificado desde la plantilla Excel; "
+                "se intentará respaldo con ReportLab. Error: %s",
+                e,
+            )
+
     if not _REPORTLAB_AVAILABLE:
         raise RuntimeError(
-            "Para generar el PDF del certificado C.O. se requiere reportlab: pip install reportlab"
+            "No se pudo convertir la plantilla Excel a PDF y ReportLab no está disponible. "
+            "Instale LibreOffice/Excel o reportlab (pip install reportlab)."
         )
     return _render_certificado_co_pdf_reportlab(context)
 
