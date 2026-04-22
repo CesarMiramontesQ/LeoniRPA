@@ -1282,11 +1282,6 @@ _CERT_CO_PDF_MARGIN_B = 0.6 * inch
 _CERT_CO_PDF_FS_CO3_HEADER = 9
 _CERT_CO_PDF_FS_CO3_ROW = 8.5
 _CERT_CO_PDF_CO3_COL_WIDTHS_IN = [0.98, 1.1, 1.02, 2.15, 0.9, 0.5, 0.45]
-# Límite duro de números de parte por página del anexo C.O. 3.
-# Se combina con validación de altura real para evitar recortes/superposición.
-MAX_PART_NUMBERS_PER_PAGE = 9
-
-
 def _cert_co_pdf_escape_html(s: object) -> str:
     from xml.sax.saxutils import escape
 
@@ -1364,7 +1359,8 @@ def _cert_co_pdf_co3_data_row(
         tariff_txt = ts6 or "—"
     else:
         tariff_txt = ts6 if ts6 else "SEE ATTACHED"
-    origin = (p.get("origin") or "MX").strip() or "MX"
+    # Requisito de negocio: en certificados C.O. el país de origen se fija siempre a MX.
+    origin = "MX"
     return [
         Paragraph(_cert_co_pdf_escape_html(desc_classification), cell_left),
         Paragraph(_cert_co_pdf_escape_html(customer_part), cell_style),
@@ -1473,7 +1469,6 @@ def _cert_co_pdf_total_pages_for_context(context: dict) -> int:
         header_cells,
         cw,
         usable,
-        max_rows_per_page=MAX_PART_NUMBERS_PER_PAGE,
     )
     return 1 + len(chunks)
 
@@ -1591,7 +1586,6 @@ def _render_certificado_co_pdf_reportlab(context: dict) -> bytes:
             header_cells,
             cw,
             _cert_co_pdf_attachment_usable_height_pt(),
-            max_rows_per_page=MAX_PART_NUMBERS_PER_PAGE,
         )
         attach_title_style = ParagraphStyle(
             name="CertCo3AttachTitle",
@@ -1663,7 +1657,6 @@ def _render_certificado_co_pdf_reportlab_attachments(
         header_cells,
         cw,
         _cert_co_pdf_attachment_usable_height_pt(),
-        max_rows_per_page=MAX_PART_NUMBERS_PER_PAGE,
     )
 
     attach_title_style = ParagraphStyle(

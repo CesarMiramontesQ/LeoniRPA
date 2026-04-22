@@ -5,7 +5,6 @@ import unittest
 from datetime import date
 
 from main import (
-    MAX_PART_NUMBERS_PER_PAGE,
     _CERT_CO_PDF_CO3_COL_WIDTHS_IN,
     _CERT_CO_LEONI,
     _cert_co_pdf_attachment_usable_height_pt,
@@ -108,7 +107,6 @@ class TestCertificadoCoPdfPagination(unittest.TestCase):
             header,
             col_widths,
             _cert_co_pdf_attachment_usable_height_pt(),
-            max_rows_per_page=MAX_PART_NUMBERS_PER_PAGE,
         )
         self.assertGreater(len(chunks), 1)
         self.assertEqual(sum(len(c) for c in chunks), len(rows))
@@ -116,8 +114,8 @@ class TestCertificadoCoPdfPagination(unittest.TestCase):
         flattened = [row for chunk in chunks for row in chunk]
         self.assertEqual(flattened, rows)
 
-    def test_cada_pagina_respeta_limite_maximo(self):
-        """Ningún chunk supera MAX_PART_NUMBERS_PER_PAGE."""
+    def test_paginacion_automatica_sin_limite_fijo(self):
+        """Sin límite fijo, el corte por página depende de la altura real."""
         ctx = _base_ctx(partes_co3=[_part(i, desc_len=10) for i in range(80)])
         styles = getSampleStyleSheet()
         header_style, cell_style, cell_left, header_left = _cert_co_pdf_co3_cell_styles(styles)
@@ -130,10 +128,9 @@ class TestCertificadoCoPdfPagination(unittest.TestCase):
             header,
             col_widths,
             _cert_co_pdf_attachment_usable_height_pt(),
-            max_rows_per_page=MAX_PART_NUMBERS_PER_PAGE,
         )
         self.assertGreater(len(chunks), 1)
-        self.assertTrue(all(len(chunk) <= MAX_PART_NUMBERS_PER_PAGE for chunk in chunks))
+        self.assertTrue(any(len(chunk) > 9 for chunk in chunks))
         self.assertEqual(sum(len(chunk) for chunk in chunks), len(rows))
 
     def test_anexos_reportlab_generan_paginas_fisicas(self):
@@ -166,6 +163,26 @@ class TestCertificadoCoPdfPagination(unittest.TestCase):
         reader = PdfReader(BytesIO(attachments_pdf))
         first_text = reader.pages[0].extract_text() or ""
         self.assertIn("Page 2 of", first_text)
+
+    def test_country_of_origin_siempre_mx(self):
+        """La columna Origin Country debe renderizar siempre MX."""
+        ctx = _base_ctx()
+        styles = getSampleStyleSheet()
+        _hs, cs, cl, _hl = _cert_co_pdf_co3_cell_styles(styles)
+        row = _cert_co_pdf_co3_data_row(
+            {
+                "part_number": "123",
+                "part_number_leoni": "123",
+                "customer_part_number": "C-123",
+                "description": "Test",
+                "tariff_schedule": "854442",
+                "origin": "US",
+            },
+            ctx,
+            cs,
+            cl,
+        )
+        self.assertEqual(row[-1].getPlainText().strip(), "MX")
 
 
 if __name__ == "__main__":
