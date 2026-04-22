@@ -5,6 +5,7 @@ import unittest
 from datetime import date
 
 from main import (
+    MAX_PART_NUMBERS_PER_PAGE,
     _CERT_CO_PDF_CO3_COL_WIDTHS_IN,
     _CERT_CO_LEONI,
     _cert_co_pdf_attachment_usable_height_pt,
@@ -13,6 +14,7 @@ from main import (
     _cert_co_pdf_co3_header_row,
     _cert_co_pdf_total_pages_for_context,
     _render_certificado_co_pdf_reportlab,
+    _render_certificado_co_pdf_reportlab_attachments,
     render_table_with_pagination,
 )
 from reportlab.lib.styles import getSampleStyleSheet
@@ -101,12 +103,69 @@ class TestCertificadoCoPdfPagination(unittest.TestCase):
         rows = [_cert_co_pdf_co3_data_row(p, ctx, cell_style, cell_left) for p in ctx["partes_co3"]]
         col_widths = [w * inch for w in _CERT_CO_PDF_CO3_COL_WIDTHS_IN]
 
-        chunks = render_table_with_pagination(rows, header, col_widths, _cert_co_pdf_attachment_usable_height_pt())
+        chunks = render_table_with_pagination(
+            rows,
+            header,
+            col_widths,
+            _cert_co_pdf_attachment_usable_height_pt(),
+            max_rows_per_page=MAX_PART_NUMBERS_PER_PAGE,
+        )
         self.assertGreater(len(chunks), 1)
         self.assertEqual(sum(len(c) for c in chunks), len(rows))
 
         flattened = [row for chunk in chunks for row in chunk]
         self.assertEqual(flattened, rows)
+
+    def test_cada_pagina_respeta_limite_maximo(self):
+        """Ningún chunk supera MAX_PART_NUMBERS_PER_PAGE."""
+        ctx = _base_ctx(partes_co3=[_part(i, desc_len=10) for i in range(80)])
+        styles = getSampleStyleSheet()
+        header_style, cell_style, cell_left, header_left = _cert_co_pdf_co3_cell_styles(styles)
+        header = _cert_co_pdf_co3_header_row(header_style, header_left)
+        rows = [_cert_co_pdf_co3_data_row(p, ctx, cell_style, cell_left) for p in ctx["partes_co3"]]
+        col_widths = [w * inch for w in _CERT_CO_PDF_CO3_COL_WIDTHS_IN]
+
+        chunks = render_table_with_pagination(
+            rows,
+            header,
+            col_widths,
+            _cert_co_pdf_attachment_usable_height_pt(),
+            max_rows_per_page=MAX_PART_NUMBERS_PER_PAGE,
+        )
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(len(chunk) <= MAX_PART_NUMBERS_PER_PAGE for chunk in chunks))
+        self.assertEqual(sum(len(chunk) for chunk in chunks), len(rows))
+
+    def test_anexos_reportlab_generan_paginas_fisicas(self):
+        """Adjuntos C.O. 3 generan N páginas físicas reales."""
+        from io import BytesIO
+        from pypdf import PdfReader
+
+        ctx = _base_ctx(partes_co3=[_part(i, desc_len=120) for i in range(90)])
+        total = _cert_co_pdf_total_pages_for_context(ctx)
+        attachments_pdf = _render_certificado_co_pdf_reportlab_attachments(
+            context=ctx,
+            total_pages=total,
+            page_start=2,
+        )
+        reader = PdfReader(BytesIO(attachments_pdf))
+        self.assertEqual(len(reader.pages), total - 1)
+
+    def test_anexos_footer_arranca_en_pagina_2(self):
+        """El footer del PDF de adjuntos inicia en la página absoluta 2."""
+        from io import BytesIO
+        from pypdf import PdfReader
+
+        ctx = _base_ctx(partes_co3=[_part(i, desc_len=120) for i in range(20)])
+        total = _cert_co_pdf_total_pages_for_context(ctx)
+        attachments_pdf = _render_certificado_co_pdf_reportlab_attachments(
+            context=ctx,
+            total_pages=total,
+            page_start=2,
+        )
+        reader = PdfReader(BytesIO(attachments_pdf))
+        first_text = reader.pages[0].extract_text() or ""
+        self.assertIn("Page 2 of", first_text)
 
 
 if __name__ == "__main__":

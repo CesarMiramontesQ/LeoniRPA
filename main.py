@@ -1282,6 +1282,9 @@ _CERT_CO_PDF_MARGIN_B = 0.6 * inch
 _CERT_CO_PDF_FS_CO3_HEADER = 9
 _CERT_CO_PDF_FS_CO3_ROW = 8.5
 _CERT_CO_PDF_CO3_COL_WIDTHS_IN = [0.98, 1.1, 1.02, 2.15, 0.9, 0.5, 0.45]
+# Límite duro de números de parte por página del anexo C.O. 3.
+# Se combina con validación de altura real para evitar recortes/superposición.
+MAX_PART_NUMBERS_PER_PAGE = 9
 
 
 def _cert_co_pdf_escape_html(s: object) -> str:
@@ -1407,6 +1410,7 @@ def render_table_with_pagination(
     header_row: List[Paragraph],
     col_widths: List[float],
     usable_height_pt: float,
+    max_rows_per_page: Optional[int] = None,
 ) -> List[List[List[Paragraph]]]:
     """
     Parte en páginas (chunks) la lista de filas de Paragraphs.
@@ -1418,12 +1422,19 @@ def render_table_with_pagination(
     hh = _cert_co_pdf_table_row_height(header_row, col_widths, header_row=True)
     avail = float(usable_height_pt)
     max_data_on_page = max(avail - hh, 1.0)
+    max_rows = int(max_rows_per_page) if max_rows_per_page is not None else None
+    if max_rows is not None and max_rows <= 0:
+        raise ValueError("max_rows_per_page debe ser mayor a cero")
     chunks: List[List[List[Paragraph]]] = []
     chunk: List[List[Paragraph]] = []
     room = avail - hh
 
     for row in rows:
         rh = _cert_co_pdf_table_row_height(row, col_widths, header_row=False)
+        if max_rows is not None and len(chunk) >= max_rows:
+            chunks.append(chunk)
+            chunk = []
+            room = avail - hh
         if rh > max_data_on_page:
             if chunk:
                 chunks.append(chunk)
@@ -1457,7 +1468,13 @@ def _cert_co_pdf_total_pages_for_context(context: dict) -> int:
     cw = [w * inch for w in _CERT_CO_PDF_CO3_COL_WIDTHS_IN]
     data_rows = [_cert_co_pdf_co3_data_row(p, context, cell_style, cell_left) for p in partes]
     usable = _cert_co_pdf_attachment_usable_height_pt()
-    chunks = render_table_with_pagination(data_rows, header_cells, cw, usable)
+    chunks = render_table_with_pagination(
+        data_rows,
+        header_cells,
+        cw,
+        usable,
+        max_rows_per_page=MAX_PART_NUMBERS_PER_PAGE,
+    )
     return 1 + len(chunks)
 
 
@@ -1569,7 +1586,13 @@ def _render_certificado_co_pdf_reportlab(context: dict) -> bytes:
         header_cells = _cert_co_pdf_co3_header_row(header_style, header_left)
         cw = [w * inch for w in _CERT_CO_PDF_CO3_COL_WIDTHS_IN]
         data_rows = [_cert_co_pdf_co3_data_row(p, context, cell_style, cell_left) for p in partes]
-        chunks = render_table_with_pagination(data_rows, header_cells, cw, _cert_co_pdf_attachment_usable_height_pt())
+        chunks = render_table_with_pagination(
+            data_rows,
+            header_cells,
+            cw,
+            _cert_co_pdf_attachment_usable_height_pt(),
+            max_rows_per_page=MAX_PART_NUMBERS_PER_PAGE,
+        )
         attach_title_style = ParagraphStyle(
             name="CertCo3AttachTitle",
             parent=styles["Normal"],
@@ -1605,6 +1628,121 @@ def _render_certificado_co_pdf_reportlab(context: dict) -> bytes:
             story.append(tbl)
 
     doc.build(story, onFirstPage=_footer, onLaterPages=_footer)
+    return out.getvalue()
+
+
+def _render_certificado_co_pdf_reportlab_attachments(
+    context: dict, total_pages: int, page_start: int = 2
+) -> bytes:
+    """
+    Renderiza únicamente las páginas de adjunto (C.O. 3) con paginación real.
+    page_start define el número absoluto de página del primer adjunto (por defecto 2).
+    """
+    if not _REPORTLAB_AVAILABLE:
+        raise RuntimeError("reportlab no está instalado; ejecute: pip install reportlab")
+    partes = context.get("partes_co3") or context.get("partes") or []
+    if not partes:
+        return b""
+
+    out = BytesIO()
+    doc = SimpleDocTemplate(
+        out,
+        pagesize=letter,
+        leftMargin=_CERT_CO_PDF_MARGIN_L,
+        rightMargin=_CERT_CO_PDF_MARGIN_R,
+        topMargin=_CERT_CO_PDF_MARGIN_T,
+        bottomMargin=_CERT_CO_PDF_MARGIN_B,
+    )
+    styles = getSampleStyleSheet()
+    header_style, cell_style, cell_left, header_left = _cert_co_pdf_co3_cell_styles(styles)
+    header_cells = _cert_co_pdf_co3_header_row(header_style, header_left)
+    cw = [w * inch for w in _CERT_CO_PDF_CO3_COL_WIDTHS_IN]
+    data_rows = [_cert_co_pdf_co3_data_row(p, context, cell_style, cell_left) for p in partes]
+    chunks = render_table_with_pagination(
+        data_rows,
+        header_cells,
+        cw,
+        _cert_co_pdf_attachment_usable_height_pt(),
+        max_rows_per_page=MAX_PART_NUMBERS_PER_PAGE,
+    )
+
+    attach_title_style = ParagraphStyle(
+        name="CertCo3AttachTitleOnly",
+        parent=styles["Normal"],
+        fontSize=10,
+        fontName="Helvetica-Bold",
+        alignment=TA_CENTER,
+        spaceAfter=8,
+        spaceBefore=0,
+    )
+    co3_table_style_cmds = [
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f0f0f0")),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 1), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 4),
+    ]
+
+    def _footer(canv, doc_):
+        canv.saveState()
+        canv.setFont("Helvetica", 8)
+        pw = doc_.pagesize[0]
+        y = float(_CERT_CO_PDF_MARGIN_B) * 0.55 + 6
+        page_abs = page_start + doc_.page - 1
+        canv.drawCentredString(pw / 2.0, y, f"Page {page_abs} of {total_pages}")
+        canv.restoreState()
+
+    story = []
+    for i, chunk in enumerate(chunks):
+        if i > 0:
+            story.append(PageBreak())
+        story.append(
+            Paragraph(
+                "Attachment to USMCA / T-MEC Certification of Origin — Section 5 (goods listing)",
+                attach_title_style,
+            )
+        )
+        story.append(Spacer(1, 6))
+        tbl_data = [header_cells] + chunk
+        tbl = Table(tbl_data, colWidths=cw, repeatRows=1)
+        tbl.setStyle(TableStyle(co3_table_style_cmds))
+        story.append(tbl)
+
+    doc.build(story, onFirstPage=_footer, onLaterPages=_footer)
+    return out.getvalue()
+
+
+def _extract_first_page_pdf(pdf_bytes: bytes) -> bytes:
+    """Devuelve un PDF con solo la primera página del PDF de entrada."""
+    from pypdf import PdfReader, PdfWriter
+
+    reader = PdfReader(BytesIO(pdf_bytes))
+    if len(reader.pages) == 0:
+        raise RuntimeError("El PDF generado desde plantilla no contiene páginas.")
+    writer = PdfWriter()
+    writer.add_page(reader.pages[0])
+    out = BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def _merge_pdf_documents(pdf_documents: List[bytes]) -> bytes:
+    """Une varios PDFs en uno solo, respetando el orden de entrada."""
+    from pypdf import PdfReader, PdfWriter
+
+    writer = PdfWriter()
+    for doc_bytes in pdf_documents:
+        if not doc_bytes:
+            continue
+        reader = PdfReader(BytesIO(doc_bytes))
+        for page in reader.pages:
+            writer.add_page(page)
+    out = BytesIO()
+    writer.write(out)
     return out.getvalue()
 
 
@@ -2089,37 +2227,60 @@ def _render_certificado_co_xlsx(context: dict) -> bytes:
 
 def _render_certificado_co_pdf(context: dict) -> bytes:
     """
-    Genera el PDF del certificado C.O. priorizando la plantilla Excel para conservar
-    el formato corporativo. Si la conversión falla, usa ReportLab como respaldo.
+    Genera el PDF del certificado C.O. con paginación física de anexos (C.O. 3)
+    usando ReportLab. Si ReportLab no está disponible, intenta convertir la
+    plantilla Excel a PDF como respaldo.
     """
     libreoffice = _find_libreoffice()
     use_excel_win = platform.system() == "Windows"
     use_excel_mac = platform.system() == "Darwin"
     has_office_converter = bool(libreoffice or use_excel_win or use_excel_mac)
 
-    if has_office_converter:
+    if _REPORTLAB_AVAILABLE and has_office_converter:
         try:
             xlsx_bytes = _render_certificado_co_xlsx(context)
-            return _render_certificado_co_pdf_via_office(
+            template_pdf = _render_certificado_co_pdf_via_office(
                 context=context,
                 xlsx_bytes=xlsx_bytes,
                 libreoffice=libreoffice,
                 use_excel_win=use_excel_win,
                 use_excel_mac=use_excel_mac,
             )
+            first_page_pdf = _extract_first_page_pdf(template_pdf)
+            partes = context.get("partes_co3") or context.get("partes") or []
+            if not partes:
+                return first_page_pdf
+            total_pages = _cert_co_pdf_total_pages_for_context(context)
+            attachments_pdf = _render_certificado_co_pdf_reportlab_attachments(
+                context=context,
+                total_pages=total_pages,
+                page_start=2,
+            )
+            return _merge_pdf_documents([first_page_pdf, attachments_pdf])
         except Exception as e:
             logger.warning(
-                "No se pudo generar PDF del certificado desde la plantilla Excel; "
-                "se intentará respaldo con ReportLab. Error: %s",
+                "No se pudo generar PDF híbrido (plantilla+anexos paginados). "
+                "Se usará PDF completo con ReportLab. Error: %s",
                 e,
             )
+            return _render_certificado_co_pdf_reportlab(context)
 
-    if not _REPORTLAB_AVAILABLE:
-        raise RuntimeError(
-            "No se pudo convertir la plantilla Excel a PDF y ReportLab no está disponible. "
-            "Instale LibreOffice/Excel o reportlab (pip install reportlab)."
+    if _REPORTLAB_AVAILABLE:
+        return _render_certificado_co_pdf_reportlab(context)
+
+    if has_office_converter:
+        xlsx_bytes = _render_certificado_co_xlsx(context)
+        return _render_certificado_co_pdf_via_office(
+            context=context,
+            xlsx_bytes=xlsx_bytes,
+            libreoffice=libreoffice,
+            use_excel_win=use_excel_win,
+            use_excel_mac=use_excel_mac,
         )
-    return _render_certificado_co_pdf_reportlab(context)
+    raise RuntimeError(
+        "No hay motor disponible para generar el PDF del certificado. "
+        "Instale reportlab (recomendado) o LibreOffice/Excel."
+    )
 
 
 def _render_certificado_co_pdf_via_office(
