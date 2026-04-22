@@ -7059,9 +7059,9 @@ async def get_analisis_icr_detalle(
             desc_por_material: Dict[str, str] = {}
             for numero_material, descripcion_material in materiales_db.all():
                 nm = str(numero_material or "").strip()
-                desc = str(descripcion_material or "").strip()
-                if nm and desc:
-                    desc_por_material[nm] = desc
+                descripcion_texto = str(descripcion_material or "").strip()
+                if nm and descripcion_texto:
+                    desc_por_material[nm] = descripcion_texto
             for p in partes_list:
                 if _descripcion_vacia(p.get("description")):
                     pn = (p.get("part_number") or "").strip()
@@ -7087,14 +7087,14 @@ async def get_analisis_icr_detalle(
                 best_by_prefix: Dict[str, Tuple[str, str]] = {}
                 for numero_material, descripcion_material in materiales_pref_db.all():
                     nm = str(numero_material or "").strip()
-                    desc = str(descripcion_material or "").strip()
-                    if not nm or not desc or len(nm) < 9:
+                    descripcion_texto = str(descripcion_material or "").strip()
+                    if not nm or not descripcion_texto or len(nm) < 9:
                         continue
                     pref = nm[:9]
                     prev = best_by_prefix.get(pref)
                     # Si hay varios candidatos para el mismo prefijo, priorizar el número más corto.
                     if prev is None or len(nm) < len(prev[0]) or (len(nm) == len(prev[0]) and nm < prev[0]):
-                        best_by_prefix[pref] = (nm, desc)
+                        best_by_prefix[pref] = (nm, descripcion_texto)
                 for p in partes_list:
                     if not _descripcion_vacia(p.get("description")):
                         continue
