@@ -7040,6 +7040,71 @@ async def get_analisis_icr_detalle(
                         p["description"] = descr_parte  # descripción canónica por número de parte
                     break
 
+    # Fallback de descripción: cuando no existe en ventas ni en Parte, intentar en Materiales.
+    # 1) Match exacto por número
+    # 2) Si no hay match exacto, buscar por prefijo inicial de 9 caracteres (ej. 85000015A -> 85000015A001)
+    def _descripcion_vacia(value: Optional[str]) -> bool:
+        s = str(value or "").strip()
+        return (not s) or s == "—"
+
+    if partes_list:
+        numeros = [p["part_number"] for p in partes_list if (p.get("part_number") or "").strip()]
+        if numeros:
+            materiales_db = await db.execute(
+                select(Material.numero_material, Material.descripcion_material).where(
+                    Material.numero_material.in_(numeros),
+                    Material.descripcion_material.isnot(None),
+                )
+            )
+            desc_por_material: Dict[str, str] = {}
+            for numero_material, descripcion_material in materiales_db.all():
+                nm = str(numero_material or "").strip()
+                desc = str(descripcion_material or "").strip()
+                if nm and desc:
+                    desc_por_material[nm] = desc
+            for p in partes_list:
+                if _descripcion_vacia(p.get("description")):
+                    pn = (p.get("part_number") or "").strip()
+                    desc_mat = (desc_por_material.get(pn) or "").strip()
+                    if desc_mat:
+                        p["description"] = desc_mat
+
+            # Segundo intento: prefijo de 9 caracteres al inicio en materiales.
+            faltantes = [
+                (p.get("part_number") or "").strip()
+                for p in partes_list
+                if _descripcion_vacia(p.get("description")) and (p.get("part_number") or "").strip()
+            ]
+            prefixes = sorted({pn[:9] for pn in faltantes if len(pn[:9]) == 9})
+            if prefixes:
+                conds = [Material.numero_material.like(f"{pref}%") for pref in prefixes]
+                materiales_pref_db = await db.execute(
+                    select(Material.numero_material, Material.descripcion_material).where(
+                        or_(*conds),
+                        Material.descripcion_material.isnot(None),
+                    )
+                )
+                best_by_prefix: Dict[str, Tuple[str, str]] = {}
+                for numero_material, descripcion_material in materiales_pref_db.all():
+                    nm = str(numero_material or "").strip()
+                    desc = str(descripcion_material or "").strip()
+                    if not nm or not desc or len(nm) < 9:
+                        continue
+                    pref = nm[:9]
+                    prev = best_by_prefix.get(pref)
+                    # Si hay varios candidatos para el mismo prefijo, priorizar el número más corto.
+                    if prev is None or len(nm) < len(prev[0]) or (len(nm) == len(prev[0]) and nm < prev[0]):
+                        best_by_prefix[pref] = (nm, desc)
+                for p in partes_list:
+                    if not _descripcion_vacia(p.get("description")):
+                        continue
+                    pn = (p.get("part_number") or "").strip()
+                    if len(pn) < 9:
+                        continue
+                    picked = best_by_prefix.get(pn[:9])
+                    if picked and picked[1]:
+                        p["description"] = picked[1]
+
     # Calcular ICR (Regional index) por parte para mostrarlo en la lista; incluir razón cuando ICR = 0%
     for p in partes_list:
         icr_val, icr_reason = await get_icr_para_parte(db, codigo_cliente, p["part_number"])
