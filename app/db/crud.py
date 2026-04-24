@@ -1,7 +1,7 @@
 """Operaciones CRUD para usuarios, ejecuciones y BOM."""
 import json
 import math
-from sqlalchemy import select, desc, func, or_, and_, String, text, delete, update, cast, tuple_, exists
+from sqlalchemy import select, desc, func, case, or_, and_, String, text, delete, update, cast, tuple_, exists
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -9,7 +9,7 @@ from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List, Dict, Any, Set, Tuple, FrozenSet
 from datetime import datetime, timedelta, timezone, date, time
 from decimal import Decimal, InvalidOperation
-from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaProveedoresNacional, CargaProveedoresNacionalHistorial, CargaCliente, MasterUnificadoVirtuales, MasterUnificadoVirtualHistorial, MasterUnificadoVirtualOperacion, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente, Parte, TradingGood, TradingGoodHistorial, Bom, BomRevision, BomItem, BomHistorial, PesoNeto, PesoNetoHistorial, CrossReference, CrossReferenceHistorial, PrecioVenta, PrecioVentaHistorial, FraccionArancelariaHistorial
+from app.db.models import User, ExecutionHistory, SalesExecutionHistory, ExecutionStatus, Part, BomFlat, PartRole, Proveedor, Material, PrecioMaterial, Compra, PaisOrigenMaterial, ProveedorHistorial, ProveedorOperacion, MaterialHistorial, MaterialOperacion, PaisOrigenMaterialHistorial, PaisOrigenMaterialOperacion, PrecioMaterialHistorial, PrecioMaterialOperacion, ClienteGrupo, Venta, CargaProveedor, CargaProveedoresNacional, CargaProveedoresNacionalHistorial, CargaCliente, MasterUnificadoVirtuales, MasterUnificadoVirtualHistorial, MasterUnificadoVirtualOperacion, CargaProveedorHistorial, CargaProveedorOperacion, CargaClienteHistorial, CargaClienteOperacion, Cliente, Parte, TradingGood, TradingGoodHistorial, Kathoden, KathodenHistorial, Semiterminado, SemiterminadoHistorial, Bom, BomRevision, BomItem, BomHistorial, PesoNeto, PesoNetoHistorial, CrossReference, CrossReferenceHistorial, PrecioVenta, PrecioVentaHistorial, FraccionArancelariaHistorial
 from app.core.security import hash_password
 
 
@@ -591,6 +591,167 @@ async def list_trading_goods_historial(
         }
         for r in rows
     ]
+
+
+async def list_kathoden(db: AsyncSession) -> List[Kathoden]:
+    """Lista registros de kathoden ordenados por año y mes descendente."""
+    mes_normalizado = func.lower(func.trim(Kathoden.mes))
+    mes_orden = case(
+        (mes_normalizado.like("%enero%"), 1),
+        (mes_normalizado.like("%febrero%"), 2),
+        (mes_normalizado.like("%marzo%"), 3),
+        (mes_normalizado.like("%abril%"), 4),
+        (mes_normalizado.like("%mayo%"), 5),
+        (mes_normalizado.like("%junio%"), 6),
+        (mes_normalizado.like("%julio%"), 7),
+        (mes_normalizado.like("%agosto%"), 8),
+        (mes_normalizado.like("%septiembre%"), 9),
+        (mes_normalizado.like("%setiembre%"), 9),
+        (mes_normalizado.like("%octubre%"), 10),
+        (mes_normalizado.like("%noviembre%"), 11),
+        (mes_normalizado.like("%diciembre%"), 12),
+        else_=0,
+    )
+    result = await db.execute(
+        select(Kathoden).order_by(
+            Kathoden.anio.desc().nullslast(),
+            mes_orden.desc(),
+            desc(Kathoden.updated_at),
+            desc(Kathoden.created_at),
+        )
+    )
+    return list(result.scalars().all())
+
+
+async def get_kathoden_by_mes_anio(
+    db: AsyncSession,
+    mes: str,
+    anio: int,
+) -> Optional[Kathoden]:
+    """Obtiene un registro de kathoden por combinación mes/año."""
+    mes_normalizado = (mes or "").strip().lower()
+    if not mes_normalizado:
+        return None
+    result = await db.execute(
+        select(Kathoden).where(
+            func.lower(func.trim(Kathoden.mes)) == mes_normalizado,
+            Kathoden.anio == anio,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def create_kathoden(
+    db: AsyncSession,
+    mes: str,
+    anio: int,
+    precio: float,
+    user_id: Optional[int] = None,
+) -> Kathoden:
+    """Crea un registro de kathoden y registra el historial del cambio."""
+    registro_existente = await get_kathoden_by_mes_anio(db, mes=mes, anio=anio)
+    if registro_existente:
+        raise ValueError("Ya existe un registro para el mes y año seleccionados.")
+
+    nuevo = Kathoden(
+        mes=(mes or "").strip(),
+        anio=anio,
+        precio=float(precio),
+    )
+    db.add(nuevo)
+    await db.flush()
+    db.add(
+        KathodenHistorial(
+            kathoden_id=nuevo.id,
+            mes=nuevo.mes,
+            anio=nuevo.anio or anio,
+            precio_anterior=None,
+            precio_nuevo=nuevo.precio,
+            operacion="CREATE",
+            user_id=user_id,
+        )
+    )
+    await db.commit()
+    await db.refresh(nuevo)
+    return nuevo
+
+
+async def list_semiterminados(db: AsyncSession) -> List[Dict[str, Any]]:
+    """Lista semiterminados con descripción de material (si existe)."""
+    result = await db.execute(
+        select(Semiterminado, Material.descripcion_material)
+        .outerjoin(Material, Material.numero_material == Semiterminado.numero_material)
+        .order_by(desc(Semiterminado.updated_at), Semiterminado.numero_material.asc())
+    )
+
+    rows = result.all()
+    return [
+        {
+            "id": semi.id,
+            "numero_material": semi.numero_material,
+            "descripcion_material": descripcion_material,
+            "is_active": semi.is_active,
+            "cut": semi.cut,
+            "created_at": semi.created_at,
+            "updated_at": semi.updated_at,
+        }
+        for semi, descripcion_material in rows
+    ]
+
+
+async def get_semiterminado_by_numero_material(
+    db: AsyncSession,
+    numero_material: str,
+) -> Optional[Semiterminado]:
+    """Obtiene un semiterminado por número de material."""
+    result = await db.execute(
+        select(Semiterminado).where(Semiterminado.numero_material == numero_material)
+    )
+    return result.scalar_one_or_none()
+
+
+async def create_semiterminado(
+    db: AsyncSession,
+    numero_material: str,
+    is_active: bool = True,
+    cut: Optional[float] = None,
+    user_id: Optional[int] = None,
+) -> Semiterminado:
+    """Crea un registro de semiterminado con validaciones básicas."""
+    numero_material = (numero_material or "").strip()
+    if not numero_material:
+        raise ValueError("El número de material es obligatorio.")
+
+    material = await get_material_by_numero(db, numero_material)
+    if not material:
+        raise ValueError("El número de material no existe en la tabla de materiales.")
+
+    existente = await get_semiterminado_by_numero_material(db, numero_material)
+    if existente:
+        raise ValueError("Ese número de material ya existe en semiterminados.")
+
+    item = Semiterminado(
+        numero_material=numero_material,
+        is_active=bool(is_active),
+        cut=cut,
+    )
+    db.add(item)
+    await db.flush()
+    db.add(
+        SemiterminadoHistorial(
+            semiterminado_id=item.id,
+            numero_material=item.numero_material,
+            is_active_anterior=None,
+            is_active_nuevo=item.is_active,
+            cut_anterior=None,
+            cut_nuevo=item.cut,
+            operacion="CREATE",
+            user_id=user_id,
+        )
+    )
+    await db.commit()
+    await db.refresh(item)
+    return item
 
 
 async def update_fraccion_parte(

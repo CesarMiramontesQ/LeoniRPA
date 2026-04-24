@@ -194,7 +194,7 @@
                           <button
                             type="button"
                             id="compras-menu-toggle-mobile"
-                            class="group flex w-full items-center justify-between gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page in ['compras', 'todas_compras', 'proveedores', 'materiales', 'paises_origen'] %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                            class="group flex w-full items-center justify-between gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page in ['compras', 'todas_compras', 'proveedores', 'materiales', 'paises_origen', 'precio_kathoden', 'semiterminados'] %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
                           >
                             <div class="flex items-center gap-x-3">
                               <svg
@@ -203,7 +203,7 @@
                                 viewBox="0 0 24 24"
                                 stroke-width="1.5"
                                 stroke="currentColor"
-                                class="size-6 shrink-0 {% if active_page in ['compras', 'todas_compras', 'proveedores', 'materiales', 'paises_origen'] %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
+                                class="size-6 shrink-0 {% if active_page in ['compras', 'todas_compras', 'proveedores', 'materiales', 'paises_origen', 'precio_kathoden', 'semiterminados'] %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
                               >
                                 <path
                                   stroke-linecap="round"
@@ -215,7 +215,7 @@
                             </div>
                             <svg
                               id="compras-menu-arrow-mobile"
-                              class="size-5 shrink-0 transition-transform duration-200 {% if active_page in ['compras', 'todas_compras', 'proveedores', 'materiales', 'paises_origen'] %}rotate-90 text-[#003D89]{% else %}text-gray-400{% endif %}"
+                              class="size-5 shrink-0 transition-transform duration-200 {% if active_page in ['compras', 'todas_compras', 'proveedores', 'materiales', 'paises_origen', 'precio_kathoden', 'semiterminados'] %}rotate-90 text-[#003D89]{% else %}text-gray-400{% endif %}"
                               xmlns="http://www.w3.org/2000/svg"
                               fill="none"
                               viewBox="0 0 24 24"
@@ -227,7 +227,7 @@
                           </button>
                           <ul
                             id="compras-submenu-mobile"
-                            class="mt-1 space-y-1 pl-9 {% if active_page in ['compras', 'todas_compras', 'proveedores', 'materiales', 'paises_origen'] %}block{% else %}hidden{% endif %}"
+                            class="mt-1 space-y-1 pl-9 {% if active_page in ['compras', 'todas_compras', 'proveedores', 'materiales', 'paises_origen', 'precio_kathoden', 'semiterminados'] %}block{% else %}hidden{% endif %}"
                           >
                             <li>
                               <a
@@ -259,6 +259,22 @@
                                 class="block rounded-md px-2 py-1.5 text-sm/6 font-medium {% if active_page == 'paises_origen' %}bg-gray-100 text-[#003D89]{% else %}text-gray-600 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
                               >
                                 Materiales
+                              </a>
+                            </li>
+                            <li>
+                              <a
+                                href="/precio-kathoden"
+                                class="block rounded-md px-2 py-1.5 text-sm/6 font-medium {% if active_page == 'precio_kathoden' %}bg-gray-100 text-[#003D89]{% else %}text-gray-600 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                              >
+                                Precio Kathoden
+                              </a>
+                            </li>
+                            <li>
+                              <a
+                                href="/semiterminados"
+                                class="block rounded-md px-2 py-1.5 text-sm/6 font-medium {% if active_page == 'semiterminados' %}bg-gray-100 text-[#003D89]{% else %}text-gray-600 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                              >
+                                Semiterminados
                               </a>
                             </li>
                           </ul>
@@ -630,7 +646,7 @@ class="size-6 shrink-0 {% if active_page in ['carga_proveedor', 'carga_cliente',
                     <button
                       type="button"
                       id="compras-menu-toggle-desktop"
-                      class="group flex w-full items-center justify-between gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page in ['compras', 'todas_compras', 'proveedores', 'materiales', 'paises_origen'] %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                      class="group flex w-full items-center justify-between gap-x-3 rounded-md p-2 text-sm/6 font-semibold {% if active_page in ['compras', 'todas_compras', 'proveedores', 'materiales', 'paises_origen', 'precio_kathoden', 'semiterminados'] %}bg-gray-50 text-[#003D89]{% else %}text-gray-700 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
                     >
                       <div class="flex items-center gap-x-3">
                         <svg
@@ -639,7 +655,7 @@ class="size-6 shrink-0 {% if active_page in ['carga_proveedor', 'carga_cliente',
                           viewBox="0 0 24 24"
                           stroke-width="1.5"
                           stroke="currentColor"
-                          class="size-6 shrink-0 {% if active_page in ['compras', 'todas_compras', 'proveedores', 'materiales', 'paises_origen'] %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
+                          class="size-6 shrink-0 {% if active_page in ['compras', 'todas_compras', 'proveedores', 'materiales', 'paises_origen', 'precio_kathoden', 'semiterminados'] %}text-[#003D89]{% else %}text-gray-400 group-hover:text-[#003D89]{% endif %}"
                         >
                           <path
                             stroke-linecap="round"
@@ -651,7 +667,7 @@ class="size-6 shrink-0 {% if active_page in ['carga_proveedor', 'carga_cliente',
                       </div>
                       <svg
                         id="compras-menu-arrow-desktop"
-                        class="size-5 shrink-0 transition-transform duration-200 {% if active_page in ['compras', 'todas_compras', 'proveedores', 'materiales', 'paises_origen'] %}rotate-90 text-[#003D89]{% else %}text-gray-400{% endif %}"
+                        class="size-5 shrink-0 transition-transform duration-200 {% if active_page in ['compras', 'todas_compras', 'proveedores', 'materiales', 'paises_origen', 'precio_kathoden', 'semiterminados'] %}rotate-90 text-[#003D89]{% else %}text-gray-400{% endif %}"
                         xmlns="http://www.w3.org/2000/svg"
                         fill="none"
                         viewBox="0 0 24 24"
@@ -663,7 +679,7 @@ class="size-6 shrink-0 {% if active_page in ['carga_proveedor', 'carga_cliente',
                     </button>
                     <ul
                       id="compras-submenu-desktop"
-                      class="mt-1 space-y-1 pl-9 {% if active_page in ['compras', 'todas_compras', 'proveedores', 'materiales', 'paises_origen'] %}block{% else %}hidden{% endif %}"
+                      class="mt-1 space-y-1 pl-9 {% if active_page in ['compras', 'todas_compras', 'proveedores', 'materiales', 'paises_origen', 'precio_kathoden', 'semiterminados'] %}block{% else %}hidden{% endif %}"
                     >
                       <li>
                         <a
@@ -695,6 +711,22 @@ class="size-6 shrink-0 {% if active_page in ['carga_proveedor', 'carga_cliente',
                           class="block rounded-md px-2 py-1.5 text-sm/6 font-medium {% if active_page == 'paises_origen' %}bg-gray-100 text-[#003D89]{% else %}text-gray-600 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
                         >
                           Materiales
+                        </a>
+                      </li>
+                      <li>
+                        <a
+                          href="/precio-kathoden"
+                          class="block rounded-md px-2 py-1.5 text-sm/6 font-medium {% if active_page == 'precio_kathoden' %}bg-gray-100 text-[#003D89]{% else %}text-gray-600 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                        >
+                          Precio Kathoden
+                        </a>
+                      </li>
+                      <li>
+                        <a
+                          href="/semiterminados"
+                          class="block rounded-md px-2 py-1.5 text-sm/6 font-medium {% if active_page == 'semiterminados' %}bg-gray-100 text-[#003D89]{% else %}text-gray-600 hover:bg-gray-50 hover:text-[#003D89]{% endif %}"
+                        >
+                          Semiterminados
                         </a>
                       </li>
                     </ul>

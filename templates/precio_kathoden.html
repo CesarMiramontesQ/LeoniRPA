@@ -1,0 +1,264 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="space-y-6">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold text-gray-900">Precio Kathoden</h1>
+      <p class="mt-1 text-sm text-gray-600">
+        Tabla de precios de kathoden por mes y año.
+      </p>
+    </div>
+    {% if current_user and current_user.rol in ['admin', 'operador'] %}
+    <button
+      type="button"
+      id="btn-crear-precio-kathoden"
+      class="inline-flex items-center rounded-md bg-[#003D89] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#002d66] focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
+    >
+      Crear nuevo precio
+    </button>
+    {% endif %}
+  </div>
+
+  <div class="rounded-lg bg-white shadow-sm">
+    <div class="border-b border-gray-200 px-6 py-4">
+      <p class="text-sm text-gray-600">
+        Total: <span class="font-semibold text-gray-900">{{ items|length }}</span> registro(s)
+      </p>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Año
+            </th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Mes
+            </th>
+            <th scope="col" class="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
+              Precio
+            </th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Última actualización
+            </th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200 bg-white">
+          {% for item in items %}
+          <tr class="hover:bg-gray-50" data-mes="{{ item.mes }}" data-anio="{{ item.anio }}">
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">
+              {{ item.anio if item.anio is not none else "—" }}
+            </td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900">
+              {{ item.mes }}
+            </td>
+            <td class="whitespace-nowrap px-6 py-4 text-right text-sm font-medium text-gray-900">
+              {{ "{:,.6f}".format(item.precio) if item.precio is not none else "—" }}
+            </td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
+              {% if item.updated_at %}{{ item.updated_at | datetime_cdmx('%d/%m/%Y %H:%M') }}{% else %}—{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not items %}
+          <tr>
+            <td colspan="4" class="px-6 py-8 text-center text-sm text-gray-500">
+              No hay precios de kathoden registrados.
+            </td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% if current_user and current_user.rol in ['admin', 'operador'] %}
+<div id="modal-precio-kathoden" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true">
+  <div class="flex min-h-full items-center justify-center p-4">
+    <div id="modal-precio-kathoden-backdrop" class="fixed inset-0 bg-gray-500/75 transition-opacity"></div>
+    <div class="relative w-full max-w-md rounded-lg bg-white shadow-xl">
+      <div class="border-b border-gray-200 px-6 py-4">
+        <h3 class="text-lg font-semibold text-gray-900">Crear nuevo precio</h3>
+      </div>
+      <form id="form-precio-kathoden" class="space-y-4 px-6 py-4">
+        <div>
+          <label for="kathoden-anio" class="block text-sm font-medium text-gray-700">Año</label>
+          <select
+            id="kathoden-anio"
+            class="mt-1 block w-full rounded-md border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-900"
+          >
+            <option value="{{ anio_actual }}">{{ anio_actual }}</option>
+          </select>
+        </div>
+        <div>
+          <label for="kathoden-mes" class="block text-sm font-medium text-gray-700">Mes</label>
+          <select
+            id="kathoden-mes"
+            required
+            class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+          >
+            {% for mes in meses_permitidos %}
+            <option value="{{ mes }}">{{ mes }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label for="kathoden-precio" class="block text-sm font-medium text-gray-700">Monto</label>
+          <input
+            id="kathoden-precio"
+            type="number"
+            step="0.000001"
+            min="0.000001"
+            required
+            placeholder="Ej. 123.450000"
+            class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+          />
+        </div>
+        <p id="kathoden-form-success" class="hidden text-sm text-green-700"></p>
+        <p id="kathoden-form-error" class="hidden text-sm text-red-600"></p>
+      </form>
+      <div class="flex justify-end gap-3 rounded-b-lg border-t border-gray-200 bg-gray-50 px-6 py-4">
+        <button
+          type="button"
+          id="btn-cancelar-precio-kathoden"
+          class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
+        >
+          Cancelar
+        </button>
+        <button
+          type="submit"
+          form="form-precio-kathoden"
+          id="btn-guardar-precio-kathoden"
+          class="rounded-md bg-[#003D89] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#002d66] focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
+        >
+          Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var btnAbrir = document.getElementById('btn-crear-precio-kathoden');
+  var modal = document.getElementById('modal-precio-kathoden');
+  var backdrop = document.getElementById('modal-precio-kathoden-backdrop');
+  var btnCancelar = document.getElementById('btn-cancelar-precio-kathoden');
+  var form = document.getElementById('form-precio-kathoden');
+  var inputAnio = document.getElementById('kathoden-anio');
+  var inputMes = document.getElementById('kathoden-mes');
+  var inputPrecio = document.getElementById('kathoden-precio');
+  var btnGuardar = document.getElementById('btn-guardar-precio-kathoden');
+  var msgError = document.getElementById('kathoden-form-error');
+  var msgSuccess = document.getElementById('kathoden-form-success');
+  var textoGuardarDefault = btnGuardar.textContent;
+
+  function normalizeMes(mes) {
+    return (mes || '').toString().trim().toLowerCase();
+  }
+
+  function buildCombosExistentes() {
+    var combos = new Set();
+    document.querySelectorAll('tr[data-mes][data-anio]').forEach(function (row) {
+      var mes = normalizeMes(row.getAttribute('data-mes'));
+      var anio = (row.getAttribute('data-anio') || '').trim();
+      if (mes && anio) {
+        combos.add(mes + '-' + anio);
+      }
+    });
+    return combos;
+  }
+
+  function limpiarMensajes() {
+    msgError.classList.add('hidden');
+    msgSuccess.classList.add('hidden');
+    msgError.textContent = '';
+    msgSuccess.textContent = '';
+  }
+
+  function abrirModal() {
+    limpiarMensajes();
+    inputPrecio.value = '';
+    modal.classList.remove('hidden');
+    inputPrecio.focus();
+  }
+
+  function cerrarModal() {
+    modal.classList.add('hidden');
+    limpiarMensajes();
+  }
+
+  function setLoading(loading) {
+    btnGuardar.disabled = loading;
+    inputAnio.disabled = loading;
+    inputMes.disabled = loading;
+    inputPrecio.disabled = loading;
+    btnGuardar.textContent = loading ? 'Guardando...' : textoGuardarDefault;
+  }
+
+  btnAbrir.addEventListener('click', abrirModal);
+  backdrop.addEventListener('click', cerrarModal);
+  btnCancelar.addEventListener('click', cerrarModal);
+
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    limpiarMensajes();
+
+    var anio = parseInt(inputAnio.value, 10);
+    var mes = (inputMes.value || '').trim();
+    var precio = parseFloat(inputPrecio.value);
+
+    if (!mes) {
+      msgError.textContent = 'Selecciona un mes válido.';
+      msgError.classList.remove('hidden');
+      return;
+    }
+    if (!Number.isFinite(precio) || precio <= 0) {
+      msgError.textContent = 'Ingresa un monto válido mayor a cero.';
+      msgError.classList.remove('hidden');
+      return;
+    }
+
+    var key = normalizeMes(mes) + '-' + String(anio);
+    var combosExistentes = buildCombosExistentes();
+    if (combosExistentes.has(key)) {
+      msgError.textContent = 'Ya existe un registro para ese mes y año.';
+      msgError.classList.remove('hidden');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      var response = await fetch('/api/precio-kathoden', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          anio: anio,
+          mes: mes,
+          precio: precio
+        })
+      });
+      var data = await response.json();
+
+      if (!response.ok || !data.ok) {
+        msgError.textContent = data.error || 'No se pudo guardar el precio.';
+        msgError.classList.remove('hidden');
+        return;
+      }
+
+      msgSuccess.textContent = data.mensaje || 'Precio creado correctamente.';
+      msgSuccess.classList.remove('hidden');
+      setTimeout(function () { window.location.reload(); }, 700);
+    } catch (err) {
+      msgError.textContent = 'Error de conexión. Intenta nuevamente.';
+      msgError.classList.remove('hidden');
+    } finally {
+      setLoading(false);
+    }
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:16
+    container_name: leoni-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: leoni_rpa
+    ports:
+      - "5433:5432"
+    volumes:
+      - leoni_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d leoni_rpa"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  leoni_pgdata:

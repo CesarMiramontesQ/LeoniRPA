@@ -1,5 +1,5 @@
 """Modelos de base de datos."""
-from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Boolean, ForeignKey, Text, Enum as SQLEnum, Numeric, Index, UniqueConstraint, CheckConstraint, Date, TypeDecorator, text
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Boolean, ForeignKey, Text, Enum as SQLEnum, Numeric, Float, Index, UniqueConstraint, CheckConstraint, Date, TypeDecorator, text
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
@@ -73,6 +73,41 @@ class TradingGoodHistorial(Base):
 
     def __repr__(self):
         return f"<TradingGoodHistorial(id={self.id}, numero_parte={self.numero_parte}, created_at={self.created_at})>"
+
+
+class Kathoden(Base):
+    """Registro de precio por mes para kathoden."""
+    __tablename__ = "kathoden"
+
+    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    mes = Column(String(50), nullable=False)
+    anio = Column(Integer, nullable=True)
+    precio = Column(Float, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    def __repr__(self):
+        return f"<Kathoden(id={self.id}, mes={self.mes}, anio={self.anio}, precio={self.precio})>"
+
+
+class KathodenHistorial(Base):
+    """Historial de cambios en kathoden (creación/actualización) con usuario."""
+    __tablename__ = "kathoden_historial"
+
+    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    kathoden_id = Column(BigInteger, ForeignKey("kathoden.id", ondelete="SET NULL"), nullable=True, index=True)
+    mes = Column(String(50), nullable=False)
+    anio = Column(Integer, nullable=False, index=True)
+    precio_anterior = Column(Float, nullable=True)
+    precio_nuevo = Column(Float, nullable=False)
+    operacion = Column(String(20), nullable=False, server_default=text("'CREATE'"))
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    user = relationship("User", backref="kathoden_historial")
+
+    def __repr__(self):
+        return f"<KathodenHistorial(id={self.id}, mes={self.mes}, anio={self.anio}, operacion={self.operacion})>"
 
 
 class Bom(Base):
@@ -535,9 +570,59 @@ class Material(Base):
     
     # Relaciones
     precios = relationship("PrecioMaterial", back_populates="material")
+    semiterminado = relationship("Semiterminado", back_populates="material", uselist=False)
     
     def __repr__(self):
         return f"<Material(id={self.id}, numero_material={self.numero_material}, descripcion_material={self.descripcion_material})>"
+
+
+class Semiterminado(Base):
+    """Modelo para materiales semiterminados."""
+    __tablename__ = "semiterminados"
+
+    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+
+    # Clave foránea al catálogo de materiales
+    numero_material = Column(String, ForeignKey("materiales.numero_material"), nullable=False, unique=True, index=True)
+
+    # Activo/inactivo
+    is_active = Column(Boolean, nullable=False, server_default=text("true"))
+
+    # CUT
+    cut = Column(Float, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relación
+    material = relationship("Material", foreign_keys=[numero_material], back_populates="semiterminado")
+    historial = relationship("SemiterminadoHistorial", back_populates="semiterminado")
+
+    def __repr__(self):
+        return f"<Semiterminado(id={self.id}, numero_material={self.numero_material}, is_active={self.is_active}, cut={self.cut})>"
+
+
+class SemiterminadoHistorial(Base):
+    """Historial de cambios en semiterminados."""
+    __tablename__ = "semiterminados_historial"
+
+    id = Column(BigInteger, primary_key=True, index=True, autoincrement=True)
+    semiterminado_id = Column(BigInteger, ForeignKey("semiterminados.id", ondelete="SET NULL"), nullable=True, index=True)
+    numero_material = Column(String, nullable=False, index=True)
+    is_active_anterior = Column(Boolean, nullable=True)
+    is_active_nuevo = Column(Boolean, nullable=False)
+    cut_anterior = Column(Float, nullable=True)
+    cut_nuevo = Column(Float, nullable=True)
+    operacion = Column(String(20), nullable=False, server_default=text("'CREATE'"))
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    semiterminado = relationship("Semiterminado", back_populates="historial")
+    user = relationship("User", backref="semiterminados_historial")
+
+    def __repr__(self):
+        return f"<SemiterminadoHistorial(id={self.id}, numero_material={self.numero_material}, operacion={self.operacion})>"
 
 
 class MaterialOperacion(PyEnum):

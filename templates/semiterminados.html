@@ -1,0 +1,282 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="space-y-6">
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-2xl font-semibold text-gray-900">Semiterminados</h1>
+      <p class="mt-1 text-sm text-gray-600">
+        Consulta de materiales semiterminados y su CUT.
+      </p>
+    </div>
+    {% if current_user and current_user.rol in ['admin', 'operador'] %}
+    <button
+      type="button"
+      id="btn-crear-semiterminado"
+      class="inline-flex items-center rounded-md bg-[#003D89] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#002d66] focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
+    >
+      Agregar semiterminado
+    </button>
+    {% endif %}
+  </div>
+
+  <div class="rounded-lg bg-white shadow-sm">
+    <div class="border-b border-gray-200 px-6 py-4">
+      <p class="text-sm text-gray-600">
+        Total: <span class="font-semibold text-gray-900">{{ total_semiterminados }}</span> registro(s)
+      </p>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+          <tr>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Número Material
+            </th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Descripción
+            </th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Activo
+            </th>
+            <th scope="col" class="px-6 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
+              CUT
+            </th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Creado
+            </th>
+            <th scope="col" class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+              Actualizado
+            </th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200 bg-white">
+          {% for item in items %}
+          <tr class="hover:bg-gray-50" data-numero-material="{{ item.numero_material }}">
+            <td class="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900">
+              {{ item.numero_material }}
+            </td>
+            <td class="px-6 py-4 text-sm text-gray-500">
+              {{ item.descripcion_material or "—" }}
+            </td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm">
+              {% if item.is_active %}
+              <span class="inline-flex rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-800">Sí</span>
+              {% else %}
+              <span class="inline-flex rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700">No</span>
+              {% endif %}
+            </td>
+            <td class="whitespace-nowrap px-6 py-4 text-right text-sm text-gray-900">
+              {{ "{:,.6f}".format(item.cut) if item.cut is not none else "—" }}
+            </td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
+              {{ item.created_at | datetime_cdmx('%d/%m/%Y %H:%M') if item.created_at else "—" }}
+            </td>
+            <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
+              {{ item.updated_at | datetime_cdmx('%d/%m/%Y %H:%M') if item.updated_at else "—" }}
+            </td>
+          </tr>
+          {% endfor %}
+          {% if not items %}
+          <tr>
+            <td colspan="6" class="px-6 py-8 text-center text-sm text-gray-500">
+              No hay semiterminados registrados.
+            </td>
+          </tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+{% if current_user and current_user.rol in ['admin', 'operador'] %}
+<div id="modal-semiterminado" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true">
+  <div class="flex min-h-full items-center justify-center p-4">
+    <div id="modal-semiterminado-backdrop" class="fixed inset-0 bg-gray-500/75 transition-opacity"></div>
+    <div class="relative w-full max-w-md rounded-lg bg-white shadow-xl">
+      <div class="border-b border-gray-200 px-6 py-4">
+        <h3 class="text-lg font-semibold text-gray-900">Agregar semiterminado</h3>
+      </div>
+      <form id="form-semiterminado" class="space-y-4 px-6 py-4">
+        <div>
+          <label for="semi-numero-material" class="block text-sm font-medium text-gray-700">Número de material</label>
+          <input
+            id="semi-numero-material"
+            type="text"
+            required
+            placeholder="Ej. 1234567890"
+            class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+          />
+        </div>
+        <div>
+          <label for="semi-cut" class="block text-sm font-medium text-gray-700">CUT</label>
+          <input
+            id="semi-cut"
+            type="number"
+            step="0.000001"
+            placeholder="Ej. 0.123456"
+            class="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-[#003D89] focus:outline-none focus:ring-1 focus:ring-[#003D89]"
+          />
+        </div>
+        <div class="flex items-center gap-2">
+          <input
+            id="semi-is-active"
+            type="checkbox"
+            checked
+            class="h-4 w-4 rounded border-gray-300 text-[#003D89] focus:ring-[#003D89]"
+          />
+          <label for="semi-is-active" class="text-sm text-gray-700">Activo</label>
+        </div>
+        <p id="semi-form-success" class="hidden text-sm text-green-700"></p>
+        <p id="semi-form-error" class="hidden text-sm text-red-600"></p>
+      </form>
+      <div class="flex justify-end gap-3 rounded-b-lg border-t border-gray-200 bg-gray-50 px-6 py-4">
+        <button
+          type="button"
+          id="btn-cancelar-semiterminado"
+          class="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
+        >
+          Cancelar
+        </button>
+        <button
+          type="submit"
+          form="form-semiterminado"
+          id="btn-guardar-semiterminado"
+          class="rounded-md bg-[#003D89] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#002d66] focus:outline-none focus:ring-2 focus:ring-[#003D89] focus:ring-offset-2"
+        >
+          Guardar
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var btnAbrir = document.getElementById('btn-crear-semiterminado');
+  var modal = document.getElementById('modal-semiterminado');
+  var backdrop = document.getElementById('modal-semiterminado-backdrop');
+  var btnCancelar = document.getElementById('btn-cancelar-semiterminado');
+  var form = document.getElementById('form-semiterminado');
+  var inputNumeroMaterial = document.getElementById('semi-numero-material');
+  var inputCut = document.getElementById('semi-cut');
+  var inputIsActive = document.getElementById('semi-is-active');
+  var btnGuardar = document.getElementById('btn-guardar-semiterminado');
+  var msgError = document.getElementById('semi-form-error');
+  var msgSuccess = document.getElementById('semi-form-success');
+  var textoGuardarDefault = btnGuardar.textContent;
+
+  function normalizeMaterial(v) {
+    return (v || '').toString().trim();
+  }
+
+  function buildExistentes() {
+    var existentes = new Set();
+    document.querySelectorAll('tr[data-numero-material]').forEach(function (row) {
+      var numero = normalizeMaterial(row.getAttribute('data-numero-material'));
+      if (numero) {
+        existentes.add(numero);
+      }
+    });
+    return existentes;
+  }
+
+  function limpiarMensajes() {
+    msgError.classList.add('hidden');
+    msgSuccess.classList.add('hidden');
+    msgError.textContent = '';
+    msgSuccess.textContent = '';
+  }
+
+  function abrirModal() {
+    limpiarMensajes();
+    inputNumeroMaterial.value = '';
+    inputCut.value = '';
+    inputIsActive.checked = true;
+    modal.classList.remove('hidden');
+    inputNumeroMaterial.focus();
+  }
+
+  function cerrarModal() {
+    modal.classList.add('hidden');
+    limpiarMensajes();
+  }
+
+  function setLoading(loading) {
+    btnGuardar.disabled = loading;
+    inputNumeroMaterial.disabled = loading;
+    inputCut.disabled = loading;
+    inputIsActive.disabled = loading;
+    btnGuardar.textContent = loading ? 'Guardando...' : textoGuardarDefault;
+  }
+
+  btnAbrir.addEventListener('click', abrirModal);
+  backdrop.addEventListener('click', cerrarModal);
+  btnCancelar.addEventListener('click', cerrarModal);
+
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    limpiarMensajes();
+
+    var numeroMaterial = normalizeMaterial(inputNumeroMaterial.value);
+    var cutRaw = (inputCut.value || '').trim();
+    var isActive = Boolean(inputIsActive.checked);
+
+    if (!numeroMaterial) {
+      msgError.textContent = 'El número de material es obligatorio.';
+      msgError.classList.remove('hidden');
+      return;
+    }
+
+    var existentes = buildExistentes();
+    if (existentes.has(numeroMaterial)) {
+      msgError.textContent = 'Ese número de material ya existe en semiterminados.';
+      msgError.classList.remove('hidden');
+      return;
+    }
+
+    var cut = null;
+    if (cutRaw) {
+      var parsedCut = parseFloat(cutRaw);
+      if (!Number.isFinite(parsedCut)) {
+        msgError.textContent = 'El valor de CUT es inválido.';
+        msgError.classList.remove('hidden');
+        return;
+      }
+      cut = parsedCut;
+    }
+
+    setLoading(true);
+    try {
+      var response = await fetch('/api/semiterminados', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          numero_material: numeroMaterial,
+          is_active: isActive,
+          cut: cut
+        })
+      });
+      var data = await response.json();
+
+      if (!response.ok || !data.ok) {
+        msgError.textContent = data.error || 'No se pudo guardar el semiterminado.';
+        msgError.classList.remove('hidden');
+        return;
+      }
+
+      msgSuccess.textContent = data.mensaje || 'Semiterminado creado correctamente.';
+      msgSuccess.classList.remove('hidden');
+      setTimeout(function () { window.location.reload(); }, 700);
+    } catch (err) {
+      msgError.textContent = 'Error de conexión. Intenta nuevamente.';
+      msgError.classList.remove('hidden');
+    } finally {
+      setLoading(false);
+    }
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

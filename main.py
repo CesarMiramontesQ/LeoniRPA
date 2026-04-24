@@ -4912,6 +4912,199 @@ async def todas_compras(request: Request, current_user: User = Depends(get_curre
     )
 
 
+def _meses_permitidos_kathoden(fecha_referencia: Optional[date] = None) -> List[str]:
+    """Devuelve [mes actual, mes anterior] en español."""
+    meses = [
+        "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+        "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+    ]
+    hoy = fecha_referencia or datetime.now().date()
+    idx_actual = hoy.month - 1
+    idx_anterior = (idx_actual - 1) % 12
+    resultado: List[str] = [meses[idx_actual], meses[idx_anterior]]
+    # Evita duplicados por seguridad
+    return list(dict.fromkeys(resultado))
+
+
+@app.get("/precio-kathoden")
+async def precio_kathoden(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Página para consultar precios de kathoden - requiere autenticación."""
+    hoy = datetime.now().date()
+    items = await crud.list_kathoden(db)
+    return templates.TemplateResponse(
+        "precio_kathoden.html",
+        {
+            "request": request,
+            "active_page": "precio_kathoden",
+            "current_user": current_user,
+            "items": items,
+            "anio_actual": hoy.year,
+            "meses_permitidos": _meses_permitidos_kathoden(hoy),
+        }
+    )
+
+
+@app.get("/semiterminados")
+async def semiterminados(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Página para consultar semiterminados - requiere autenticación."""
+    items = await crud.list_semiterminados(db)
+    return templates.TemplateResponse(
+        "semiterminados.html",
+        {
+            "request": request,
+            "active_page": "semiterminados",
+            "current_user": current_user,
+            "items": items,
+            "total_semiterminados": len(items),
+        }
+    )
+
+
+@app.post("/api/precio-kathoden")
+async def api_create_precio_kathoden(
+    request: Request,
+    current_user: User = Depends(require_roles(["admin", "operador"])),
+    db: AsyncSession = Depends(get_db),
+):
+    """Crea un precio de kathoden con validaciones de mes/año y duplicados."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Cuerpo JSON inválido."}, status_code=400)
+
+    hoy = datetime.now().date()
+    anio_actual = hoy.year
+    meses_permitidos = _meses_permitidos_kathoden(hoy)
+    meses_permitidos_norm = {m.lower(): m for m in meses_permitidos}
+
+    mes_input = (body.get("mes") or "").strip()
+    if not mes_input:
+        return JSONResponse({"ok": False, "error": "El mes es obligatorio."}, status_code=400)
+    mes_norm = mes_input.lower()
+    if mes_norm not in meses_permitidos_norm:
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": f"Mes inválido. Solo se permite: {', '.join(meses_permitidos)}.",
+            },
+            status_code=400,
+        )
+    mes_canonico = meses_permitidos_norm[mes_norm]
+
+    anio_input = body.get("anio")
+    try:
+        anio = int(anio_input)
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "El año es inválido."}, status_code=400)
+    if anio != anio_actual:
+        return JSONResponse(
+            {"ok": False, "error": f"Solo se permite registrar precios del año actual ({anio_actual})."},
+            status_code=400,
+        )
+
+    precio_input = body.get("precio")
+    try:
+        precio = float(precio_input)
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "El monto es inválido."}, status_code=400)
+    if precio <= 0:
+        return JSONResponse({"ok": False, "error": "El monto debe ser mayor a cero."}, status_code=400)
+
+    try:
+        nuevo = await crud.create_kathoden(
+            db,
+            mes=mes_canonico,
+            anio=anio,
+            precio=precio,
+            user_id=current_user.id,
+        )
+    except ValueError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+    except Exception:
+        logger.exception("Error creando precio kathoden")
+        return JSONResponse({"ok": False, "error": "No se pudo guardar el precio."}, status_code=500)
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "mensaje": "Precio creado correctamente.",
+            "item": {
+                "id": nuevo.id,
+                "mes": nuevo.mes,
+                "anio": nuevo.anio,
+                "precio": nuevo.precio,
+            },
+        }
+    )
+
+
+@app.post("/api/semiterminados")
+async def api_create_semiterminado(
+    request: Request,
+    current_user: User = Depends(require_roles(["admin", "operador"])),
+    db: AsyncSession = Depends(get_db),
+):
+    """Crea un semiterminado con validaciones de campos."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Cuerpo JSON inválido."}, status_code=400)
+
+    numero_material = str(body.get("numero_material") or "").strip()
+    if not numero_material:
+        return JSONResponse({"ok": False, "error": "El número de material es obligatorio."}, status_code=400)
+
+    is_active_raw = body.get("is_active", True)
+    if isinstance(is_active_raw, bool):
+        is_active = is_active_raw
+    elif isinstance(is_active_raw, str):
+        val = is_active_raw.strip().lower()
+        if val in ("true", "1", "si", "sí", "yes"):
+            is_active = True
+        elif val in ("false", "0", "no"):
+            is_active = False
+        else:
+            return JSONResponse({"ok": False, "error": "El valor de activo es inválido."}, status_code=400)
+    else:
+        is_active = bool(is_active_raw)
+
+    cut_raw = body.get("cut")
+    if cut_raw in (None, ""):
+        cut = None
+    else:
+        try:
+            cut = float(cut_raw)
+        except (TypeError, ValueError):
+            return JSONResponse({"ok": False, "error": "El valor de CUT es inválido."}, status_code=400)
+
+    try:
+        nuevo = await crud.create_semiterminado(
+            db,
+            numero_material=numero_material,
+            is_active=is_active,
+            cut=cut,
+            user_id=current_user.id,
+        )
+    except ValueError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+    except Exception:
+        logger.exception("Error creando semiterminado")
+        return JSONResponse({"ok": False, "error": "No se pudo guardar el semiterminado."}, status_code=500)
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "mensaje": "Semiterminado creado correctamente.",
+            "item": {
+                "id": nuevo.id,
+                "numero_material": nuevo.numero_material,
+                "is_active": nuevo.is_active,
+                "cut": nuevo.cut,
+            },
+        }
+    )
+
+
 @app.get("/boms")
 async def boms(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Página de BOMs - Lista de materiales - requiere autenticación."""

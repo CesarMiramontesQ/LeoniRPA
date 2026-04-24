@@ -506,6 +506,118 @@ async def run_migration_bom_historial():
     print("  ✓ Tabla 'bom_historial' creada o ya existía.")
 
 
+async def run_migration_kathoden():
+    """Crea la tabla kathoden y su historial si no existen."""
+    from app.db.base import engine
+    from sqlalchemy import text
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS kathoden (
+                id BIGSERIAL PRIMARY KEY,
+                mes VARCHAR(50) NOT NULL,
+                anio INTEGER,
+                precio DOUBLE PRECISION NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """))
+        await conn.execute(text("""
+            ALTER TABLE kathoden
+            ADD COLUMN IF NOT EXISTS anio INTEGER
+        """))
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS kathoden_historial (
+                id BIGSERIAL PRIMARY KEY,
+                kathoden_id BIGINT NULL REFERENCES kathoden(id) ON DELETE SET NULL,
+                mes VARCHAR(50) NOT NULL,
+                anio INTEGER NOT NULL,
+                precio_anterior DOUBLE PRECISION NULL,
+                precio_nuevo DOUBLE PRECISION NOT NULL,
+                operacion VARCHAR(20) NOT NULL DEFAULT 'CREATE',
+                user_id INTEGER NULL REFERENCES users(id),
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_kathoden_historial_kathoden_id ON kathoden_historial (kathoden_id)
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_kathoden_historial_user_id ON kathoden_historial (user_id)
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_kathoden_historial_created_at ON kathoden_historial (created_at DESC)
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_kathoden_historial_anio ON kathoden_historial (anio)
+        """))
+    print("  ✓ Tablas 'kathoden' y 'kathoden_historial' creadas o ya existían.")
+
+
+async def run_migration_semiterminados():
+    """Crea la tabla semiterminados si no existe."""
+    from app.db.base import engine
+    from sqlalchemy import text
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS semiterminados (
+                id BIGSERIAL PRIMARY KEY,
+                numero_material VARCHAR NOT NULL REFERENCES materiales(numero_material),
+                is_active BOOLEAN NOT NULL DEFAULT true,
+                cut DOUBLE PRECISION,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                CONSTRAINT uq_semiterminados_numero_material UNIQUE (numero_material)
+            )
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_semiterminados_numero_material
+            ON semiterminados (numero_material)
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_semiterminados_is_active
+            ON semiterminados (is_active)
+        """))
+    print("  ✓ Tabla 'semiterminados' creada o ya existía.")
+
+
+async def run_migration_semiterminados_historial():
+    """Crea la tabla semiterminados_historial si no existe."""
+    from app.db.base import engine
+    from sqlalchemy import text
+    async with engine.begin() as conn:
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS semiterminados_historial (
+                id BIGSERIAL PRIMARY KEY,
+                semiterminado_id BIGINT NULL REFERENCES semiterminados(id) ON DELETE SET NULL,
+                numero_material VARCHAR NOT NULL,
+                is_active_anterior BOOLEAN NULL,
+                is_active_nuevo BOOLEAN NOT NULL,
+                cut_anterior DOUBLE PRECISION NULL,
+                cut_nuevo DOUBLE PRECISION NULL,
+                operacion VARCHAR(20) NOT NULL DEFAULT 'CREATE',
+                user_id INTEGER NULL REFERENCES users(id),
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            )
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_semiterminados_historial_semiterminado_id
+            ON semiterminados_historial (semiterminado_id)
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_semiterminados_historial_numero_material
+            ON semiterminados_historial (numero_material)
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_semiterminados_historial_user_id
+            ON semiterminados_historial (user_id)
+        """))
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS ix_semiterminados_historial_created_at
+            ON semiterminados_historial (created_at DESC)
+        """))
+    print("  ✓ Tabla 'semiterminados_historial' creada o ya existía.")
+
+
 async def main():
     from app.db.base import engine
 
@@ -597,6 +709,18 @@ async def main():
         # 20. Migración: tabla historial de BOMs
         print("\n[20/20] Migración: tabla bom_historial...")
         await run_migration_bom_historial()
+
+        # 21. Migración: tabla kathoden
+        print("\n[21/21] Migración: tabla kathoden...")
+        await run_migration_kathoden()
+
+        # 22. Migración: tabla semiterminados
+        print("\n[22/22] Migración: tabla semiterminados...")
+        await run_migration_semiterminados()
+
+        # 23. Migración: tabla semiterminados_historial
+        print("\n[23/23] Migración: tabla semiterminados_historial...")
+        await run_migration_semiterminados_historial()
 
         print("\n" + "=" * 60)
         print("Todas las migraciones se completaron correctamente.")
