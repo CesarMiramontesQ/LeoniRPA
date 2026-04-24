@@ -1552,7 +1552,33 @@ async def get_bom_items_for_parte(
     # Proveedores, porcentaje de compra, país de origen y comentario desde pais_origen_material (solo con % > 0).
     # PU/Kg (precio_compra) = amount_in_lc / quantity_in_opun desde el último registro de compras por (numero_material, codigo_proveedor).
     proveedores_by_material: Dict[str, List[Dict[str, Any]]] = {}
+    semiterminados_activos: Set[str] = set()
+    meses_es = {
+        1: "enero",
+        2: "febrero",
+        3: "marzo",
+        4: "abril",
+        5: "mayo",
+        6: "junio",
+        7: "julio",
+        8: "agosto",
+        9: "septiembre",
+        10: "octubre",
+        11: "noviembre",
+        12: "diciembre",
+    }
     if numeros_parte:
+        # Semiterminados activos para aplicar fórmula especial de PU.
+        result_semiterminados = await db.execute(
+            select(Semiterminado.numero_material).where(
+                Semiterminado.numero_material.in_(numeros_parte),
+                Semiterminado.is_active.is_(True),
+            )
+        )
+        semiterminados_activos = {
+            str((num or "").strip()) for num in result_semiterminados.scalars().all() if str((num or "").strip())
+        }
+
         result_pais = await db.execute(
             select(
                 PaisOrigenMaterial.numero_material,
@@ -1635,17 +1661,45 @@ async def get_bom_items_for_parte(
                 compra_antigua = pd_date is None or pd_date < limite_fecha_compra
                 if compra_antigua:
                     alguna_compra_antigua = True
-                pu_kg = None
-                if not compra_antigua and amt is not None and qty is not None and int(qty) != 0:
+                pu_kg_ultima_compra = None
+                if amt is not None and qty is not None and int(qty) != 0:
                     try:
-                        pu_kg = float(Decimal(str(amt)) / int(qty))
+                        pu_kg_ultima_compra = float(Decimal(str(amt)) / int(qty))
                     except (ZeroDivisionError, ValueError, InvalidOperation):
                         pass
+                pu_kg = pu_kg_ultima_compra if not compra_antigua else None
                 ultimo_precio_by_key[key] = {
                     "price": pu_kg,
+                    "last_purchase_price": pu_kg_ultima_compra,
                     "currency": (row[4] or "").strip() if row[4] else None,
                     "old_purchase": compra_antigua,
+                    "purchase_month": (meses_es.get(pd_date.month) if pd_date else None),
+                    "purchase_year": (pd_date.year if pd_date else None),
                 }
+        # Precio kathoden por (anio, mes) requerido para semiterminados.
+        kathoden_precio_by_periodo: Dict[tuple, float] = {}
+        if semiterminados_activos and ultimo_precio_by_key:
+            periodos_requeridos = {
+                (int(meta["purchase_year"]), str(meta["purchase_month"]).strip().lower())
+                for (num, _), meta in ultimo_precio_by_key.items()
+                if num in semiterminados_activos
+                and meta.get("purchase_year") is not None
+                and meta.get("purchase_month")
+            }
+            if periodos_requeridos:
+                anios_req = list({anio for anio, _ in periodos_requeridos})
+                meses_req = list({mes for _, mes in periodos_requeridos})
+                result_kathoden = await db.execute(
+                    select(Kathoden.anio, Kathoden.mes, Kathoden.precio).where(
+                        Kathoden.anio.in_(anios_req),
+                        func.lower(func.trim(Kathoden.mes)).in_(meses_req),
+                    )
+                )
+                for anio_val, mes_val, precio_val in result_kathoden.all():
+                    mes_norm = str((mes_val or "").strip()).lower()
+                    if anio_val is None or not mes_norm or precio_val is None:
+                        continue
+                    kathoden_precio_by_periodo[(int(anio_val), mes_norm)] = float(precio_val)
         # Nombres de proveedor
         codigos_proveedor = list({k[1] for k in pais_data_by_key.keys()})
         proveedor_nombres: Dict[int, str] = {}
@@ -1662,8 +1716,29 @@ async def get_bom_items_for_parte(
         if pais_data_by_key:
             for (num, cod), data in pais_data_by_key.items():
                 ultimo = ultimo_precio_by_key.get((num, cod)) or {}
-                # Si la última compra es anterior a 2 años, no poner precio de compra (0)
-                precio_final = 0 if ultimo.get("old_purchase") else ultimo.get("price")
+                is_semiterminado = num in semiterminados_activos
+                warning_pu = None
+                # Semiterminado: PU = última compra + precio kathoden del mismo mes/año de compra.
+                if is_semiterminado:
+                    compra_unit = ultimo.get("last_purchase_price")
+                    compra_mes = (ultimo.get("purchase_month") or "").strip().lower()
+                    compra_anio = ultimo.get("purchase_year")
+                    precio_kathoden = (
+                        kathoden_precio_by_periodo.get((int(compra_anio), compra_mes))
+                        if compra_anio is not None and compra_mes
+                        else None
+                    )
+                    if compra_unit is not None and compra_anio is not None and compra_mes and precio_kathoden is not None:
+                        precio_final = float(compra_unit) + float(precio_kathoden)
+                    else:
+                        precio_final = 0
+                        warning_pu = (
+                            "No se pudo calcular PU de semiterminado por falta de última compra "
+                            "válida o precio kathoden del mismo mes/año."
+                        )
+                else:
+                    # Si la última compra es anterior a 2 años, no poner precio de compra (0)
+                    precio_final = 0 if ultimo.get("old_purchase") else ultimo.get("price")
                 prov_entry = {
                     "nombre_proveedor": proveedor_nombres.get(cod) or str(cod),
                     "codigo_proveedor": cod,
@@ -1673,6 +1748,8 @@ async def get_bom_items_for_parte(
                     "currency_uom": ultimo.get("currency"),
                     "comentario": data.get("comentario"),
                     "tipo": data.get("tipo"),
+                    "is_semiterminado": is_semiterminado,
+                    "pu_warning": warning_pu,
                 }
                 if num not in proveedores_by_material:
                     proveedores_by_material[num] = []
@@ -1681,7 +1758,7 @@ async def get_bom_items_for_parte(
     if numeros_parte and proveedores_by_material:
 
         # Para el número de parte "310004003", PU/Kg = precio del material + último PU/Kg de "310004000" del mismo proveedor (PU/Kg = amount_in_lc / quantity_in_opun)
-        if "310004003" in proveedores_by_material:
+        if "310004003" in proveedores_by_material and "310004003" not in semiterminados_activos:
             proveedores_310004003 = list({int(p["codigo_proveedor"]) for p in proveedores_by_material["310004003"] if p.get("codigo_proveedor") is not None})
             precio_310004000_by_proveedor: Dict[int, float] = {}
             if proveedores_310004003:
@@ -1745,7 +1822,9 @@ async def get_bom_items_for_parte(
                 else:
                     alguna_compra_antigua = True
         if precio_mas_cobre_fallback is not None:
-            for prov_list in proveedores_by_material.values():
+            for num_material, prov_list in proveedores_by_material.items():
+                if num_material in semiterminados_activos:
+                    continue
                 for p in prov_list:
                     if (p.get("comentario") or "").strip().upper() == "MAS COBRE" and (
                         p.get("precio_compra") is None or (isinstance(p.get("precio_compra"), (int, float)) and p.get("precio_compra") == 0)
@@ -1753,7 +1832,7 @@ async def get_bom_items_for_parte(
                         p["precio_compra"] = precio_mas_cobre_fallback
 
         # Para el material "310905000" usar última compra con PU/Kg = amount_in_lc / quantity_in_opun > 10
-        if "310905000" in proveedores_by_material:
+        if "310905000" in proveedores_by_material and "310905000" not in semiterminados_activos:
             ultima_compra_310905000 = await db.execute(
                 select(Compra.amount_in_lc, Compra.quantity_in_opun, Compra.posting_date).where(
                     Compra.numero_material == "310905000",
