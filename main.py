@@ -10,7 +10,7 @@ from typing import Any, Optional, List, Tuple, Dict
 from decimal import Decimal, InvalidOperation
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.router import router as auth_router, get_current_user, AuthenticationError, require_roles
-from app.db.init_db import verify_db_connection
+from app.db.init_db import init_db
 from app.db.base import get_db
 from app.db.models import User, ExecutionStatus, MasterUnificadoVirtualOperacion, ClienteGrupo, Cliente, Venta
 from app.db import crud
@@ -18,7 +18,6 @@ from app.bom.service import load_bom
 from app.bom.schemas import LoadBomInput, LoadBomResponse
 from app.bom.parse_sap_export import parse_sap_bom_txt
 from app.core.config import settings
-from app.ventas.router import router as ventas_router
 from urllib.parse import quote_plus
 import threading
 import asyncio
@@ -333,8 +332,8 @@ MESES_VIRTUALES_ES = (
 # Inicializar base de datos al iniciar
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Valida conectividad de base de datos al iniciar la aplicación."""
-    await verify_db_connection()
+    """Inicializa la base de datos al iniciar la aplicación."""
+    await init_db()
     yield
 
 app = FastAPI(lifespan=lifespan)
@@ -348,28 +347,12 @@ if not logger.handlers:
     logger.addHandler(_handler)
 logger.propagate = False
 
-
-def _safe_api_error(
-    mensaje_usuario: str,
-    *,
-    status_code: int = 500,
-    exc: Optional[Exception] = None,
-    extra: Optional[dict] = None,
-) -> JSONResponse:
-    """Devuelve errores sanitizados al cliente y conserva detalle en logs."""
-    if exc is not None:
-        logger.exception("%s", mensaje_usuario, exc_info=exc)
-    payload = {"success": False, "error": mensaje_usuario}
-    if extra:
-        payload.update(extra)
-    return JSONResponse(status_code=status_code, content=payload)
-
 # CORS: permite acceso desde otras máquinas en la red.
 # allow_origins=["*"] admite cualquier origen; en producción se puede restringir.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.ALLOWED_ORIGINS,
-    allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
+    allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -385,7 +368,6 @@ async def authentication_exception_handler(request: Request, exc: Authentication
 
 # Incluir router de autenticación
 app.include_router(auth_router)
-app.include_router(ventas_router)
 
 # Redirigir raíz a dashboard
 @app.get("/")
@@ -647,6 +629,49 @@ async def descargar_bom_breaking_dashboard(
         out,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename=\"{filename}\"'},
+    )
+
+
+@app.get("/ventas")
+async def ventas(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Página de ventas - requiere autenticación."""
+    # Registro de actividad: últimos 5 movimientos; admin ve todos, operador solo los suyos
+    if current_user.rol == "admin":
+        executions = await crud.list_sales_executions(db, limit=5)
+    else:
+        executions = await crud.list_sales_executions(db, user_id=current_user.id, limit=5)
+    
+    return templates.TemplateResponse(
+        "ventas.html",
+        {
+            "request": request,
+            "active_page": "ventas",
+            "current_user": current_user,
+            "executions": executions
+        }
+    )
+
+
+@app.get("/ventas-registros")
+async def ventas_registros(request: Request, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Página de registros de ventas - requiere autenticación."""
+    from app.constants.ventas_export_partes import (
+        NUMEROS_PARTE_EXPORT_REGISTROS_VENTAS,
+        VENTAS_EXPORT_PRODUCTO_CONDENSADO_PREFIX_LEN,
+    )
+
+    total_ventas = await crud.count_ventas(db, only_with_sales_km=True)
+
+    return templates.TemplateResponse(
+        "ventas_registros.html",
+        {
+            "request": request,
+            "active_page": "ventas_registros",
+            "current_user": current_user,
+            "total_ventas": total_ventas,
+            "numeros_parte_export_registros": list(NUMEROS_PARTE_EXPORT_REGISTROS_VENTAS),
+            "ventas_export_condensado_prefix_len": VENTAS_EXPORT_PRODUCTO_CONDENSADO_PREFIX_LEN,
+        },
     )
 
 
@@ -4537,6 +4562,188 @@ async def api_precios_venta_historial(
             }
         )
     return {"ok": True, "movimientos": items}
+
+
+@app.get("/api/ventas")
+async def api_ventas(
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    search: Optional[str] = None,
+    cliente: Optional[str] = None,
+    codigo_cliente: Optional[int] = None,
+    periodo_inicio: Optional[str] = None,
+    periodo_fin: Optional[str] = None,
+    producto: Optional[str] = None,
+    planta: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0
+):
+    """API para obtener ventas con filtros y paginación."""
+    # Convertir fechas de string a datetime si están presentes
+    periodo_inicio_dt = None
+    periodo_fin_dt = None
+    
+    if periodo_inicio:
+        try:
+            periodo_inicio_dt = datetime.strptime(periodo_inicio, "%Y-%m-%d")
+        except ValueError:
+            pass
+    
+    if periodo_fin:
+        try:
+            periodo_fin_dt = datetime.strptime(periodo_fin, "%Y-%m-%d")
+        except ValueError:
+            pass
+    
+    ventas = await crud.list_ventas(
+        db=db,
+        limit=limit,
+        offset=offset,
+        search=search,
+        cliente=cliente,
+        codigo_cliente=codigo_cliente,
+        periodo_inicio=periodo_inicio_dt,
+        periodo_fin=periodo_fin_dt,
+        producto=producto,
+        planta=planta,
+        only_with_sales_km=True
+    )
+    
+    total = await crud.count_ventas(
+        db=db,
+        search=search,
+        cliente=cliente,
+        codigo_cliente=codigo_cliente,
+        periodo_inicio=periodo_inicio_dt,
+        periodo_fin=periodo_fin_dt,
+        producto=producto,
+        planta=planta,
+        only_with_sales_km=True
+    )
+    
+    # Convertir a diccionarios para JSON
+    ventas_dict = []
+    for venta in ventas:
+        venta_data = {
+            "id": venta.id,
+            "cliente": venta.cliente,
+            "codigo_cliente": venta.codigo_cliente,
+            "grupo": venta.grupo.grupo if venta.grupo else None,
+            "unidad_negocio": venta.unidad_negocio,
+            "periodo": venta.periodo.strftime("%Y-%m-%d") if venta.periodo else None,
+            "producto_condensado": venta.producto_condensado,
+            "region_asc": venta.region_asc,
+            "planta": venta.planta,
+            "ship_to_party": venta.ship_to_party,
+            "producto": venta.producto,
+            "descripcion_producto": venta.descripcion_producto,
+            "turnover_wo_metal": float(venta.turnover_wo_metal) if venta.turnover_wo_metal else None,
+            "oe_turnover_like_fi": float(venta.oe_turnover_like_fi) if venta.oe_turnover_like_fi else None,
+            "copper_sales_cuv": float(venta.copper_sales_cuv) if venta.copper_sales_cuv else None,
+            "cu_sales_effect": float(venta.cu_sales_effect) if venta.cu_sales_effect else None,
+            "cu_result": float(venta.cu_result) if venta.cu_result else None,
+            "quantity_oe_to_m": float(venta.quantity_oe_to_m) if venta.quantity_oe_to_m else None,
+            "quantity_oe_to_ft": float(venta.quantity_oe_to_ft) if venta.quantity_oe_to_ft else None,
+            "cu_weight_techn_cut": float(venta.cu_weight_techn_cut) if venta.cu_weight_techn_cut else None,
+            "cu_weight_sales_cuv": float(venta.cu_weight_sales_cuv) if venta.cu_weight_sales_cuv else None,
+            "conversion_ft_a_m": float(venta.conversion_ft_a_m) if venta.conversion_ft_a_m else None,
+            "sales_total_mts": float(venta.sales_total_mts) if venta.sales_total_mts else None,
+            "sales_km": float(venta.sales_km) if venta.sales_km else None,
+            "precio_exmetal_km": float(venta.precio_exmetal_km) if venta.precio_exmetal_km else None,
+            "precio_full_metal_km": float(venta.precio_full_metal_km) if venta.precio_full_metal_km else None,
+            "precio_exmetal_m": float(venta.precio_exmetal_m) if venta.precio_exmetal_m else None,
+            "precio_full_metal_m": float(venta.precio_full_metal_m) if venta.precio_full_metal_m else None,
+            "created_at": venta.created_at.isoformat() if venta.created_at else None
+        }
+        ventas_dict.append(venta_data)
+    
+    return JSONResponse({
+        "ventas": ventas_dict,
+        "total": total,
+        "limit": limit,
+        "offset": offset
+    })
+
+
+@app.get("/api/ventas/export-excel-partes-prioritarias")
+async def api_ventas_export_excel_partes_prioritarias(
+    current_user: User = Depends(require_roles(["GM"])),
+    db: AsyncSession = Depends(get_db),
+):
+    """Excel de ventas: producto = lista completa; producto_condensado = prefijo (9) de cada número. Sin duplicados por (código_cliente, producto),
+    conservando el registro más reciente. Sin código de cliente no se deduplica entre filas. Mismo filtro sales_km."""
+    import io
+    import pandas as pd
+    from app.constants.ventas_export_partes import (
+        NUMEROS_PARTE_EXPORT_REGISTROS_VENTAS,
+        VENTAS_EXPORT_PRODUCTO_CONDENSADO_PREFIX_LEN,
+    )
+
+    ventas = await crud.list_ventas_por_productos_in(
+        db,
+        list(NUMEROS_PARTE_EXPORT_REGISTROS_VENTAS),
+        only_with_sales_km=True,
+        producto_condensado_prefix_len=VENTAS_EXPORT_PRODUCTO_CONDENSADO_PREFIX_LEN,
+    )
+    # Una fila por (código de cliente, producto). Sin código: cada fila cuenta por id (no se agrupan).
+    seen_keys = set()
+    ventas_sin_dup = []
+    for v in ventas:
+        prod_clave = (v.producto or "").strip() or (v.producto_condensado or "").strip()
+        if v.codigo_cliente is not None:
+            key = (v.codigo_cliente, prod_clave)
+        else:
+            key = (None, v.id, prod_clave)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        ventas_sin_dup.append(v)
+
+    pares_xref = []
+    for v in ventas_sin_dup:
+        if v.codigo_cliente is None:
+            continue
+        prod_xref = (v.producto or "").strip()
+        if not prod_xref:
+            continue
+        pares_xref.append((str(v.codigo_cliente).strip(), prod_xref))
+    xref_map = await crud.map_cross_reference_por_pares_customer_material(db, pares_xref)
+
+    filas = []
+    for v in ventas_sin_dup:
+        cr_val = None
+        if v.codigo_cliente is not None:
+            pk = (str(v.codigo_cliente).strip(), (v.producto or "").strip())
+            if pk[1]:
+                cr_val = xref_map.get(pk)
+        filas.append(
+            {
+                "ID": v.id,
+                "Cliente": v.cliente,
+                "Código Cliente": v.codigo_cliente,
+                "Grupo": v.grupo.grupo if v.grupo else None,
+                "Período": v.periodo.strftime("%Y-%m-%d") if v.periodo else None,
+                "Producto": v.producto,
+                "Producto condensado": v.producto_condensado,
+                "Cross Reference": cr_val,
+                "Descripción producto": v.descripcion_producto,
+                "Planta": v.planta,
+                "Sales KM": float(v.sales_km) if v.sales_km is not None else None,
+                "Turnover w/o metal": float(v.turnover_wo_metal) if v.turnover_wo_metal is not None else None,
+                "Precio Full Metal KM": float(v.precio_full_metal_km) if v.precio_full_metal_km is not None else None,
+            }
+        )
+    df = pd.DataFrame(filas)
+    buffer = io.BytesIO()
+    df.to_excel(buffer, index=False, engine="openpyxl", sheet_name="Ventas")
+    buffer.seek(0)
+    nombre = f"ventas_numeros_parte_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+    )
 
 
 @app.get("/clientes")
@@ -10991,10 +11198,10 @@ async def procesar_compras_historial(
         return JSONResponse(status_code=status_code, content={"error": resultado["error"]})
 
     except Exception as e:
-        return _safe_api_error(
-            "Error interno al procesar el archivo. Revisa los logs del servidor para más detalle.",
+        import traceback
+        return JSONResponse(
             status_code=500,
-            exc=e,
+            content={"error": f"Error al procesar: {str(e)}\n{traceback.format_exc()}"}
         )
 
 
@@ -12287,10 +12494,15 @@ async def procesar_archivos_ventas(
         if not mensaje_error or mensaje_error.strip() == "":
             mensaje_error = f"Error inesperado al procesar el archivo de ventas. Tipo de error: {type(e).__name__}"
         
-        return _safe_api_error(
-            mensaje_error,
+        return JSONResponse(
             status_code=500,
-            exc=e,
+            content={
+                "success": False,
+                "error": mensaje_error,
+                "detalle_tecnico": error_message,
+                "tipo_error": type(e).__name__,
+                "traceback": error_traceback
+            }
         )
 
 

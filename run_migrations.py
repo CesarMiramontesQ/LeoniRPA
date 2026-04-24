@@ -626,36 +626,101 @@ async def main():
     print("=" * 60)
 
     try:
-        migration_steps = [
-            ("Creando tablas desde modelos...", run_init_db),
-            ("Migración: enum carga_cliente_operacion_enum...", run_migration_add_ejecucion),
-            ("Migración: columna escenario en master_unificado_virtuales...", run_migration_escenario),
-            ("Migración: columna materialidad en master_unificado_virtuales...", run_migration_materialidad),
-            ("Migración: columna materialidad_carpeta en master_unificado_virtuales...", run_migration_materialidad_carpeta),
-            ("Migración: tabla partes...", run_migration_partes),
-            ("Migración: columnas aduanales en partes...", run_migration_partes_campos_aduanales),
-            ("Migración: tabla bom...", run_migration_bom),
-            ("Migración: tabla bom_revision...", run_migration_bom_revision),
-            ("Migración: tabla bom_item...", run_migration_bom_item),
-            ("Migración: columna valido en partes...", run_migration_partes_valido),
-            ("Migración: columna qty_total en partes...", run_migration_partes_qty_total),
-            ("Migración: columna comm_code en bom_item...", run_migration_bom_item_comm_code),
-            ("Migración: tabla peso_neto...", run_migration_peso_neto),
-            ("Migración: columna diferencia en partes...", run_migration_partes_diferencia),
-            ("Migración: tabla cross_reference...", run_migration_cross_reference),
-            ("Migración: tabla cross_reference_historial...", run_migration_cross_reference_historial),
-            ("Migración: tabla precios_venta...", run_migration_precios_venta),
-            ("Migración: tabla precios_venta_historial...", run_migration_precios_venta_historial),
-            ("Migración: tabla peso_neto_historial...", run_migration_peso_neto_historial),
-            ("Migración: tabla bom_historial...", run_migration_bom_historial),
-            ("Migración: tabla kathoden...", run_migration_kathoden),
-            ("Migración: tabla semiterminados...", run_migration_semiterminados),
-            ("Migración: tabla semiterminados_historial...", run_migration_semiterminados_historial),
-        ]
-        total_steps = len(migration_steps)
-        for index, (description, step_func) in enumerate(migration_steps, start=1):
-            print(f"\n[{index}/{total_steps}] {description}")
-            await step_func()
+        # 1. Crear todas las tablas
+        print("\n[1/18] Creando tablas desde modelos...")
+        await run_init_db()
+
+        # 2. Migración: enum EJECUCION
+        print("\n[2/18] Migración: enum carga_cliente_operacion_enum...")
+        await run_migration_add_ejecucion()
+
+        # 3. Migración: columna escenario
+        print("\n[3/18] Migración: columna escenario en master_unificado_virtuales...")
+        await run_migration_escenario()
+
+        # 4. Migración: columna materialidad
+        print("\n[4/18] Migración: columna materialidad en master_unificado_virtuales...")
+        await run_migration_materialidad()
+
+        # 4b. Migración: columna materialidad_carpeta
+        print("\n[4b] Migración: columna materialidad_carpeta en master_unificado_virtuales...")
+        await run_migration_materialidad_carpeta()
+
+        # 5. Migración: tabla partes
+        print("\n[5/18] Migración: tabla partes...")
+        await run_migration_partes()
+
+        # 6. Migración: columnas aduanales en partes
+        print("\n[6/18] Migración: columnas aduanales en partes...")
+        await run_migration_partes_campos_aduanales()
+
+        # 7. Migración: tabla bom
+        print("\n[7/18] Migración: tabla bom...")
+        await run_migration_bom()
+
+        # 8. Migración: tabla bom_revision
+        print("\n[8/18] Migración: tabla bom_revision...")
+        await run_migration_bom_revision()
+
+        # 9. Migración: tabla bom_item
+        print("\n[9/18] Migración: tabla bom_item...")
+        await run_migration_bom_item()
+
+        # 10. Migración: columna valido en partes
+        print("\n[10/18] Migración: columna valido en partes...")
+        await run_migration_partes_valido()
+
+        # 11. Migración: columna qty_total en partes
+        print("\n[11/18] Migración: columna qty_total en partes...")
+        await run_migration_partes_qty_total()
+
+        # 12. Migración: columna comm_code en bom_item
+        print("\n[12/18] Migración: columna comm_code en bom_item...")
+        await run_migration_bom_item_comm_code()
+
+        # 13. Migración: tabla peso_neto
+        print("\n[13/18] Migración: tabla peso_neto...")
+        await run_migration_peso_neto()
+
+        # 14. Migración: columna diferencia en partes
+        print("\n[14/18] Migración: columna diferencia en partes...")
+        await run_migration_partes_diferencia()
+
+        # 15. Migración: tabla cross_reference
+        print("\n[15/19] Migración: tabla cross_reference...")
+        await run_migration_cross_reference()
+
+        # 16. Migración: tabla cross_reference_historial
+        print("\n[16/19] Migración: tabla cross_reference_historial...")
+        await run_migration_cross_reference_historial()
+
+        # 17. Migración: tabla precios de venta
+        print("\n[17/19] Migración: tabla precios_venta...")
+        await run_migration_precios_venta()
+
+        # 18. Migración: tabla historial de precios de venta
+        print("\n[18/20] Migración: tabla precios_venta_historial...")
+        await run_migration_precios_venta_historial()
+
+        # 19. Migración: tabla historial de peso neto
+        print("\n[19/20] Migración: tabla peso_neto_historial...")
+        await run_migration_peso_neto_historial()
+
+        # 20. Migración: tabla historial de BOMs
+        print("\n[20/20] Migración: tabla bom_historial...")
+        await run_migration_bom_historial()
+
+        # 21. Migración: tabla kathoden
+        print("\n[21/21] Migración: tabla kathoden...")
+        await run_migration_kathoden()
+
+        # 22. Migración: tabla semiterminados
+        print("\n[22/22] Migración: tabla semiterminados...")
+        await run_migration_semiterminados()
+
+        # 23. Migración: tabla semiterminados_historial
+        print("\n[23/23] Migración: tabla semiterminados_historial...")
+        await run_migration_semiterminados_historial()
 
         print("\n" + "=" * 60)
         print("Todas las migraciones se completaron correctamente.")

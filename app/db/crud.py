@@ -317,15 +317,17 @@ async def list_sales_executions(
     offset: int = 0
 ) -> List[SalesExecutionHistory]:
     """Lista ejecuciones de ventas con filtros opcionales."""
-    from app.db.repositories.sales import list_sales_executions as repo_list_sales_executions
-
-    return await repo_list_sales_executions(
-        db=db,
-        user_id=user_id,
-        estado=estado,
-        limit=limit,
-        offset=offset,
-    )
+    query = select(SalesExecutionHistory).options(selectinload(SalesExecutionHistory.user))
+    
+    if user_id is not None:
+        query = query.where(SalesExecutionHistory.user_id == user_id)
+    if estado is not None:
+        query = query.where(SalesExecutionHistory.estado == estado)
+    
+    query = query.order_by(desc(SalesExecutionHistory.created_at)).limit(limit).offset(offset)
+    
+    result = await db.execute(query)
+    return list(result.scalars().all())
 
 
 async def count_sales_executions(
@@ -3088,12 +3090,45 @@ async def map_cross_reference_por_pares_customer_material(
     db: AsyncSession,
     pares: List[Tuple[str, str]],
 ) -> Dict[Tuple[str, str], str]:
-    """Mapea (customer, material) a customer_material."""
-    from app.db.repositories.sales import (
-        map_cross_reference_por_pares_customer_material as repo_map_cross_reference,
-    )
-
-    return await repo_map_cross_reference(db=db, pares=pares)
+    """
+    Para pares (customer, material) coincide con cross_reference.customer y cross_reference.material.
+    Devuelve mapa (customer, material) -> customer_material; si hay varias filas, la primera por orden de customer_material.
+    """
+    if not pares:
+        return {}
+    seen_q = []
+    seen_set = set()
+    for c, m in pares:
+        c = (c or "").strip()
+        m = (m or "").strip()
+        if not c or not m:
+            continue
+        if (c, m) in seen_set:
+            continue
+        seen_set.add((c, m))
+        seen_q.append((c, m))
+    if not seen_q:
+        return {}
+    # Evitar un IN gigante (límite de parámetros del driver / tamaño de consulta).
+    _BATCH = 300
+    out: Dict[Tuple[str, str], str] = {}
+    for i in range(0, len(seen_q), _BATCH):
+        batch = seen_q[i : i + _BATCH]
+        stmt = (
+            select(CrossReference.customer, CrossReference.material, CrossReference.customer_material)
+            .where(tuple_(CrossReference.customer, CrossReference.material).in_(batch))
+            .order_by(
+                CrossReference.customer,
+                CrossReference.material,
+                CrossReference.customer_material,
+            )
+        )
+        result = await db.execute(stmt)
+        for cust, mat, cm in result.all():
+            k = (cust, mat)
+            if k not in out and (cm or "").strip():
+                out[k] = (cm or "").strip()
+    return out
 
 
 async def count_cross_reference(
@@ -6560,21 +6595,44 @@ async def list_ventas(
     only_with_sales_km: bool = False
 ) -> List[Venta]:
     """Lista ventas con filtros opcionales."""
-    from app.db.repositories.sales import list_ventas as repo_list_ventas
-
-    return await repo_list_ventas(
-        db=db,
-        limit=limit,
-        offset=offset,
-        search=search,
-        cliente=cliente,
-        codigo_cliente=codigo_cliente,
-        periodo_inicio=periodo_inicio,
-        periodo_fin=periodo_fin,
-        producto=producto,
-        planta=planta,
-        only_with_sales_km=only_with_sales_km,
-    )
+    query = select(Venta).options(selectinload(Venta.grupo))
+    
+    if only_with_sales_km:
+        query = query.where(Venta.sales_km.isnot(None), Venta.sales_km != 0)
+    
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                Venta.cliente.ilike(search_pattern),
+                Venta.producto.ilike(search_pattern),
+                Venta.descripcion_producto.ilike(search_pattern),
+                Venta.planta.ilike(search_pattern)
+            )
+        )
+    
+    if cliente:
+        query = query.where(Venta.cliente.ilike(f"%{cliente}%"))
+    
+    if codigo_cliente is not None:
+        query = query.where(Venta.codigo_cliente == codigo_cliente)
+    
+    if periodo_inicio:
+        query = query.where(Venta.periodo >= periodo_inicio.date() if isinstance(periodo_inicio, datetime) else periodo_inicio)
+    
+    if periodo_fin:
+        query = query.where(Venta.periodo <= periodo_fin.date() if isinstance(periodo_fin, datetime) else periodo_fin)
+    
+    if producto:
+        query = query.where(Venta.producto.ilike(f"%{producto}%"))
+    
+    if planta:
+        query = query.where(Venta.planta.ilike(f"%{planta}%"))
+    
+    query = query.order_by(desc(Venta.created_at)).limit(limit).offset(offset)
+    
+    result = await db.execute(query)
+    return list(result.scalars().all())
 
 
 async def list_ventas_por_productos_in(
@@ -6583,17 +6641,34 @@ async def list_ventas_por_productos_in(
     only_with_sales_km: bool = True,
     producto_condensado_prefix_len: Optional[int] = None,
 ) -> List[Venta]:
-    """Lista ventas filtradas por lista de números de parte."""
-    from app.db.repositories.sales import (
-        list_ventas_por_productos_in as repo_list_ventas_por_productos_in,
-    )
+    """
+    Lista ventas filtradas por lista de números de parte.
 
-    return await repo_list_ventas_por_productos_in(
-        db=db,
-        productos=productos,
-        only_with_sales_km=only_with_sales_km,
-        producto_condensado_prefix_len=producto_condensado_prefix_len,
+    - `producto`: coincidencia exacta con algún valor (tras strip).
+    - `producto_condensado`: si `producto_condensado_prefix_len` > 0, coincide con el prefijo de esa
+      longitud de cada valor (conjunto único); si es None, coincide con el valor completo como `producto`.
+    """
+    if not productos:
+        return []
+    productos_limpios = [str(p).strip() for p in productos if p is not None and str(p).strip()]
+    if not productos_limpios:
+        return []
+    if producto_condensado_prefix_len is not None and producto_condensado_prefix_len > 0:
+        prefijos = list({p[:producto_condensado_prefix_len] for p in productos_limpios})
+        cond_match = Venta.producto_condensado.in_(prefijos)
+    else:
+        cond_match = Venta.producto_condensado.in_(productos_limpios)
+    query = select(Venta).options(selectinload(Venta.grupo)).where(
+        or_(
+            cond_match,
+            Venta.producto.in_(productos_limpios),
+        )
     )
+    if only_with_sales_km:
+        query = query.where(Venta.sales_km.isnot(None), Venta.sales_km != 0)
+    query = query.order_by(desc(Venta.created_at))
+    result = await db.execute(query)
+    return list(result.scalars().all())
 
 
 async def count_ventas(
@@ -6608,19 +6683,42 @@ async def count_ventas(
     only_with_sales_km: bool = False
 ) -> int:
     """Cuenta el total de ventas con filtros opcionales."""
-    from app.db.repositories.sales import count_ventas as repo_count_ventas
-
-    return await repo_count_ventas(
-        db=db,
-        search=search,
-        cliente=cliente,
-        codigo_cliente=codigo_cliente,
-        periodo_inicio=periodo_inicio,
-        periodo_fin=periodo_fin,
-        producto=producto,
-        planta=planta,
-        only_with_sales_km=only_with_sales_km,
-    )
+    query = select(func.count(Venta.id))
+    
+    if only_with_sales_km:
+        query = query.where(Venta.sales_km.isnot(None), Venta.sales_km != 0)
+    
+    if search:
+        search_pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                Venta.cliente.ilike(search_pattern),
+                Venta.producto.ilike(search_pattern),
+                Venta.descripcion_producto.ilike(search_pattern),
+                Venta.planta.ilike(search_pattern)
+            )
+        )
+    
+    if cliente:
+        query = query.where(Venta.cliente.ilike(f"%{cliente}%"))
+    
+    if codigo_cliente is not None:
+        query = query.where(Venta.codigo_cliente == codigo_cliente)
+    
+    if periodo_inicio:
+        query = query.where(Venta.periodo >= periodo_inicio.date() if isinstance(periodo_inicio, datetime) else periodo_inicio)
+    
+    if periodo_fin:
+        query = query.where(Venta.periodo <= periodo_fin.date() if isinstance(periodo_fin, datetime) else periodo_fin)
+    
+    if producto:
+        query = query.where(Venta.producto.ilike(f"%{producto}%"))
+    
+    if planta:
+        query = query.where(Venta.planta.ilike(f"%{planta}%"))
+    
+    result = await db.execute(query)
+    return result.scalar() or 0
 
 
 async def list_fracciones_arancelarias_ventas(
