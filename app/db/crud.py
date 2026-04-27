@@ -641,6 +641,33 @@ async def get_kathoden_by_mes_anio(
     return result.scalar_one_or_none()
 
 
+def _is_pk_sequence_desync_error(exc: IntegrityError, table_names: Tuple[str, ...]) -> bool:
+    """
+    Determina si un IntegrityError corresponde a un duplicate key de PK por secuencia desfasada.
+    """
+    error_text = str(exc).lower()
+    if "duplicate key" not in error_text and "unique violation" not in error_text:
+        return False
+    return any(f"{table_name}_pkey" in error_text for table_name in table_names)
+
+
+async def _sync_id_sequence(db: AsyncSession, table_name: str, id_column: str = "id") -> None:
+    """
+    Sincroniza la secuencia de un id serial/bigserial con el MAX(id) actual de la tabla.
+    """
+    await db.execute(
+        text(
+            f"""
+            SELECT setval(
+                pg_get_serial_sequence('{table_name}', '{id_column}'),
+                COALESCE((SELECT MAX({id_column}) FROM {table_name}), 0) + 1,
+                false
+            )
+            """
+        )
+    )
+
+
 async def create_kathoden(
     db: AsyncSession,
     mes: str,
@@ -653,27 +680,38 @@ async def create_kathoden(
     if registro_existente:
         raise ValueError("Ya existe un registro para el mes y año seleccionados.")
 
-    nuevo = Kathoden(
-        mes=(mes or "").strip(),
-        anio=anio,
-        precio=float(precio),
-    )
-    db.add(nuevo)
-    await db.flush()
-    db.add(
-        KathodenHistorial(
-            kathoden_id=nuevo.id,
-            mes=nuevo.mes,
-            anio=nuevo.anio or anio,
-            precio_anterior=None,
-            precio_nuevo=nuevo.precio,
-            operacion="CREATE",
-            user_id=user_id,
+    for intento in range(2):
+        nuevo = Kathoden(
+            mes=(mes or "").strip(),
+            anio=anio,
+            precio=float(precio),
         )
-    )
-    await db.commit()
-    await db.refresh(nuevo)
-    return nuevo
+        db.add(nuevo)
+        try:
+            await db.flush()
+            db.add(
+                KathodenHistorial(
+                    kathoden_id=nuevo.id,
+                    mes=nuevo.mes,
+                    anio=nuevo.anio or anio,
+                    precio_anterior=None,
+                    precio_nuevo=nuevo.precio,
+                    operacion="CREATE",
+                    user_id=user_id,
+                )
+            )
+            await db.commit()
+            await db.refresh(nuevo)
+            return nuevo
+        except IntegrityError as exc:
+            await db.rollback()
+            if intento == 0 and _is_pk_sequence_desync_error(exc, ("kathoden", "kathoden_historial")):
+                await _sync_id_sequence(db, "kathoden")
+                await _sync_id_sequence(db, "kathoden_historial")
+                continue
+            raise
+
+    raise Exception("No se pudo crear el registro de kathoden tras reintentar la operación.")
 
 
 async def list_semiterminados(db: AsyncSession) -> List[Dict[str, Any]]:
@@ -730,28 +768,43 @@ async def create_semiterminado(
     if existente:
         raise ValueError("Ese número de material ya existe en semiterminados.")
 
-    item = Semiterminado(
-        numero_material=numero_material,
-        is_active=bool(is_active),
-        cut=cut,
-    )
-    db.add(item)
-    await db.flush()
-    db.add(
-        SemiterminadoHistorial(
-            semiterminado_id=item.id,
-            numero_material=item.numero_material,
-            is_active_anterior=None,
-            is_active_nuevo=item.is_active,
-            cut_anterior=None,
-            cut_nuevo=item.cut,
-            operacion="CREATE",
-            user_id=user_id,
+    for intento in range(2):
+        item = Semiterminado(
+            numero_material=numero_material,
+            is_active=bool(is_active),
+            cut=cut,
         )
-    )
-    await db.commit()
-    await db.refresh(item)
-    return item
+        db.add(item)
+        try:
+            await db.flush()
+            db.add(
+                SemiterminadoHistorial(
+                    semiterminado_id=item.id,
+                    numero_material=item.numero_material,
+                    is_active_anterior=None,
+                    is_active_nuevo=item.is_active,
+                    cut_anterior=None,
+                    cut_nuevo=item.cut,
+                    operacion="CREATE",
+                    user_id=user_id,
+                )
+            )
+            await db.commit()
+            await db.refresh(item)
+            return item
+        except IntegrityError as exc:
+            await db.rollback()
+            error_lower = str(exc).lower()
+            # Posible carrera: entre la validación previa y el insert otro proceso creó el mismo número.
+            if "uq_semiterminados_numero_material" in error_lower or "semiterminados_numero_material_key" in error_lower:
+                raise ValueError("Ese número de material ya existe en semiterminados.")
+            if intento == 0 and _is_pk_sequence_desync_error(exc, ("semiterminados", "semiterminados_historial")):
+                await _sync_id_sequence(db, "semiterminados")
+                await _sync_id_sequence(db, "semiterminados_historial")
+                continue
+            raise
+
+    raise Exception("No se pudo crear el semiterminado tras reintentar la operación.")
 
 
 async def update_fraccion_parte(
