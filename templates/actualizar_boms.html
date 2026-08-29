@@ -12,6 +12,9 @@
       <button type="button" id="btn-actualizar-boms" class="shrink-0 rounded-md bg-[#003D89] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#003366] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#003D89] disabled:opacity-50">
         Actualizar todos en SAP
       </button>
+      <button type="button" id="btn-descargar-bom-excel" class="shrink-0 rounded-md border border-[#003D89] bg-white px-4 py-2 text-sm font-semibold text-[#003D89] shadow-sm hover:bg-blue-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#003D89] disabled:opacity-50" title="Descarga todos los números de parte finales con el detalle de componentes del BOM vigente">
+        Descargar BOM en Excel
+      </button>
       <button type="button" id="btn-descargar-reporte" class="shrink-0 rounded-md bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 disabled:opacity-50">
         Descargar reporte &lt;0
       </button>
@@ -1046,6 +1049,81 @@
     window.location.href = '/api/actualizar-boms/descargar-diferencia-gt0';
   });
 
+  const btnDescargarBomExcel = document.getElementById('btn-descargar-bom-excel');
+  if (btnDescargarBomExcel) {
+    btnDescargarBomExcel.addEventListener('click', async function() {
+      const btn = btnDescargarBomExcel;
+      const labelOriginal = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Generando archivo...';
+      try {
+        const response = await fetch('/api/boms/export-excel', {
+          method: 'GET',
+          credentials: 'same-origin',
+        });
+        if (!response.ok) {
+          let msg = 'No se pudo generar el Excel del BOM.';
+          try {
+            const j = await response.json();
+            if (j && j.error) msg = j.error;
+            if (response.status === 404) {
+              const sinBom = j.partes_validas_sin_bom;
+              const sinItems = j.partes_sin_items_revision_vigente;
+              if (sinBom || sinItems) {
+                msg += ' (partes válidas sin BOM: ' + (sinBom || 0)
+                  + '; con revisión vigente sin ítems: ' + (sinItems || 0) + ')';
+              }
+            }
+          } catch (err) { /* ignore */ }
+          throw new Error(msg);
+        }
+        const blob = await response.blob();
+        const cd = response.headers.get('Content-Disposition');
+        let fn = 'bom_partes_finales.xlsx';
+        if (cd) {
+          const mStar = /filename\*=UTF-8''([^;\n]+)/i.exec(cd);
+          const mBasic = /filename="([^"]+)"/.exec(cd);
+          if (mStar) {
+            try { fn = decodeURIComponent(mStar[1]); } catch (e2) { /* default */ }
+          } else if (mBasic) {
+            fn = mBasic[1];
+          }
+        }
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = fn;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+        const totalFilas = response.headers.get('X-BOM-Total-Filas');
+        const totalPartes = response.headers.get('X-BOM-Total-Partes');
+        const sinBom = response.headers.get('X-BOM-Partes-Sin-Bom');
+        let okMsg = 'Descarga completada';
+        if (totalFilas != null && totalPartes != null) {
+          okMsg += ': ' + totalFilas + ' filas / ' + totalPartes + ' partes';
+        }
+        if (sinBom && Number(sinBom) > 0) {
+          okMsg += '. Partes válidas sin BOM: ' + sinBom;
+        }
+        if (typeof showToast === 'function') {
+          showToast(okMsg, false);
+        } else {
+          alert(okMsg);
+        }
+      } catch (e) {
+        const errMsg = (e && e.message) ? e.message : 'Error al obtener información del BOM.';
+        if (typeof showToast === 'function') {
+          showToast(errMsg, true);
+        } else {
+          alert(errMsg);
+        }
+      } finally {
+        btn.disabled = false;
+        btn.textContent = labelOriginal;
+      }
+    });
+  }
   if (btnVerPartesSinBom) {
     btnVerPartesSinBom.addEventListener('click', abrirModalSinBom);
   }

@@ -17,6 +17,11 @@ from app.db import crud
 from app.bom.service import load_bom
 from app.bom.schemas import LoadBomInput, LoadBomResponse
 from app.bom.parse_sap_export import parse_sap_bom_txt
+from app.bom.export_excel import (
+    build_bom_export_xlsx,
+    fetch_bom_export_rows,
+    validate_row_counts,
+)
 from app.core.config import settings
 from urllib.parse import quote_plus
 import threading
@@ -5127,6 +5132,78 @@ async def boms(request: Request, current_user: User = Depends(get_current_user),
             "partes_unicas": partes_unicas,
             "materiales_unicos": materiales_unicos
         }
+    )
+
+
+@app.get("/api/boms/export-excel")
+async def api_boms_export_excel(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Descarga Excel (.xlsx) con todos los números de parte finales (padre del BOM)
+    y el detalle de componentes de la revisión vigente.
+    Una fila por componente; sin celdas combinadas.
+    """
+    try:
+        filas, resumen = await fetch_bom_export_rows(db)
+    except Exception as e:
+        logger.exception("Error al obtener datos para exportar BOM Excel: %s", e)
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": "Error al obtener la información del BOM."},
+        )
+
+    if not validate_row_counts(filas, resumen.get("componentes_por_parte") or {}):
+        logger.error(
+            "Inconsistencia en conteo de filas BOM export: filas=%s partes=%s",
+            resumen.get("total_filas"),
+            resumen.get("total_partes_con_componentes"),
+        )
+        return JSONResponse(
+            status_code=500,
+            content={
+                "ok": False,
+                "error": "Inconsistencia al validar filas vs componentes del BOM.",
+            },
+        )
+
+    if not filas:
+        return JSONResponse(
+            status_code=404,
+            content={
+                "ok": False,
+                "error": "No hay componentes BOM vigentes para exportar.",
+                "partes_validas_sin_bom": resumen.get("partes_validas_sin_bom", 0),
+                "partes_sin_items_revision_vigente": resumen.get(
+                    "partes_sin_items_revision_vigente", 0
+                ),
+            },
+        )
+
+    try:
+        xlsx_bytes = await asyncio.to_thread(build_bom_export_xlsx, filas)
+    except Exception as e:
+        logger.exception("Error al generar Excel BOM: %s", e)
+        return JSONResponse(
+            status_code=500,
+            content={"ok": False, "error": "Error al generar el archivo Excel."},
+        )
+
+    fn = f"bom_partes_finales_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    headers = {
+        "Content-Disposition": f'attachment; filename="{fn}"',
+        "X-BOM-Total-Filas": str(resumen.get("total_filas", 0)),
+        "X-BOM-Total-Partes": str(resumen.get("total_partes_con_componentes", 0)),
+        "X-BOM-Partes-Sin-Bom": str(resumen.get("partes_validas_sin_bom", 0)),
+        "X-BOM-Partes-Sin-Items": str(
+            resumen.get("partes_sin_items_revision_vigente", 0)
+        ),
+    }
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
     )
 
 

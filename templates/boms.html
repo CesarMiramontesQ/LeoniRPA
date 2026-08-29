@@ -1,12 +1,23 @@
 {% extends "base.html" %} {% block content %}
 <div class="space-y-6">
   <!-- Header -->
-  <div class="flex items-center justify-between">
+  <div class="flex flex-wrap items-center justify-between gap-4">
     <div>
       <h1 class="text-2xl font-semibold text-gray-900">BOMs - Lista de Materiales</h1>
       <p class="mt-1 text-sm text-gray-600">
         Consulta los números de parte y sus materias primas
       </p>
+    </div>
+    <div class="flex flex-col items-end gap-1">
+      <button
+        type="button"
+        id="btn-descargar-bom-excel"
+        class="shrink-0 rounded-md bg-[#003D89] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#002d66] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#003D89] disabled:opacity-50"
+        title="Descarga todos los números de parte finales con el detalle de componentes del BOM vigente"
+      >
+        Descargar BOM en Excel
+      </button>
+      <p id="bom-excel-estado" class="hidden text-xs text-gray-500"></p>
     </div>
   </div>
 
@@ -402,6 +413,97 @@
         cerrarModal();
       }
     });
+
+    const btnDescargarBomExcel = document.getElementById('btn-descargar-bom-excel');
+    if (btnDescargarBomExcel) {
+      btnDescargarBomExcel.addEventListener('click', descargarBomExcel);
+    }
+  }
+
+  async function descargarBomExcel() {
+    const btn = document.getElementById('btn-descargar-bom-excel');
+    const estadoEl = document.getElementById('bom-excel-estado');
+    const labelOriginal = btn ? btn.textContent : '';
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = 'Generando archivo...';
+    }
+    if (estadoEl) {
+      estadoEl.classList.remove('hidden');
+      estadoEl.classList.remove('text-red-600');
+      estadoEl.classList.add('text-gray-500');
+      estadoEl.textContent = 'Generando archivo Excel...';
+    }
+    try {
+      const response = await fetch('/api/boms/export-excel', {
+        method: 'GET',
+        credentials: 'same-origin',
+      });
+      if (!response.ok) {
+        let msg = 'No se pudo generar el Excel del BOM.';
+        try {
+          const j = await response.json();
+          if (j && j.error) msg = j.error;
+          if (response.status === 404) {
+            const sinBom = j.partes_validas_sin_bom;
+            const sinItems = j.partes_sin_items_revision_vigente;
+            if (sinBom || sinItems) {
+              msg += ' (partes válidas sin BOM: ' + (sinBom || 0)
+                + '; con revisión vigente sin ítems: ' + (sinItems || 0) + ')';
+            }
+          }
+        } catch (err) { /* ignore */ }
+        throw new Error(msg);
+      }
+      const blob = await response.blob();
+      const cd = response.headers.get('Content-Disposition');
+      let fn = 'bom_partes_finales.xlsx';
+      if (cd) {
+        const mStar = /filename\*=UTF-8''([^;\n]+)/i.exec(cd);
+        const mBasic = /filename="([^"]+)"/.exec(cd);
+        if (mStar) {
+          try { fn = decodeURIComponent(mStar[1]); } catch (e2) { /* default */ }
+        } else if (mBasic) {
+          fn = mBasic[1];
+        }
+      }
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = fn;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+      const totalFilas = response.headers.get('X-BOM-Total-Filas');
+      const totalPartes = response.headers.get('X-BOM-Total-Partes');
+      const sinBom = response.headers.get('X-BOM-Partes-Sin-Bom');
+      let okMsg = 'Descarga completada';
+      if (totalFilas != null && totalPartes != null) {
+        okMsg += ': ' + totalFilas + ' filas / ' + totalPartes + ' partes';
+      }
+      if (sinBom && Number(sinBom) > 0) {
+        okMsg += '. Partes válidas sin BOM: ' + sinBom;
+      }
+      if (estadoEl) {
+        estadoEl.classList.remove('text-red-600');
+        estadoEl.classList.add('text-gray-500');
+        estadoEl.textContent = okMsg;
+      }
+    } catch (e) {
+      const errMsg = (e && e.message) ? e.message : 'Error al obtener información del BOM.';
+      if (estadoEl) {
+        estadoEl.classList.remove('text-gray-500');
+        estadoEl.classList.add('text-red-600');
+        estadoEl.textContent = errMsg;
+      } else {
+        alert(errMsg);
+      }
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = labelOriginal;
+      }
+    }
   }
 
   function debounce(func, wait) {
