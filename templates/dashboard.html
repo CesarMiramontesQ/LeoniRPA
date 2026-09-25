@@ -211,7 +211,7 @@
         </div>
       </div>
 
-      {% if current_user and current_user.rol in ['GM', 'admin'] %}
+      {% if current_user and current_user.rol == 'GM' %}
       <div class="md:flex md:items-center md:justify-between">
         <div class="min-w-0 flex-1">
           <h3 class="text-base font-semibold text-gray-900 sm:truncate">Descargar Excel BOM Breaking</h3>

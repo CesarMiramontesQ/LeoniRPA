@@ -437,7 +437,7 @@ async def dashboard(
 
 @app.get("/dashboard/descargar-bom-breaking")
 async def descargar_bom_breaking_dashboard(
-    current_user: User = Depends(require_roles(["GM", "admin"])),
+    current_user: User = Depends(require_roles(["GM"])),
     db: AsyncSession = Depends(get_db),
     formato: str = Query(
         default="sin-proveedor",
@@ -4673,7 +4673,7 @@ async def api_ventas(
 
 @app.get("/api/ventas/export-excel-partes-prioritarias")
 async def api_ventas_export_excel_partes_prioritarias(
-    current_user: User = Depends(require_roles(["GM", "admin"])),
+    current_user: User = Depends(require_roles(["GM"])),
     db: AsyncSession = Depends(get_db),
 ):
     """Excel de ventas: producto = lista completa; producto_condensado = prefijo (9) de cada número. Sin duplicados por (código_cliente, producto),
